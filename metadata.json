@@ -1,0 +1,10 @@
+{
+  "name": "Strangelet Lab",
+  "description": "Retro-futuristic particle physics & sacred geometry DAW featuring the Large Sonic Collider, Laser Pointer Tools, Parametric EQ with real-time D3 spectral analysis, Suno AI de-sheen mastering, and multitrack WAV export.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
