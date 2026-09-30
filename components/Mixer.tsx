@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { INITIAL_TRACKS } from '../constants';
-import { Track, Clip, View, LaserToolType, TimelineMarker, ChronoPin, BeamSplitterResult, ProjectBinClip } from '../types';
+import { Track, Clip, View, LaserToolType, TimelineMarker, ChronoPin, BeamSplitterResult, ProjectBinClip, AceStepSongBedResult } from '../types';
 import ChannelStrip from './ChannelStrip';
 import Timeline from './Timeline';
 import VegasLynchDeck from './VegasLynchDeck';
@@ -8,15 +8,22 @@ import RetroMidiKeyboard from './RetroMidiKeyboard';
 import { ExportProjectModal } from './ExportProjectModal';
 import { BeatmapperModal } from './BeatmapperModal';
 import { BeamSplitterModal } from './BeamSplitterModal';
+import { AceStepLoopDesigner } from './AceStepLoopDesigner';
+import { FaustDspLab } from './FaustDspLab';
+import { BasicPitchModal } from './BasicPitchModal';
+import { MidiEditor } from './MidiEditor';
 import { 
   Settings2, Play, Pause, Square, Repeat, Rewind, Workflow, 
-  CircleDot, Mic, Zap, Sparkles, Radio, Music, Download, Crosshair, Pin, Split
+  CircleDot, Mic, Zap, Sparkles, Radio, Music, Download, Crosshair, Pin, Split, Code2, Keyboard,
+  Magnet
 } from 'lucide-react';
 import { audioService } from '../services/audioService';
-import { evaluateAutomationAt } from '../lib/audioUtils';
+import { evaluateAutomationAt, snapToGrid } from '../lib/audioUtils';
 import { liveRecordingEngine } from '../lib/liveRecordingEngine';
 import { playLaserBeamSound } from '../lib/laserSound';
 import { masterAudioBus } from '../lib/masterBus';
+import { midiToNoteName } from '../services/basicPitchService';
+import { MidiNoteEvent } from '../types';
 
 const TOTAL_BARS = 16;
 
@@ -38,6 +45,11 @@ interface MixerProps {
   setTempo?: (tempo: number) => void;
   onOpenNewProject?: () => void;
   onAddProjectBinClips?: (clips: ProjectBinClip[]) => void;
+  onOpenAiMixStep?: () => void;
+  onOpenAceStepDesigner?: () => void;
+  onOpenFaustDspLab?: () => void;
+  onApplySongBedToMixer?: (songBed: AceStepSongBedResult) => void;
+  onOpenBasicPitch?: (stemCategory?: 'vocals' | 'bass' | 'drums' | 'instruments' | 'full', songTitle?: string, buffer?: AudioBuffer | null) => void;
 }
 
 const Mixer: React.FC<MixerProps> = ({ 
@@ -51,7 +63,12 @@ const Mixer: React.FC<MixerProps> = ({
   tempo: externalTempo,
   setTempo: externalSetTempo,
   onOpenNewProject,
-  onAddProjectBinClips
+  onAddProjectBinClips,
+  onOpenAiMixStep,
+  onOpenAceStepDesigner,
+  onOpenFaustDspLab,
+  onApplySongBedToMixer,
+  onOpenBasicPitch
 }) => {
   const [internalTracks, setInternalTracks] = useState<Track[]>(INITIAL_TRACKS);
   const tracks = externalTracks ?? internalTracks;
@@ -77,6 +94,21 @@ const Mixer: React.FC<MixerProps> = ({
   const [beatmapInitialTrackId, setBeatmapInitialTrackId] = useState<string | undefined>(undefined);
   const [isBeamSplitterOpen, setIsBeamSplitterOpen] = useState<boolean>(false);
   const [beamSplitterSourceTrackId, setBeamSplitterSourceTrackId] = useState<string | undefined>(undefined);
+  const [isAceStepOpen, setIsAceStepOpen] = useState<boolean>(false);
+  const [isFaustDspOpen, setIsFaustDspOpen] = useState<boolean>(false);
+  const [isBasicPitchOpen, setIsBasicPitchOpen] = useState<boolean>(false);
+  const [basicPitchInitialStem, setBasicPitchInitialStem] = useState<'vocals' | 'bass' | 'drums' | 'instruments' | 'full'>('instruments');
+  const [basicPitchSongTitle, setBasicPitchSongTitle] = useState<string>('Mixer Audio Track');
+  const [basicPitchAudioBuffer, setBasicPitchAudioBuffer] = useState<AudioBuffer | null>(null);
+
+  // MidiEditor State
+  const [isMidiEditorOpen, setIsMidiEditorOpen] = useState<boolean>(false);
+  const [midiEditorNotes, setMidiEditorNotes] = useState<MidiNoteEvent[]>([]);
+  const [midiEditorClipName, setMidiEditorClipName] = useState<string>('MIDI Sequence');
+  const [midiEditorInstrument, setMidiEditorInstrument] = useState<string>('SFZ Grand Piano');
+  const [midiEditorTargetTrackId, setMidiEditorTargetTrackId] = useState<string | null>(null);
+  const [midiEditorTargetClipId, setMidiEditorTargetClipId] = useState<string | null>(null);
+
   const [timelineMarkers, setTimelineMarkers] = useState<TimelineMarker[]>([
     { id: 'intro', position: 0.125, label: 'Intro' },
     { id: 'drop', position: 0.5, label: 'Drop / Chorus' },
@@ -101,6 +133,101 @@ const Mixer: React.FC<MixerProps> = ({
     } else {
       setTracks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
     }
+  };
+
+  const handleOpenMidiEditorForTrack = (track: Track) => {
+    const firstClip = track.clips[0];
+    const notes = firstClip?.midiNotes || [];
+    setMidiEditorNotes(notes);
+    setMidiEditorClipName(firstClip?.name || track.name);
+    setMidiEditorInstrument(track.instrument || 'SFZ Grand Piano');
+    setMidiEditorTargetTrackId(track.id);
+    setMidiEditorTargetClipId(firstClip?.id || null);
+    setIsMidiEditorOpen(true);
+  };
+
+  const handleOpenMidiEditorForClip = (clip: Clip) => {
+    const parentTrack = tracks.find(t => t.clips.some(c => c.id === clip.id));
+    setMidiEditorNotes(clip.midiNotes || []);
+    setMidiEditorClipName(clip.name);
+    setMidiEditorInstrument(clip.instrument || parentTrack?.instrument || 'SFZ Grand Piano');
+    setMidiEditorTargetTrackId(parentTrack?.id || null);
+    setMidiEditorTargetClipId(clip.id);
+    setIsMidiEditorOpen(true);
+  };
+
+  const handleSaveMidiEditorNotes = (notes: MidiNoteEvent[], name?: string, inst?: string) => {
+    if (midiEditorTargetTrackId && midiEditorTargetClipId) {
+      const track = tracks.find(t => t.id === midiEditorTargetTrackId);
+      if (track) {
+        updateTrack(midiEditorTargetTrackId, {
+          instrument: inst || midiEditorInstrument,
+          clips: track.clips.map(c => {
+            if (c.id === midiEditorTargetClipId) {
+              return {
+                ...c,
+                name: name || c.name,
+                midiNotes: notes,
+                instrument: inst || c.instrument
+              };
+            }
+            return c;
+          })
+        });
+      }
+    } else if (midiEditorTargetTrackId) {
+      const tr = tracks.find(t => t.id === midiEditorTargetTrackId);
+      if (tr) {
+        const newClip: Clip = {
+          id: `midi-clip-${Date.now()}`,
+          name: name || 'MIDI Sequence',
+          startBar: 0,
+          durationBars: 4,
+          isMidi: true,
+          midiNotes: notes,
+          instrument: inst || midiEditorInstrument
+        };
+        updateTrack(tr.id, {
+          instrument: inst || tr.instrument,
+          clips: [...tr.clips, newClip]
+        });
+      }
+    }
+  };
+
+  const handleExportNewMidiTrackFromEditor = (trackName: string, notes: MidiNoteEvent[], inst: string) => {
+    const newTrackId = `track-midi-${Date.now()}`;
+    const newClip: Clip = {
+      id: `clip-midi-${Date.now()}`,
+      name: trackName,
+      startBar: 0,
+      durationBars: 4,
+      isMidi: true,
+      midiNotes: notes,
+      instrument: inst
+    };
+    const newTrack: Track = {
+      id: newTrackId,
+      name: trackName,
+      type: 'midi',
+      volume: 0.82,
+      pan: 0,
+      muted: false,
+      soloed: false,
+      color: '#A855F7',
+      phaseInverted: false,
+      isMono: false,
+      vstBypassed: true,
+      instrument: inst,
+      humanizeEnabled: true,
+      humanizeAmount: 0.18,
+      midiConfig: {
+        humanizeEnabled: true,
+        humanizeAmount: 0.18
+      },
+      clips: [newClip]
+    };
+    setTracks(prev => [...prev, newTrack]);
   };
 
   // Handle Chrono-Pin Tempo Mapper synchronization & pin placement
@@ -186,12 +313,15 @@ const Mixer: React.FC<MixerProps> = ({
 
   // Handle Beam Splitter & Optical Prism Chopper injections
   const handleApplyBeamSplitter = (result: BeamSplitterResult) => {
+    const isOff = snapValue === 'off' || snapValue === 'freeform';
+    const effectiveStartBar = isOff ? result.targetStartBar : snapToGrid(result.targetStartBar, snapValue);
+
     if (result.mode === 'loop') {
       const durationBars = result.loopRange?.durationBars || 1;
       const newClip: Clip = {
         id: `clip-beam-loop-${Date.now()}`,
         name: result.sourceName,
-        startBar: result.targetStartBar,
+        startBar: effectiveStartBar,
         durationBars,
         audioUrl: result.audioUrl
       };
@@ -465,10 +595,13 @@ const Mixer: React.FC<MixerProps> = ({
           if (targetTrack) {
             const totalSeconds = (16 * 4 * 60) / tempo;
             const durBars = Math.max(1, Math.min(16, Math.round((take.durationSeconds / totalSeconds) * 16)));
+            const rawBar = playheadPosition * 16;
+            const isOff = snapValue === 'off' || snapValue === 'freeform';
+            const snappedStart = isOff ? rawBar : snapToGrid(rawBar, snapValue);
             const newClip: Clip = {
               id: `rec-take-${Math.random().toString(36).substr(2, 7)}`,
               name: `Take ${targetTrack.clips.length + 1} (Live Mic)`,
-              startBar: Math.floor(playheadPosition * 16),
+              startBar: Math.max(0, Math.min(16 - durBars, Number(snappedStart.toFixed(4)))),
               durationBars: durBars,
               isRecorded: true,
               audioUrl: take.url,
@@ -544,14 +677,92 @@ const Mixer: React.FC<MixerProps> = ({
     }
   };
 
+  // Global Quantization handlers
+  const handleQuantizeChange = (qVal: '1/4' | '1/8' | '1/16' | 'off') => {
+    setSnapValue(qVal);
+    playLaserBeamSound('laser_select');
+
+    // When quantizing to a grid, restrict all existing clips' start times to the grid
+    if (qVal !== 'off') {
+      setTracks(prev => prev.map(track => ({
+        ...track,
+        clips: track.clips.map(clip => {
+          const snapped = snapToGrid(clip.startBar, qVal);
+          const maxStart = Math.max(0, TOTAL_BARS - clip.durationBars);
+          return {
+            ...clip,
+            startBar: Math.max(0, Math.min(maxStart, Number(snapped.toFixed(4))))
+          };
+        })
+      })));
+    }
+  };
+
+  const handleSnapAllClips = () => {
+    if (snapValue === 'off' || snapValue === 'freeform') return;
+    playLaserBeamSound('laser_curve');
+    setTracks(prev => prev.map(track => ({
+      ...track,
+      clips: track.clips.map(clip => {
+        const snapped = snapToGrid(clip.startBar, snapValue);
+        const maxStart = Math.max(0, TOTAL_BARS - clip.durationBars);
+        return {
+          ...clip,
+          startBar: Math.max(0, Math.min(maxStart, Number(snapped.toFixed(4))))
+        };
+      })
+    })));
+  };
+
   return (
     <div className="h-full flex flex-col p-4 md:p-6 overflow-hidden bg-[#000000]">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl md:text-2xl font-bold text-white tracking-tight flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4 border-b border-[#1E293B]/70 pb-3">
+        <div className="flex items-center gap-3.5 flex-wrap">
+          <h2 className="text-xl md:text-2xl font-bold text-white tracking-tight flex items-center gap-2.5">
             <Settings2 className="text-[#FF8C00]" />
             MIXER CONSOLE
-        </h2>
-        <div className="flex gap-2">
+          </h2>
+
+          {/* Global Quantization Toggle (1/4, 1/8, 1/16, off) */}
+          <div 
+            className="flex items-center bg-[#070A11] border border-[#1E293B] rounded-lg p-1 gap-1 shadow-inner select-none"
+            title="Global Quantization: Restricts timeline clip start times to selected grid subdivisions"
+          >
+            <div className="flex items-center gap-1 px-1.5 text-[10px] font-mono font-bold text-[#94A3B8]">
+              <Magnet size={12} className={snapValue === 'off' || snapValue === 'freeform' ? 'text-[#64748B]' : 'text-[#FF8C00] animate-pulse'} />
+              <span className="tracking-wider">QUANTIZE:</span>
+            </div>
+            {(['1/4', '1/8', '1/16', 'off'] as const).map((qVal) => {
+              const isActive = snapValue === qVal || (qVal === 'off' && snapValue === 'freeform');
+              return (
+                <button
+                  key={qVal}
+                  onClick={() => handleQuantizeChange(qVal)}
+                  className={`px-2.5 py-0.5 rounded text-[10px] font-mono font-black transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-gradient-to-r from-[#FF8C00] to-[#FFD700] text-black shadow-[0_0_12px_rgba(255,140,0,0.5)] scale-105'
+                      : 'text-[#94A3B8] hover:text-white hover:bg-[#1E293B]/70'
+                  }`}
+                  title={`Quantize clip start times to ${qVal === 'off' ? 'OFF (freeform)' : `${qVal} grid`}`}
+                >
+                  {qVal.toUpperCase()}
+                </button>
+              );
+            })}
+
+            <button
+              onClick={handleSnapAllClips}
+              disabled={snapValue === 'off' || snapValue === 'freeform'}
+              className="ml-1 px-2 py-0.5 rounded text-[9px] font-mono font-bold border border-[#FF8C00]/40 text-[#FF8C00] hover:bg-[#FF8C00] hover:text-black disabled:opacity-25 disabled:pointer-events-none transition-all flex items-center gap-1 cursor-pointer"
+              title="Snap all existing clips on all tracks to the current grid"
+            >
+              <Sparkles size={10} />
+              <span className="hidden sm:inline">SNAP ALL</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
             <input type="file" ref={fileInputRef} className="hidden" accept="audio/*" onChange={async (e) => {
                 if (e.target.files && e.target.files.length > 0) {
                     const file = e.target.files[0];
@@ -613,6 +824,60 @@ const Mixer: React.FC<MixerProps> = ({
               <span>BEAM SPLITTER</span>
             </button>
             <button 
+              onClick={() => {
+                if (onOpenAceStepDesigner) {
+                  onOpenAceStepDesigner();
+                } else {
+                  setIsAceStepOpen(true);
+                }
+              }}
+              className="px-2.5 py-0.5 border border-[#EC4899] bg-[#EC4899]/15 text-[#EC4899] font-black rounded text-[10px] hover:bg-gradient-to-r hover:from-[#EC4899] hover:to-[#00F0FF] hover:text-black transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(236,72,153,0.35)]"
+              title="Ace-Step 1.5 GGUF: Synthesize bar-synced neural loops & stems directly into mixer channels"
+            >
+              <Sparkles size={12} className="text-[#00F0FF] animate-pulse" />
+              <span>ACE-STEP 1.5 LOOPS</span>
+            </button>
+            <button 
+              onClick={() => {
+                if (onOpenFaustDspLab) {
+                  onOpenFaustDspLab();
+                } else {
+                  setIsFaustDspOpen(true);
+                }
+              }}
+              className="px-2.5 py-0.5 border border-cyan-400 bg-cyan-950/40 text-cyan-300 font-black rounded text-[10px] hover:bg-cyan-500 hover:text-black transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(6,182,212,0.3)]"
+              title="Faust DSP Toy Lab: Build boutique effects & instrument toys with live sliders in real-time Web Audio"
+            >
+              <Code2 size={12} className="text-cyan-400" />
+              <span>FAUST DSP TOYS</span>
+            </button>
+            <button 
+              onClick={() => {
+                if (onOpenBasicPitch) {
+                  onOpenBasicPitch('instruments', 'Mixer Audio Track', null);
+                } else {
+                  setBasicPitchInitialStem('instruments');
+                  setIsBasicPitchOpen(true);
+                }
+                playLaserBeamSound('laser_select');
+              }}
+              className="px-2.5 py-0.5 border border-emerald-500 bg-emerald-950/40 text-emerald-300 font-black rounded text-[10px] hover:bg-emerald-500 hover:text-black transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(16,185,129,0.3)]"
+              title="Spotify Basic Pitch: Polyphonic neural audio-to-MIDI transcription with sample-based VSTi instruments"
+            >
+              <Keyboard size={12} className="text-emerald-400" />
+              <span>BASIC PITCH (AUDIO-TO-MIDI)</span>
+            </button>
+            {onOpenAiMixStep && (
+              <button 
+                onClick={onOpenAiMixStep}
+                className="px-2.5 py-0.5 border border-cyan-400 bg-cyan-950/70 text-cyan-300 font-black rounded text-[10px] hover:bg-cyan-500 hover:text-black transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(6,182,212,0.3)]"
+                title="Incorporate an AI Step into the Mix via KoboldCpp / Quinn 3.7"
+              >
+                <Zap size={12} className="text-amber-400" />
+                <span>AI MIX STEP</span>
+              </button>
+            )}
+            <button 
               onClick={() => setIsExportModalOpen(true)}
               className="px-2.5 py-0.5 bg-gradient-to-r from-[#FF8C00] to-[#FFD700] text-black font-extrabold rounded text-[10px] hover:brightness-110 transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(255,140,0,0.4)]"
               title="Render and export the current arrangement as a .wav file"
@@ -667,12 +932,49 @@ const Mixer: React.FC<MixerProps> = ({
         onInsertMidiClip={(chordName) => {
           const midiTrack = tracks.find(t => t.type === 'midi') || tracks[0];
           if (midiTrack) {
+            const rawBar = playheadPosition * 16;
+            const isOff = snapValue === 'off' || snapValue === 'freeform';
+            const snappedStart = isOff ? rawBar : snapToGrid(rawBar, snapValue);
+
+            // Generate chord notes according to chordName
+            const chordPitchesMap: Record<string, number[]> = {
+              'Am9 (Twin Peaks)': [57, 60, 64, 67, 71],
+              'Dm7 (Vegas Lounge)': [50, 57, 60, 65],
+              'E7#9 (Atomic Saw)': [52, 56, 59, 62, 67],
+              'Cmaj7 (Desert Neon)': [48, 52, 55, 59]
+            };
+            const pitches = chordPitchesMap[chordName] || [60, 64, 67];
+
+            // Apply subtle Humanize randomized velocity offsets to incoming synthetic notes
+            const isHumanize = midiTrack.midiConfig?.humanizeEnabled ?? midiTrack.humanizeEnabled ?? true;
+            const jitterAmt = midiTrack.midiConfig?.humanizeAmount ?? midiTrack.humanizeAmount ?? 0.18;
+            const baseVelocity = 95;
+            const maxDelta = Math.round(jitterAmt * 80);
+
+            const generatedNotes: MidiNoteEvent[] = pitches.map((pitch, pIdx) => {
+              const velOffset = isHumanize ? Math.round((Math.random() * 2 - 1) * maxDelta) : 0;
+              const finalVel = Math.max(20, Math.min(127, baseVelocity + velOffset));
+              return {
+                id: `mn-${Date.now()}-${pIdx}`,
+                pitch,
+                noteName: midiToNoteName(pitch),
+                startBar: 0,
+                startTimeSeconds: 0,
+                durationBars: 2,
+                durationSeconds: 2 * (60 / tempo) * 4,
+                velocity: finalVel,
+                confidence: 1.0
+              };
+            });
+
             const newClip: Clip = {
               id: `midi-${Math.random().toString(36).substr(2, 7)}`,
               name: `${chordName} Pad`,
-              startBar: Math.floor(playheadPosition * 16),
+              startBar: Math.max(0, Math.min(14, Number(snappedStart.toFixed(4)))),
               durationBars: 2,
-              isMidi: true
+              isMidi: true,
+              midiNotes: generatedNotes,
+              instrument: midiTrack.instrument || 'TB-303 Acid Synth'
             };
             updateTrack(midiTrack.id, {
               clips: [...midiTrack.clips, newClip]
@@ -694,7 +996,11 @@ const Mixer: React.FC<MixerProps> = ({
         updateTrack={updateTrack}
         onEdit={(clip) => {
             setActiveClip(clip);
-            setView(View.AUDIO_EDITOR);
+            if (clip.isMidi || clip.midiNotes) {
+              handleOpenMidiEditorForClip(clip);
+            } else {
+              setView(View.AUDIO_EDITOR);
+            }
         }}
         isRecording={isRecording}
         activeLaserTool={activeLaserTool}
@@ -706,7 +1012,7 @@ const Mixer: React.FC<MixerProps> = ({
         }}
         onOpenBeamSplitter={() => {
           setBeamSplitterSourceTrackId(undefined);
-          setIsBeamSplitterOpen(true);
+          setIsBeatmapperOpen(true);
         }}
       />
 
@@ -720,8 +1026,13 @@ const Mixer: React.FC<MixerProps> = ({
             onShowMidi={(data) => setSelectedMidiData({ trackName: track.name, data })}
             onEdit={(clip) => {
                 setActiveClip(clip);
-                setView(View.AUDIO_EDITOR);
+                if (clip.isMidi || clip.midiNotes) {
+                  handleOpenMidiEditorForClip(clip);
+                } else {
+                  setView(View.AUDIO_EDITOR);
+                }
             }}
+            onOpenMidiEditor={handleOpenMidiEditorForTrack}
             onOpenBeatmapper={(trackId) => {
               setBeatmapInitialTrackId(trackId);
               setIsBeatmapperOpen(true);
@@ -729,6 +1040,13 @@ const Mixer: React.FC<MixerProps> = ({
             onOpenBeamSplitter={(trackId) => {
               setBeamSplitterSourceTrackId(trackId);
               setIsBeamSplitterOpen(true);
+            }}
+            onOpenBasicPitch={(t) => {
+              setBasicPitchSongTitle(t.name);
+              const lower = t.name.toLowerCase();
+              const stem = lower.includes('bass') ? 'bass' : lower.includes('drum') ? 'drums' : lower.includes('vocal') ? 'vocals' : 'instruments';
+              setBasicPitchInitialStem(stem);
+              setIsBasicPitchOpen(true);
             }}
           />
         ))}
@@ -883,7 +1201,180 @@ const Mixer: React.FC<MixerProps> = ({
         playheadPositionBars={playheadPosition * TOTAL_BARS}
         onApplyBeamSplitter={handleApplyBeamSplitter}
         onAddProjectBinClips={onAddProjectBinClips}
+        onOpenBasicPitch={(stemCat, songTitle, buffer) => {
+          setIsBeamSplitterOpen(false);
+          setBasicPitchInitialStem(stemCat || 'instruments');
+          if (songTitle) setBasicPitchSongTitle(songTitle);
+          setBasicPitchAudioBuffer(buffer || null);
+          setIsBasicPitchOpen(true);
+        }}
       />
+
+      {/* Ace-Step 1.5 GGUF Neural Loop Designer Modal */}
+      {isAceStepOpen && (
+        <div className="fixed inset-0 z-[9990] flex items-center justify-center p-3 md:p-6 bg-black/85 backdrop-blur-md animate-fade-in font-mono">
+          <div className="relative w-full max-w-6xl h-[92vh] rounded-2xl overflow-hidden border border-[#232A44] shadow-[0_0_60px_rgba(0,0,0,0.95)]">
+            <AceStepLoopDesigner
+              isOpen={true}
+              onClose={() => setIsAceStepOpen(false)}
+              projectBpm={tempo}
+              tracks={tracks}
+              onAddTrackWithClip={(trackName, clip) => {
+                const newTrack: Track = {
+                  id: `acestep-track-${Date.now()}`,
+                  name: trackName,
+                  type: 'audio',
+                  volume: 0.82,
+                  pan: 0,
+                  muted: false,
+                  soloed: false,
+                  color: '#EC4899',
+                  phaseInverted: false,
+                  isMono: false,
+                  vstBypassed: false,
+                  clips: [clip]
+                };
+                setTracks(prev => [...prev, newTrack]);
+                setIsAceStepOpen(false);
+              }}
+              onAddClipToTrack={(targetId, clip) => {
+                setTracks(prev => prev.map(t => {
+                  if (t.id === targetId) {
+                    return {
+                      ...t,
+                      clips: [...t.clips, clip]
+                    };
+                  }
+                  return t;
+                }));
+                setIsAceStepOpen(false);
+              }}
+              onAddProjectBinClips={onAddProjectBinClips}
+              onApplySongBedToMixer={(songBed) => {
+                if (onApplySongBedToMixer) {
+                  onApplySongBedToMixer(songBed);
+                } else {
+                  if (setTempo) setTempo(songBed.bpm);
+                  const newTracks: Track[] = songBed.stems.map((stem, idx) => ({
+                    id: `songbed-track-${stem.id}-${idx}`,
+                    name: stem.name,
+                    type: 'audio',
+                    volume: stem.stemType === 'drums' ? 0.88 : stem.stemType === 'bass' ? 0.84 : 0.78,
+                    pan: stem.stemType === 'pad' ? -0.2 : stem.stemType === 'lead' ? 0.2 : 0,
+                    muted: false,
+                    soloed: false,
+                    color: stem.color || '#EC4899',
+                    phaseInverted: false,
+                    isMono: stem.stemType === 'bass',
+                    vstBypassed: false,
+                    clips: [{
+                      id: `clip-${stem.id}`,
+                      name: stem.name,
+                      startBar: 0,
+                      durationBars: stem.durationBars,
+                      audioUrl: stem.audioUrl,
+                      waveformSnippet: stem.waveformSnippet
+                    }]
+                  }));
+                  if (songBed.guitarOverdubTrackName) {
+                    newTracks.push({
+                      id: `rec-track-guitar-${Date.now()}`,
+                      name: songBed.guitarOverdubTrackName,
+                      type: 'audio',
+                      volume: 0.85,
+                      pan: 0,
+                      muted: false,
+                      soloed: false,
+                      color: '#EF4444',
+                      phaseInverted: false,
+                      isMono: true,
+                      isArmedForRecord: true,
+                      vstBypassed: false,
+                      clips: []
+                    });
+                  }
+                  setTracks(prev => [...prev, ...newTracks]);
+                }
+                setIsAceStepOpen(false);
+              }}
+              onNavigateToMixer={() => setIsAceStepOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Faust DSP Lab & Toy VST Workbench Modal */}
+      {isFaustDspOpen && (
+        <div className="fixed inset-0 z-[9991] flex items-center justify-center p-3 md:p-6 bg-black/85 backdrop-blur-md animate-fade-in font-mono">
+          <div className="relative w-full max-w-6xl h-[92vh] rounded-2xl overflow-hidden border border-[#232A44] shadow-[0_0_60px_rgba(0,0,0,0.95)]">
+            <FaustDspLab
+              isOpen={true}
+              onClose={() => setIsFaustDspOpen(false)}
+              tracks={tracks}
+              onApplyVstToTrack={(trackId, vstName) => {
+                const targetTrack = tracks.find(t => t.id === trackId);
+                const currentVsts = targetTrack?.vsts ? [...targetTrack.vsts, vstName] : [vstName];
+                updateTrack(trackId, {
+                  vsts: currentVsts,
+                  vstBypassed: false
+                });
+                setIsFaustDspOpen(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Spotify Basic Pitch Audio-to-MIDI Modal */}
+      <BasicPitchModal
+        isOpen={isBasicPitchOpen}
+        onClose={() => setIsBasicPitchOpen(false)}
+        tracks={tracks}
+        initialStemCategory={basicPitchInitialStem}
+        initialSongTitle={basicPitchSongTitle}
+        initialAudioBuffer={basicPitchAudioBuffer || undefined}
+        onAddMidiTrackToMixer={(trackName, clip, instrumentName) => {
+          const newTrack: Track = {
+            id: `midi-track-${Date.now()}`,
+            name: trackName,
+            type: 'midi',
+            volume: 0.85,
+            pan: 0,
+            muted: false,
+            soloed: false,
+            color: '#10B981',
+            phaseInverted: false,
+            isMono: false,
+            vstBypassed: false,
+            instrument: instrumentName,
+            clips: [clip]
+          };
+          setTracks(prev => [...prev, newTrack]);
+          setIsBasicPitchOpen(false);
+        }}
+        onAddMultiStemMidiTracksToMixer={(newTracks, bpm) => {
+          if (setTempo) setTempo(bpm);
+          setTracks(prev => [...prev, ...newTracks]);
+          setIsBasicPitchOpen(false);
+        }}
+      />
+
+      {/* MidiEditor Modal */}
+      {isMidiEditorOpen && (
+        <MidiEditor
+          isOpen={isMidiEditorOpen}
+          onClose={() => setIsMidiEditorOpen(false)}
+          initialNotes={midiEditorNotes}
+          clipName={midiEditorClipName}
+          projectBpm={tempo}
+          initialInstrument={midiEditorInstrument}
+          activeTrackId={midiEditorTargetTrackId || undefined}
+          tracks={tracks}
+          onSaveClipNotes={handleSaveMidiEditorNotes}
+          onExportToNewTrack={handleExportNewMidiTrackFromEditor}
+          globalSnapValue={snapValue}
+        />
+      )}
     </div>
   );
 };

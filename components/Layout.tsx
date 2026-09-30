@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, HardwareStats, Track, ProjectSession, ProjectBinClip } from '../types';
 import { THEME } from '../constants';
 import HardwareMonitor from './HardwareMonitor';
-import { LayoutGrid, Layers, Mic, Music, Settings2, Sparkles, Terminal, Download, ChevronDown, Scissors, Drum, FolderPlus, Plus, Atom, Split, PanelLeftClose, PanelLeftOpen, Play, Volume2 } from 'lucide-react';
+import { LayoutGrid, Layers, Mic, Music, Settings2, Sparkles, Terminal, Download, ChevronDown, Scissors, Drum, FolderPlus, Plus, Atom, Split, PanelLeftClose, PanelLeftOpen, Play, Volume2, Zap, Cpu, Code2, Keyboard } from 'lucide-react';
 import ImportArea from './ImportArea';
 import { INITIAL_TRACKS } from '../constants';
 
@@ -125,6 +125,11 @@ interface LayoutProps {
   onToggleSidebar?: () => void;
   projectBinClips?: ProjectBinClip[];
   onInsertBinClipToTrack?: (clip: ProjectBinClip) => void;
+  onOpenAiMixStep?: () => void;
+  onOpenKoboldSettings?: () => void;
+  onOpenAceStepDesigner?: () => void;
+  onOpenFaustDspLab?: () => void;
+  onOpenBasicPitch?: () => void;
 }
 
 const Layout: React.FC<LayoutProps> = ({ 
@@ -148,7 +153,12 @@ const Layout: React.FC<LayoutProps> = ({
   isSidebarCollapsed: propSidebarCollapsed,
   onToggleSidebar,
   projectBinClips = [],
-  onInsertBinClipToTrack
+  onInsertBinClipToTrack,
+  onOpenAiMixStep,
+  onOpenKoboldSettings,
+  onOpenAceStepDesigner,
+  onOpenFaustDspLab,
+  onOpenBasicPitch
 }) => {
   const [internalSidebarCollapsed, setInternalSidebarCollapsed] = useState<boolean>(false);
   const effectiveSidebarCollapsed = propSidebarCollapsed !== undefined ? propSidebarCollapsed : internalSidebarCollapsed;
@@ -391,6 +401,35 @@ const Layout: React.FC<LayoutProps> = ({
             )}
           </div>
 
+          <div className="text-[10px] font-mono text-[#EC4899] uppercase mb-2 px-2 pt-4 flex items-center justify-between">
+            <span>Neural Loop Engine</span>
+            <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-pink-950/80 text-pink-300 border border-pink-700/50">GGUF</span>
+          </div>
+          <NavItem view={View.ACESTEP_LOOP_DESIGNER} label="ACE-STEP 1.5 LOOPS" icon={Sparkles} />
+
+          <div className="text-[10px] font-mono text-cyan-400 uppercase mb-2 px-2 pt-4 flex items-center justify-between">
+            <span>Faust DSP Workbench</span>
+            <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-700/50">TOY VST</span>
+          </div>
+          <NavItem view={View.FAUST_DSP_LAB} label="FAUST DSP TOY LAB" icon={Code2} />
+
+          <div className="text-[10px] font-mono text-emerald-400 uppercase mb-2 px-2 pt-4 flex items-center justify-between">
+            <span>Audio to MIDI</span>
+            <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-700/50">BASIC PITCH</span>
+          </div>
+          {onOpenBasicPitch ? (
+            <button
+              onClick={onOpenBasicPitch}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-mono text-[#8C96B5] hover:text-emerald-300 hover:bg-emerald-950/30 transition-all border border-transparent hover:border-emerald-500/30 text-left"
+            >
+              <Keyboard size={16} className="text-emerald-400 shrink-0" />
+              <span className="truncate">BASIC PITCH (AUDIO-TO-MIDI)</span>
+            </button>
+          ) : (
+            <NavItem view={View.MIXER} label="BASIC PITCH (AUDIO-TO-MIDI)" icon={Keyboard} />
+          )}
+          <NavItem view={View.MIDI_EDITOR} label="MIDI PIANO ROLL" icon={Music} />
+
           <div className="text-[10px] font-mono text-cyan-400 uppercase mb-2 px-2 pt-4 flex items-center justify-between">
             <span>Hadron Collider</span>
             <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-700/50">LSC</span>
@@ -529,7 +568,65 @@ const Layout: React.FC<LayoutProps> = ({
                     )}
                 </div>
             </div>
-            <HardwareMonitor vramUsed={stats.vramUsed} vramTotal={stats.vramTotal} />
+
+            <div className="flex items-center gap-2.5">
+              {onOpenAceStepDesigner && (
+                <button
+                  onClick={onOpenAceStepDesigner}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-gradient-to-r from-pink-950/80 to-purple-950/80 border border-pink-500/50 hover:border-pink-400 text-pink-300 text-xs font-mono font-bold shadow-[0_0_12px_rgba(236,72,153,0.25)] transition-all active:scale-95"
+                  title="Open Ace-Step 1.5 GGUF Neural Loop Designer"
+                >
+                  <Sparkles size={13} className="text-pink-300 animate-pulse" />
+                  <span>Ace-Step 1.5</span>
+                </button>
+              )}
+
+              {onOpenFaustDspLab && (
+                <button
+                  onClick={onOpenFaustDspLab}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-gradient-to-r from-cyan-950/80 to-blue-950/80 border border-cyan-500/50 hover:border-cyan-400 text-cyan-300 text-xs font-mono font-bold shadow-[0_0_12px_rgba(6,182,212,0.25)] transition-all active:scale-95"
+                  title="Open Faust DSP Toy Lab & VST Builder"
+                >
+                  <Code2 size={13} className="text-cyan-300" />
+                  <span>Faust DSP</span>
+                </button>
+              )}
+
+              {onOpenBasicPitch && (
+                <button
+                  onClick={onOpenBasicPitch}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-gradient-to-r from-emerald-950/80 to-teal-950/80 border border-emerald-500/50 hover:border-emerald-400 text-emerald-300 text-xs font-mono font-bold shadow-[0_0_12px_rgba(16,185,129,0.25)] transition-all active:scale-95"
+                  title="Open Spotify Basic Pitch Audio-to-MIDI Transcription Engine"
+                >
+                  <Keyboard size={13} className="text-emerald-400" />
+                  <span>Basic Pitch (MIDI)</span>
+                </button>
+              )}
+
+              {onOpenAiMixStep && (
+                <button
+                  onClick={onOpenAiMixStep}
+                  className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-gradient-to-r from-cyan-950 to-blue-950 border border-cyan-500/50 hover:border-cyan-400 text-cyan-300 text-xs font-mono font-bold shadow-[0_0_12px_rgba(6,182,212,0.25)] transition-all active:scale-95"
+                  title="Incorporate an AI Step into the Mix (KoboldCpp / Llama & Quinn)"
+                >
+                  <Zap size={13} className="text-amber-400" />
+                  <span>AI Mix Step</span>
+                </button>
+              )}
+
+              {onOpenKoboldSettings && (
+                <button
+                  onClick={onOpenKoboldSettings}
+                  className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#131724] border border-[#232B42] hover:border-cyan-500/40 text-xs font-mono text-[#8E95B8] hover:text-white transition-colors"
+                  title="Configure KoboldCpp Engine, Llama & Quinn"
+                >
+                  <Cpu size={13} className="text-cyan-400" />
+                  <span className="text-[11px]">KoboldCpp // AI Engine</span>
+                </button>
+              )}
+
+              <HardwareMonitor vramUsed={stats.vramUsed} vramTotal={stats.vramTotal} />
+            </div>
         </div>
 
         {/* Viewport */}

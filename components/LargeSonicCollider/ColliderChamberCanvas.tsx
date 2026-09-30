@@ -5,6 +5,7 @@ interface ColliderChamberCanvasProps {
   isColliding: boolean;
   particleCount?: number;
   chipsCount?: number;
+  collisionEnergy?: number;
 }
 
 interface Particle {
@@ -32,7 +33,8 @@ export const ColliderChamberCanvas: React.FC<ColliderChamberCanvasProps> = ({
   isAccelerating,
   isColliding,
   particleCount = 18,
-  chipsCount = 4
+  chipsCount = 4,
+  collisionEnergy = 8.4
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
@@ -46,12 +48,13 @@ export const ColliderChamberCanvas: React.FC<ColliderChamberCanvasProps> = ({
     const colors = ['#00F0FF', '#E879F9', '#FFD700', '#10B981', '#F43F5E', '#38BDF8'];
     const count = Math.max(12, Math.min(48, particleCount + chipsCount * 3));
     const newParticles: Particle[] = [];
+    const energySpeedMultiplier = 0.6 + (collisionEnergy / 14) * 1.2;
 
     for (let i = 0; i < count; i++) {
       newParticles.push({
         track: i % 2 === 0 ? 1 : 2,
         angle: (i / count) * Math.PI * 2 + Math.random() * 0.2,
-        speed: (0.015 + Math.random() * 0.01) * (i % 2 === 0 ? 1 : -1),
+        speed: (0.015 + Math.random() * 0.01) * (i % 2 === 0 ? 1 : -1) * energySpeedMultiplier,
         radius: 110 + (Math.random() - 0.5) * 16,
         color: colors[i % colors.length],
         size: 2.2 + Math.random() * 2.5,
@@ -59,18 +62,18 @@ export const ColliderChamberCanvas: React.FC<ColliderChamberCanvasProps> = ({
       });
     }
     particlesRef.current = newParticles;
-  }, [particleCount, chipsCount]);
+  }, [particleCount, chipsCount, collisionEnergy]);
 
   // Trigger collision sparks when isColliding flips to true
   useEffect(() => {
     if (isColliding && !lastCollisionRef.current) {
       const colors = ['#FFFFFF', '#00F0FF', '#FFD700', '#E879F9', '#F43F5E', '#34D399'];
       const newSparks: ExplosionSpark[] = [];
-      const sparkTotal = 65;
+      const sparkTotal = Math.floor(45 + (collisionEnergy / 14) * 55);
 
       for (let i = 0; i < sparkTotal; i++) {
         const angle = Math.random() * Math.PI * 2;
-        const velocity = 2.5 + Math.random() * 6.5;
+        const velocity = 2.5 + Math.random() * (4.0 + (collisionEnergy / 14) * 5.0);
         newSparks.push({
           x: 0,
           y: 0,
@@ -84,15 +87,16 @@ export const ColliderChamberCanvas: React.FC<ColliderChamberCanvasProps> = ({
       }
       sparksRef.current = newSparks;
 
-      // Add 3 quantum shockwaves
+      // Add 3 quantum shockwaves scaled by energy
+      const shockwaveMax = 180 + (collisionEnergy / 14) * 140;
       shockwavesRef.current = [
-        { radius: 5, maxRadius: 180, alpha: 0.95, color: '#FFFFFF' },
-        { radius: 2, maxRadius: 240, alpha: 0.85, color: '#00F0FF' },
-        { radius: 1, maxRadius: 300, alpha: 0.75, color: '#E879F9' }
+        { radius: 5, maxRadius: shockwaveMax * 0.65, alpha: 0.95, color: '#FFFFFF' },
+        { radius: 2, maxRadius: shockwaveMax * 0.85, alpha: 0.85, color: '#00F0FF' },
+        { radius: 1, maxRadius: shockwaveMax, alpha: 0.75, color: '#E879F9' }
       ];
     }
     lastCollisionRef.current = isColliding;
-  }, [isColliding]);
+  }, [isColliding, collisionEnergy]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

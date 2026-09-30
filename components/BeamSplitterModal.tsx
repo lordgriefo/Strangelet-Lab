@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { 
   X, Play, Pause, Square, Repeat, Scissors, Split, Sparkles, Volume2, 
   RotateCcw, Sliders, Music, Zap, Download, Layers, Crosshair, ArrowRight,
-  ShieldCheck, Disc, Radio, Filter, Wand2, Compass, Check
+  ShieldCheck, Disc, Radio, Filter, Wand2, Compass, Check, Keyboard
 } from 'lucide-react';
 import { Track, Clip, PrismRay, PrismDivision, PrismHitType, BeamSplitMode, BeamSplitterResult, ProjectBinClip } from '../types';
 import { 
@@ -28,6 +28,7 @@ interface BeamSplitterModalProps {
   playheadPositionBars?: number; // Cursor position in bars (0 to 16)
   onApplyBeamSplitter: (result: BeamSplitterResult) => void;
   onAddProjectBinClips?: (clips: ProjectBinClip[]) => void;
+  onOpenBasicPitch?: (stemCategory?: 'vocals' | 'bass' | 'drums' | 'instruments' | 'full', songTitle?: string, audioBuffer?: AudioBuffer) => void;
 }
 
 export const BeamSplitterModal: React.FC<BeamSplitterModalProps> = ({
@@ -38,7 +39,8 @@ export const BeamSplitterModal: React.FC<BeamSplitterModalProps> = ({
   currentProjectBpm,
   playheadPositionBars = 0,
   onApplyBeamSplitter,
-  onAddProjectBinClips
+  onAddProjectBinClips,
+  onOpenBasicPitch
 }) => {
   // Mode selection: 'loop' (Prism Loop Isolator) | 'hits' (Beat Refractor into Single Hits) | 'stutter' (Photon Burst)
   const [splitMode, setSplitMode] = useState<BeamSplitMode>('hits');
@@ -857,6 +859,29 @@ export const BeamSplitterModal: React.FC<BeamSplitterModalProps> = ({
               <Layers size={13} className="text-black" />
               <span>BATCH EXPORT TO BIN ({rays.length})</span>
             </button>
+
+            {/* ROUTE STEM TO BASIC PITCH AUDIO-TO-MIDI */}
+            {onOpenBasicPitch && (
+              <button
+                onClick={() => {
+                  onClose();
+                  const guessedCategory: 'vocals' | 'bass' | 'drums' | 'instruments' =
+                    sourceName.toLowerCase().includes('drum') || sourceName.toLowerCase().includes('break') || activeDivision === 'transient'
+                      ? 'drums'
+                      : sourceName.toLowerCase().includes('bass')
+                        ? 'bass'
+                        : sourceName.toLowerCase().includes('vocal')
+                          ? 'vocals'
+                          : 'instruments';
+                  onOpenBasicPitch(guessedCategory, sourceName, audioBuffer || undefined);
+                }}
+                className="px-3 py-1 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/70 text-emerald-300 hover:text-white font-black text-xs transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] flex items-center gap-1.5 cursor-pointer"
+                title="Send this stem to Spotify Basic Pitch to extract polyphonic MIDI notes and assign a VSTi instrument"
+              >
+                <Keyboard size={13} className="text-emerald-400" />
+                <span>AUDIO TO MIDI</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -1214,6 +1239,28 @@ export const BeamSplitterModal: React.FC<BeamSplitterModalProps> = ({
               <Download size={14} />
               <span>EXPORT WAV</span>
             </button>
+
+            {onOpenBasicPitch && (
+              <button
+                onClick={() => {
+                  onClose();
+                  const guessedCategory: 'vocals' | 'bass' | 'drums' | 'instruments' =
+                    sourceName.toLowerCase().includes('drum') || sourceName.toLowerCase().includes('break') || activeDivision === 'transient'
+                      ? 'drums'
+                      : sourceName.toLowerCase().includes('bass')
+                        ? 'bass'
+                        : sourceName.toLowerCase().includes('vocal')
+                          ? 'vocals'
+                          : 'instruments';
+                  onOpenBasicPitch(guessedCategory, sourceName, audioBuffer || undefined);
+                }}
+                className="px-3 py-1.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/70 text-emerald-300 hover:text-white transition-all flex items-center gap-1.5 font-bold shadow-[0_0_12px_rgba(16,185,129,0.3)]"
+                title="Transcribe this audio slice/loop to MIDI using Spotify Basic Pitch & route to VSTi"
+              >
+                <Keyboard size={14} className="text-emerald-400" />
+                <span>TO BASIC PITCH MIDI</span>
+              </button>
+            )}
 
             {splitMode === 'loop' ? (
               <button

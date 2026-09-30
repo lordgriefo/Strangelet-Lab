@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Track, Clip } from '../types';
 import { snapToGrid, volumeToDb, panToString, getDefaultAutomation } from '../lib/audioUtils';
 import AutomationLane from './AutomationLane';
 import { ActiveTool } from './Toolbar';
 import { playLaserBeamSound } from '../lib/laserSound';
+import { midiToNoteName } from '../services/basicPitchService';
 import { 
   Volume2, Compass, Waves, Music, ChevronDown, ChevronRight, 
-  Pencil, Sliders, Scissors, Zap, Trash2, CircleDot, Flame, Sparkles
+  Pencil, Sliders, Scissors, Zap, Trash2, CircleDot, Flame, Sparkles,
+  GripVertical, ChevronLeft
 } from 'lucide-react';
 
 interface TimelineLaneProps {
@@ -100,6 +102,10 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
     });
   };
 
+  const laneAreaRef = useRef<HTMLDivElement>(null);
+  const [draggingClipId, setDraggingClipId] = useState<string | null>(null);
+  const [dragPreviewStartBar, setDragPreviewStartBar] = useState<number | null>(null);
+
   // Handle clicking on the clip area with laser tools
   const handleLaneClick = (e: React.MouseEvent) => {
     const isAudioLaser = activeTool === 'laser_audio' || activeTool === 'beam';
@@ -110,14 +116,41 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
       const rect = e.currentTarget.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const bar = (x / rect.width) * 16;
-      const snappedBar = snapToGrid(bar, snapValue);
+      const isOff = snapValue === 'off' || snapValue === 'freeform';
+      const snappedBar = isOff ? bar : snapToGrid(bar, snapValue);
+
+      // Generate initial melodic/harmonic notes for laser-placed MIDI clip with humanized velocities
+      let motifNotes: any = undefined;
+      if (isMidiLaser) {
+        const isHumanize = track.midiConfig?.humanizeEnabled ?? track.humanizeEnabled ?? true;
+        const jitterAmt = track.midiConfig?.humanizeAmount ?? track.humanizeAmount ?? 0.18;
+        const baseVel = 95;
+        const maxDelta = Math.round(jitterAmt * 80);
+        const initialMotifPitches = [60, 64, 67, 72]; // C4, E4, G4, C5
+        motifNotes = initialMotifPitches.map((p, idx) => {
+          const velOffset = isHumanize ? Math.round((Math.random() * 2 - 1) * maxDelta) : 0;
+          return {
+            id: `mn-${Date.now()}-${idx}`,
+            pitch: p,
+            noteName: midiToNoteName(p),
+            startBar: idx * 0.5,
+            startTimeSeconds: idx * 0.5 * 2,
+            durationBars: 0.5,
+            durationSeconds: 1,
+            velocity: Math.max(20, Math.min(127, baseVel + velOffset)),
+            confidence: 1.0
+          };
+        });
+      }
       
       const newClip: Clip = {
         id: `clip-${Math.random().toString(36).substr(2, 7)}`,
         name: isMidiLaser ? `${name} Synth Loop` : `${name} Audio Loop`,
-        startBar: Math.max(0, Math.min(14, Math.floor(snappedBar))),
+        startBar: Math.max(0, Math.min(14, Number(snappedBar.toFixed(4)))),
         durationBars: 2,
-        isMidi: isMidiLaser
+        isMidi: isMidiLaser,
+        midiNotes: motifNotes,
+        instrument: track.instrument || 'SFZ Grand Piano'
       };
       
       playLaserBeamSound(isMidiLaser ? 'laser_midi' : 'laser_audio');
@@ -133,6 +166,74 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
         });
       }
     }
+  };
+
+  const handleClipMouseDown = (e: React.MouseEvent, clip: Clip) => {
+    const isEraseTool = activeTool === 'laser_erase' || activeTool === 'erase';
+    if (isEraseTool) {
+      return;
+    }
+
+    e.stopPropagation();
+    const startX = e.clientX;
+    const initialStartBar = clip.startBar;
+    let hasMoved = false;
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!laneAreaRef.current) return;
+      const rect = laneAreaRef.current.getBoundingClientRect();
+      const deltaX = ev.clientX - startX;
+      
+      if (Math.abs(deltaX) > 2) {
+        hasMoved = true;
+      }
+      if (!hasMoved) return;
+
+      const deltaBars = (deltaX / rect.width) * 16;
+      const rawBar = initialStartBar + deltaBars;
+      const maxBar = Math.max(0, 16 - clip.durationBars);
+      const clampedRaw = Math.max(0, Math.min(maxBar, rawBar));
+
+      const isOff = snapValue === 'off' || snapValue === 'freeform';
+      const finalBar = isOff
+        ? Number(clampedRaw.toFixed(3))
+        : Math.max(0, Math.min(maxBar, Number(snapToGrid(clampedRaw, snapValue).toFixed(4))));
+
+      setDraggingClipId(clip.id);
+      setDragPreviewStartBar(finalBar);
+
+      const updatedClips = clips.map(c => c.id === clip.id ? { ...c, startBar: finalBar } : c);
+      updateTrack(id, { clips: updatedClips });
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      setDraggingClipId(null);
+      setDragPreviewStartBar(null);
+      if (!hasMoved) {
+        onEdit(clip);
+      }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleNudgeClip = (e: React.MouseEvent, clipId: string, direction: -1 | 1) => {
+    e.stopPropagation();
+    let step = 0.25;
+    if (snapValue === '1/4') step = 0.25;
+    else if (snapValue === '1/8') step = 0.125;
+    else if (snapValue === '1/16') step = 0.0625;
+    else if (snapValue === 'off' || snapValue === 'freeform') step = 0.25;
+
+    const targetClip = clips.find(c => c.id === clipId);
+    if (!targetClip) return;
+    const maxBar = Math.max(0, 16 - targetClip.durationBars);
+    const newBar = Math.max(0, Math.min(maxBar, Number((targetClip.startBar + direction * step).toFixed(4))));
+    const updatedClips = clips.map(c => c.id === clipId ? { ...c, startBar: newBar } : c);
+    updateTrack(id, { clips: updatedClips });
   };
 
   const removeClip = (clipId: string) => {
@@ -252,6 +353,34 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
                 <span>PAN</span>
               </button>
 
+              {/* MIDI Humanize Quick Toggle */}
+              {type === 'midi' && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const cur = track.midiConfig?.humanizeEnabled ?? track.humanizeEnabled ?? true;
+                    updateTrack(id, {
+                      humanizeEnabled: !cur,
+                      midiConfig: {
+                        ...track.midiConfig,
+                        humanizeEnabled: !cur,
+                        humanizeAmount: track.midiConfig?.humanizeAmount ?? track.humanizeAmount ?? 0.18
+                      }
+                    });
+                    playLaserBeamSound('laser_select');
+                  }}
+                  className={`px-1.5 py-0.5 rounded text-[8px] font-mono font-bold flex items-center gap-0.5 transition-all ${
+                    (track.midiConfig?.humanizeEnabled ?? track.humanizeEnabled ?? true)
+                      ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/50 shadow-[0_0_6px_rgba(16,185,129,0.3)]'
+                      : 'bg-[#121622] text-[#64748B] border border-[#1E293B]'
+                  }`}
+                  title="MIDI Humanize: Applies subtle randomized velocity offsets to synthetic notes"
+                >
+                  <Sparkles size={8} className="text-emerald-400" />
+                  <span>HUMAN</span>
+                </button>
+              )}
+
               {/* Volume & Pan values preview */}
               <span className="text-[9px] font-mono text-[#64748B] ml-1">
                 {volumeToDb(volume)}
@@ -272,7 +401,8 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
 
         {/* Clip and Track Sequencer Area */}
         <div 
-          className="flex-1 h-full relative cursor-pointer overflow-hidden group"
+          ref={laneAreaRef}
+          className="flex-1 h-full relative cursor-pointer overflow-hidden group select-none"
           onClick={handleLaneClick}
         >
           {/* Subtle horizontal track background & beat grid */}
@@ -294,16 +424,19 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
           {clips.map(clip => {
             const isEraseTool = activeTool === 'laser_erase' || activeTool === 'erase';
             const isMidiClip = clip.isMidi || type === 'midi';
+            const isCurrentlyDragging = draggingClipId === clip.id;
 
             return (
               <div 
                 key={clip.id}
-                className={`absolute top-1.5 bottom-1.5 rounded flex flex-col justify-between p-1 cursor-pointer transition-all overflow-hidden shadow-md group/clip ${
+                className={`absolute top-1.5 bottom-1.5 rounded flex flex-col justify-between p-1 transition-all overflow-hidden shadow-md group/clip select-none ${
                   isEraseTool
-                    ? 'hover:border-[#EF4444] hover:shadow-[0_0_12px_rgba(239,68,68,0.7)]'
-                    : isMidiClip 
-                      ? 'bg-[#061510] border border-[#10B981]/50 hover:border-[#10B981]' 
-                      : 'bg-[#0B1322] border border-[#26619C] hover:border-[#00F0FF]'
+                    ? 'cursor-pointer hover:border-[#EF4444] hover:shadow-[0_0_12px_rgba(239,68,68,0.7)]'
+                    : isCurrentlyDragging
+                      ? 'cursor-grabbing ring-2 ring-[#FF8C00] shadow-[0_0_15px_rgba(255,140,0,0.6)] z-30'
+                      : isMidiClip 
+                        ? 'cursor-grab active:cursor-grabbing bg-[#061510] border border-[#10B981]/50 hover:border-[#10B981]' 
+                        : 'cursor-grab active:cursor-grabbing bg-[#0B1322] border border-[#26619C] hover:border-[#00F0FF]'
                 }`}
                 style={{ 
                   left: `${(clip.startBar / 16) * 100}%`, 
@@ -311,19 +444,21 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
                   borderLeftWidth: '3px',
                   borderLeftColor: isMidiClip ? '#10B981' : (color || '#00F0FF')
                 }}
+                onMouseDown={(e) => handleClipMouseDown(e, clip)}
                 onClick={(e) => { 
                   e.stopPropagation(); 
                   if (isEraseTool) {
                     removeClip(clip.id);
-                  } else {
-                    onEdit(clip); 
                   }
                 }}
-                title={`${clip.name} (Click to edit • Laser Erase to disintegrate)`}
+                title={`${clip.name} (Start: Bar ${clip.startBar.toFixed(2)} • Drag horizontally to snap to ${snapValue} grid • Click to edit)`}
               >
                 {/* Clip Title Bar */}
-                <div className="flex items-center justify-between text-[9px] font-mono text-[#94A3B8] truncate">
+                <div className="flex items-center justify-between text-[9px] font-mono text-[#94A3B8] truncate gap-1">
                   <div className="flex items-center gap-1 truncate">
+                    {!isEraseTool && (
+                      <GripVertical size={9} className="opacity-40 hover:opacity-100 shrink-0 text-[#94A3B8]" />
+                    )}
                     {isMidiClip ? (
                       <Music size={10} className="text-[#10B981] shrink-0" />
                     ) : (
@@ -331,22 +466,81 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
                     )}
                     <span className="truncate font-semibold text-white/90">{clip.name}</span>
                   </div>
-                  <span className="text-[8px] opacity-60 shrink-0">{clip.durationBars}b</span>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    {/* Quick Nudge Buttons on hover */}
+                    <div className="hidden group-hover/clip:flex items-center bg-black/70 rounded px-0.5 border border-[#334155]/60 text-[8px]">
+                      <button 
+                        onClick={(e) => handleNudgeClip(e, clip.id, -1)}
+                        className="hover:text-amber-400 px-0.5" 
+                        title={`Nudge back by ${snapValue} grid`}
+                      >
+                        ◀
+                      </button>
+                      <button 
+                        onClick={(e) => handleNudgeClip(e, clip.id, 1)}
+                        className="hover:text-amber-400 px-0.5"
+                        title={`Nudge forward by ${snapValue} grid`}
+                      >
+                        ▶
+                      </button>
+                    </div>
+
+                    <span className="text-[8px] font-mono font-bold text-amber-300/90 bg-amber-950/70 border border-amber-500/30 px-1 rounded">
+                      {clip.startBar.toFixed(2)}b
+                    </span>
+                    <span className="text-[8px] opacity-60">{clip.durationBars}b</span>
+                  </div>
                 </div>
+
+                {/* Drag Snap Indicator Overlay */}
+                {isCurrentlyDragging && (
+                  <div className="absolute inset-0 bg-[#FF8C00]/20 flex items-center justify-center pointer-events-none z-10">
+                    <span className="px-1.5 py-0.5 rounded bg-black/90 border border-[#FF8C00] text-[9px] font-mono font-bold text-[#FF8C00] shadow-lg">
+                      SNAP {snapValue}: BAR {clip.startBar.toFixed(2)}
+                    </span>
+                  </div>
+                )}
 
                 {/* Waveform / MIDI Note Matrix Representation */}
                 {isMidiClip ? (
-                  <div className="flex flex-col justify-around h-6 w-full opacity-80 overflow-hidden py-0.5">
-                    {/* Simulated MIDI Piano Roll Steps */}
-                    <div className="flex gap-1 h-1.5">
-                      <div className="w-3 bg-[#10B981] rounded-xs shadow-[0_0_4px_#10B981]" />
-                      <div className="w-5 bg-[#10B981] rounded-xs ml-2" />
-                      <div className="w-2 bg-[#10B981] rounded-xs ml-1" />
-                    </div>
-                    <div className="flex gap-1 h-1.5">
-                      <div className="w-4 bg-[#34D399] rounded-xs ml-4" />
-                      <div className="w-3 bg-[#34D399] rounded-xs ml-2" />
-                    </div>
+                  <div className="flex flex-col justify-around h-6 w-full opacity-80 overflow-hidden py-0.5 relative">
+                    {clip.midiNotes && clip.midiNotes.length > 0 ? (
+                      <div className="relative w-full h-full">
+                        {clip.midiNotes.slice(0, 24).map(mn => {
+                          const relLeft = (mn.startBar / clip.durationBars) * 100;
+                          const relWidth = Math.max(3, (mn.durationBars / clip.durationBars) * 100);
+                          const pitchY = ((84 - Math.max(36, Math.min(84, mn.pitch))) / 48) * 100;
+                          const velAlpha = 0.5 + (mn.velocity / 127) * 0.5;
+                          return (
+                            <div
+                              key={mn.id}
+                              className="absolute rounded-xs bg-[#10B981]"
+                              style={{
+                                left: `${relLeft}%`,
+                                width: `${relWidth}%`,
+                                top: `${pitchY}%`,
+                                height: '2px',
+                                opacity: velAlpha
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <>
+                        {/* Simulated MIDI Piano Roll Steps */}
+                        <div className="flex gap-1 h-1.5">
+                          <div className="w-3 bg-[#10B981] rounded-xs shadow-[0_0_4px_#10B981]" />
+                          <div className="w-5 bg-[#10B981] rounded-xs ml-2" />
+                          <div className="w-2 bg-[#10B981] rounded-xs ml-1" />
+                        </div>
+                        <div className="flex gap-1 h-1.5">
+                          <div className="w-4 bg-[#34D399] rounded-xs ml-4" />
+                          <div className="w-3 bg-[#34D399] rounded-xs ml-2" />
+                        </div>
+                      </>
+                    )}
                   </div>
                 ) : (
                   <div className="flex items-center gap-0.5 h-6 w-full opacity-70 overflow-hidden">

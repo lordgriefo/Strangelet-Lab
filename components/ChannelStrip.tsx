@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Track, Clip } from '../types';
 import Knob from './Knob';
-import { Power, Music, Waves, GitCommit, Sparkles, Zap, Mic, Cpu, Scissors, Sliders, Crosshair, Pin, Split } from 'lucide-react';
+import { Power, Music, Waves, GitCommit, Sparkles, Zap, Mic, Cpu, Scissors, Sliders, Crosshair, Pin, Split, Keyboard, Activity } from 'lucide-react';
 import VstModal from './VstModal';
 import { evaluateAutomationAt, volumeToDb, panToString } from '../lib/audioUtils';
+import { humanizeMidiNotes } from '../services/basicPitchService';
+import { playLaserBeamSound } from '../lib/laserSound';
 
 interface ChannelStripProps {
   track: Track;
@@ -13,6 +15,8 @@ interface ChannelStripProps {
   playheadPosition?: number;
   onOpenBeatmapper?: (trackId: string) => void;
   onOpenBeamSplitter?: (trackId: string) => void;
+  onOpenBasicPitch?: (track: Track) => void;
+  onOpenMidiEditor?: (track: Track) => void;
 }
 
 const Fader: React.FC<{ value: number, onChange: (val: number) => void }> = ({ value, onChange }) => {
@@ -93,13 +97,58 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({
   onEdit, 
   playheadPosition = 0,
   onOpenBeatmapper,
-  onOpenBeamSplitter
+  onOpenBeamSplitter,
+  onOpenBasicPitch,
+  onOpenMidiEditor
 }) => {
   const { id, name, volume, pan, muted, soloed, color, phaseInverted, isMono, vstBypassed, automation } = track;
   const [isVstModalOpen, setIsVstModalOpen] = useState(false);
   const [transcription, setTranscription] = useState<string | null>(null);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isExtractingMidi, setIsExtractingMidi] = useState(false);
+
+  // Humanize Feature State for MIDI Tracks
+  const isHumanizeEnabled = track.midiConfig?.humanizeEnabled ?? track.humanizeEnabled ?? true;
+  const humanizeAmount = track.midiConfig?.humanizeAmount ?? track.humanizeAmount ?? 0.18;
+
+  const handleToggleHumanize = () => {
+    const nextVal = !isHumanizeEnabled;
+    updateTrack(id, {
+      humanizeEnabled: nextVal,
+      midiConfig: {
+        ...track.midiConfig,
+        humanizeEnabled: nextVal,
+        humanizeAmount
+      }
+    });
+    playLaserBeamSound('laser_select');
+  };
+
+  const handleHumanizeAmountChange = (amount: number) => {
+    updateTrack(id, {
+      humanizeAmount: amount,
+      midiConfig: {
+        ...track.midiConfig,
+        humanizeEnabled: isHumanizeEnabled,
+        humanizeAmount: amount
+      }
+    });
+  };
+
+  const handleHumanizeClipNotes = () => {
+    if (!track.clips || track.clips.length === 0) return;
+    const updatedClips = track.clips.map(c => {
+      if (c.midiNotes && c.midiNotes.length > 0) {
+        return {
+          ...c,
+          midiNotes: humanizeMidiNotes(c.midiNotes, humanizeAmount)
+        };
+      }
+      return c;
+    });
+    updateTrack(id, { clips: updatedClips });
+    playLaserBeamSound('laser_curve');
+  };
 
   // Compute live automated volume & pan if enabled
   const isVolAutomated = automation?.volume?.enabled && automation.volume.points.length > 0;
@@ -152,8 +201,8 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({
             isOpen={isVstModalOpen} 
             onClose={() => setIsVstModalOpen(false)} 
             onApply={(vst) => {
-                console.log(`Applying VST: ${vst} to track: ${name}`);
-                updateTrack(id, { vstBypassed: false });
+                const currentVsts = track.vsts ? [...track.vsts, vst] : [vst];
+                updateTrack(id, { vsts: currentVsts, vstBypassed: false });
             }}
         />
 
@@ -250,20 +299,32 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({
         </div>
         <div className="flex gap-2 w-full mt-2">
             <button 
-                onClick={handleMidiExtraction}
+                onClick={() => {
+                  if (onOpenBasicPitch) {
+                    onOpenBasicPitch(track);
+                  } else {
+                    handleMidiExtraction();
+                  }
+                }}
                 disabled={isExtractingMidi}
-                title="Trigger MIDI note detection"
-                className={`flex-1 py-1 text-xs text-[#555] hover:text-[#FF8C00] flex items-center justify-center gap-1 bg-[#000000] rounded border border-[#26619C] ${isExtractingMidi ? 'opacity-50 cursor-not-allowed' : ''}`}
+                title="Extract polyphonic MIDI via Spotify Basic Pitch neural network"
+                className={`flex-1 py-1 text-xs text-[#555] hover:text-emerald-400 flex items-center justify-center gap-1 bg-[#000000] rounded border border-[#26619C] hover:border-emerald-500/60 transition-colors ${isExtractingMidi ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-                <Cpu size={12} /> {isExtractingMidi ? '...' : 'MIDI'}
+                <Cpu size={12} className="text-emerald-400" /> <span>MIDI</span>
             </button>
             <button 
-                onClick={handleMidiExtraction}
+                onClick={() => {
+                  if (onOpenBasicPitch) {
+                    onOpenBasicPitch(track);
+                  } else {
+                    handleMidiExtraction();
+                  }
+                }}
                 disabled={isExtractingMidi}
-                title="Extract MIDI data from audio clip"
-                className={`flex-1 py-1 text-xs text-[#555] hover:text-[#FF8C00] flex items-center justify-center gap-1 bg-[#000000] rounded border border-[#26619C] ${isExtractingMidi ? 'opacity-50 cursor-not-allowed' : ''}`}
+                title="Transcribe Audio to MIDI with Spotify Basic Pitch & assign to VSTi"
+                className={`flex-1 py-1 text-xs text-[#555] hover:text-emerald-400 flex items-center justify-center gap-1 bg-[#000000] rounded border border-[#26619C] hover:border-emerald-500/60 transition-colors ${isExtractingMidi ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-                <Music size={12} /> {isExtractingMidi ? '...' : 'MIDI Ext'}
+                <Music size={12} className="text-emerald-400" /> <span>BasicPitch</span>
             </button>
         </div>
         <div className="flex gap-2 w-full mt-2">
@@ -298,6 +359,69 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({
               >
                 <Split size={11} className="text-[#00F0FF] transform -rotate-45" />
                 <span>BEAM SPLIT</span>
+              </button>
+            )}
+          </div>
+        )}
+
+        {track.type === 'midi' && (
+          <div className="w-full mt-2.5 flex flex-col gap-1.5 p-1.5 rounded-lg bg-[#070A14] border border-[#10B981]/40">
+            {/* Header with humanize status */}
+            <div className="flex items-center justify-between text-[9px] font-mono">
+              <span className="font-bold text-[#10B981] flex items-center gap-1">
+                <Sparkles size={10} />
+                <span>HUMANIZE</span>
+              </span>
+              <button
+                onClick={handleToggleHumanize}
+                className={`px-1.5 py-0.5 rounded text-[8px] font-black tracking-wider transition-all cursor-pointer ${
+                  isHumanizeEnabled
+                    ? 'bg-[#10B981] text-black shadow-[0_0_8px_#10B981]'
+                    : 'bg-[#1B2234] text-[#64748B]'
+                }`}
+                title="Toggle organic randomized velocity offsets to incoming MIDI notes"
+              >
+                {isHumanizeEnabled ? 'ON' : 'OFF'}
+              </button>
+            </div>
+
+            {/* Velocity jitter amount slider */}
+            {isHumanizeEnabled && (
+              <div className="flex flex-col gap-0.5">
+                <div className="flex justify-between text-[8px] font-mono text-[#8C96B5]">
+                  <span>Jitter:</span>
+                  <span className="text-emerald-300 font-bold">&plusmn;{Math.round(humanizeAmount * 80)} vel</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.05"
+                  max="0.4"
+                  step="0.02"
+                  value={humanizeAmount}
+                  onChange={e => handleHumanizeAmountChange(parseFloat(e.target.value))}
+                  className="w-full accent-[#10B981] cursor-pointer h-1 bg-[#141B2E] rounded"
+                  title="Random velocity offset range applied to incoming notes"
+                />
+                
+                <button
+                  onClick={handleHumanizeClipNotes}
+                  className="w-full mt-0.5 py-0.5 text-[8px] font-mono font-bold bg-[#10B981]/20 hover:bg-[#10B981] hover:text-black text-[#10B981] rounded border border-[#10B981]/40 transition-colors cursor-pointer"
+                  title="Apply randomized velocity offsets to this track's current clip notes"
+                >
+                  RANDOMIZE CLIP VEL
+                </button>
+              </div>
+            )}
+
+            {/* Launch Piano Roll MIDI Editor */}
+            {onOpenMidiEditor && (
+              <button
+                onClick={() => onOpenMidiEditor(track)}
+                className="w-full py-1 text-[9px] font-mono font-bold text-purple-300 hover:bg-purple-600 hover:text-white flex items-center justify-center gap-1 bg-[#150D24] rounded border border-purple-500/50 shadow-[0_0_8px_rgba(168,85,247,0.25)] transition-all cursor-pointer"
+                title="Open interactive Grid Piano Roll MIDI Editor"
+              >
+                <Keyboard size={11} className="text-purple-400" />
+                <span>PIANO ROLL</span>
               </button>
             )}
           </div>

@@ -1,12 +1,13 @@
 import { AutomationPoint, TrackAutomation } from '../types';
 
 export const snapToGrid = (value: number, snapValue: string): number => {
-  if (snapValue === 'freeform') return value;
+  if (snapValue === 'freeform' || snapValue === 'off') return value;
   
   const [numerator, denominator] = snapValue.split('/').map(Number);
+  if (!denominator || isNaN(numerator) || isNaN(denominator)) return value;
   const gridSize = numerator / denominator;
   
-  return Math.round(value / gridSize) * gridSize;
+  return Number((Math.round(value / gridSize) * gridSize).toFixed(4));
 };
 
 export const volumeToDb = (linear: number): string => {

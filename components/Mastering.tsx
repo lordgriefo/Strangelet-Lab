@@ -12,20 +12,51 @@ import {
   ShieldCheck,
   Headphones,
   Volume2,
-  VolumeX
+  VolumeX,
+  FolderOpen
 } from 'lucide-react';
 import ImportArea from './ImportArea';
 import BigKnob from './BigKnob';
 import { SunoMasteringStudio } from './SunoMasteringStudio';
 import { SpectralAnalyzer } from './SpectralAnalyzer';
+import { GoldPath } from './GoldPath';
+import { 
+  loadAllGoldPathPresets, 
+  GoldPathPreset, 
+  STORAGE_KEY_ACTIVE_PRESET_ID, 
+  syncGoldPathToMasterBus 
+} from '../lib/goldPathPresets';
 import { masterAudioBus } from '../lib/masterBus';
 import { playLaserBeamSound } from '../lib/laserSound';
 
 export const Mastering: React.FC = () => {
-  const [masteringMode, setMasteringMode] = useState<'spectral_analyzer' | 'suno_desheen' | 'pipeline'>('spectral_analyzer');
+  const [masteringMode, setMasteringMode] = useState<'spectral_analyzer' | 'suno_desheen' | 'pipeline'>('pipeline');
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [isBypassed, setIsBypassed] = useState<boolean>(masterAudioBus.isMasteringBypassed());
+  
+  // Gold Path Presets Synchronization
+  const [goldPathPresets, setGoldPathPresets] = useState<GoldPathPreset[]>(() => loadAllGoldPathPresets());
+  const [activeGoldPresetId, setActiveGoldPresetId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem(STORAGE_KEY_ACTIVE_PRESET_ID) || 'factory-gp-audiophile';
+    }
+    return 'factory-gp-audiophile';
+  });
+
+  const activeGoldPreset = goldPathPresets.find(p => p.id === activeGoldPresetId) || goldPathPresets[0];
+
+  const handleQuickLoadPreset = (presetId: string) => {
+    const selected = goldPathPresets.find(p => p.id === presetId);
+    if (!selected) return;
+    setActiveGoldPresetId(selected.id);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_ACTIVE_PRESET_ID, selected.id);
+    }
+    syncGoldPathToMasterBus(selected);
+    playLaserBeamSound('laser_select');
+  };
+
   const [settings, setSettings] = useState({
     matchering: true,
     multiband: true,
@@ -157,6 +188,18 @@ export const Mastering: React.FC = () => {
           {/* Tab switch */}
           <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[#121422] border border-[#232742]">
           <button
+            onClick={() => setMasteringMode('pipeline')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-mono font-semibold flex items-center gap-2 transition-all ${
+              masteringMode === 'pipeline'
+                ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-black shadow-[0_0_15px_rgba(255,215,0,0.4)] font-bold'
+                : 'text-[#7B82A6] hover:text-white hover:bg-[#1A1E2F]'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Gold Path Mastering Chain</span>
+          </button>
+
+          <button
             onClick={() => setMasteringMode('spectral_analyzer')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-mono font-semibold flex items-center gap-2 transition-all ${
               masteringMode === 'spectral_analyzer'
@@ -179,21 +222,56 @@ export const Mastering: React.FC = () => {
             <Radio className="w-3.5 h-3.5 text-cyan-300" />
             <span>Suno AI De-Sheen</span>
           </button>
-
-          <button
-            onClick={() => setMasteringMode('pipeline')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-mono font-semibold flex items-center gap-2 transition-all ${
-              masteringMode === 'pipeline'
-                ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(168,85,247,0.35)]'
-                : 'text-[#7B82A6] hover:text-white hover:bg-[#1A1E2F]'
-            }`}
-          >
-            <Settings2 className="w-3.5 h-3.5" />
-            <span>Reference EQ & Pipeline</span>
-          </button>
         </div>
       </div>
     </div>
+
+      {/* Global Gold Path Preset Strip across Mastering */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-[#090C19] border border-[#1F2744] text-xs font-mono shadow-md">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <span className="text-[10px] font-bold text-amber-400 uppercase flex items-center gap-1">
+            <Sparkles size={12} className="text-[#FFD700]" />
+            GOLD PATH PRESET:
+          </span>
+          <select
+            value={activeGoldPresetId}
+            onChange={(e) => {
+              handleQuickLoadPreset(e.target.value);
+              setGoldPathPresets(loadAllGoldPathPresets());
+            }}
+            className="bg-[#050711] border border-[#232F52] text-amber-300 font-bold text-xs rounded-lg px-2.5 py-1 focus:outline-none cursor-pointer max-w-xs truncate"
+          >
+            <optgroup label="FACTORY GOLD PATH PRESETS">
+              {goldPathPresets.filter(p => p.category === 'Factory').map(p => (
+                <option key={p.id} value={p.id} className="bg-[#0A0D1E] text-white">
+                  {p.name}
+                </option>
+              ))}
+            </optgroup>
+            {goldPathPresets.some(p => p.category === 'User') && (
+              <optgroup label="USER CUSTOM PRESETS">
+                {goldPathPresets.filter(p => p.category === 'User').map(p => (
+                  <option key={p.id} value={p.id} className="bg-[#0A0D1E] text-cyan-300">
+                    ⭐ {p.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+          <span className="text-[11px] text-[#7E88AA] hidden sm:inline">
+            Target: <strong className="text-emerald-300">{activeGoldPreset?.parameters.targetLufs || -14} LUFS</strong> &bull; Ceiling: <strong className="text-amber-300">{activeGoldPreset?.parameters.ceilingDb || -1.0} dBFS</strong> &bull; Drive: <strong className="text-cyan-300">{Math.round((activeGoldPreset?.masterIntensity || 0.5) * 100)}%</strong>
+          </span>
+        </div>
+
+        {masteringMode !== 'pipeline' && (
+          <button
+            onClick={() => setMasteringMode('pipeline')}
+            className="text-[11px] font-bold text-amber-400 hover:text-white flex items-center gap-1 transition-colors ml-auto"
+          >
+            <span>Open Gold Path Chain Rack &rarr;</span>
+          </button>
+        )}
+      </div>
 
       {/* Mode 1: Dedicated D3 Spectral Analyzer View */}
       {masteringMode === 'spectral_analyzer' && (
@@ -298,75 +376,9 @@ export const Mastering: React.FC = () => {
         <SunoMasteringStudio />
       )}
 
-      {/* Mode 3: Reference EQ & Matchering Pipeline */}
+      {/* Mode 3: Gold Path Mastering Chain with Complete Preset System */}
       {masteringMode === 'pipeline' && (
-        <div className="flex flex-col gap-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Pipeline Configuration */}
-            <div className="md:col-span-2 bg-[#1E1E1E] border border-[#333] rounded-xl p-6 flex flex-col gap-6">
-              <ImportArea onImport={(file) => console.log('Importing file:', file.name)} />
-
-              <h3 className="text-white font-medium flex items-center gap-2">
-                <Settings2 size={18} />
-                Mastering Pipeline
-              </h3>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {[
-                  { key: 'matchering', label: 'Matchering', desc: 'Ghostly EQ matching with a reference track.' },
-                  { key: 'multiband', label: 'Multiband Comp', desc: 'Dynamic control across frequency bands.' },
-                  { key: 'limiter', label: 'Limiter', desc: 'Final loudness and peak control.' },
-                  { key: 'vst', label: 'VST FX Slot', desc: 'Plug in your favorite VST.' },
-                  { key: 'spectralAnalysis', label: 'Spectral Analysis', desc: 'Real-time D3 logarithmic frequency analyzer.' },
-                  { key: 'batchProcessing', label: 'Batch Processing', desc: 'Process multiple files at once.' }
-                ].map(item => (
-                  <div key={item.key} className="flex items-center justify-between p-3 bg-[#121212] rounded border border-[#333]">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-white">{item.label}</span>
-                      <div className="group relative">
-                        <Info size={14} className="text-[#666] cursor-help" />
-                        <div className="absolute left-full ml-2 w-48 p-2 bg-[#333] text-xs text-white rounded opacity-0 group-hover:opacity-100 transition-opacity z-10">{item.desc}</div>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={() => toggleSetting(item.key as any)}
-                      className={`w-12 h-6 rounded-full transition-colors ${settings[item.key as keyof typeof settings] ? 'bg-[#FFD700]' : 'bg-[#333]'}`}
-                    >
-                      <div className={`w-4 h-4 rounded-full bg-white transition-transform ${settings[item.key as keyof typeof settings] ? 'translate-x-7' : 'translate-x-1'}`} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Vintage Controls */}
-            <div className="bg-[#1E1E1E] border border-[#333] rounded-xl p-6 flex flex-col items-center justify-center gap-6">
-              <BigKnob label="Master Intensity" value={bigKnobValue} onChange={setBigKnobValue} />
-              
-              <label className="flex flex-col items-center justify-center gap-4 h-32 w-full bg-[#121212] border-2 border-dashed border-[#333] rounded-lg hover:border-[#FFD700] transition-colors cursor-pointer group">
-                  <input type="file" accept="audio/*" className="hidden" onChange={handleReferenceUpload} />
-                  <Upload size={32} className="text-[#444] group-hover:text-[#FFD700]" />
-                  <span className="text-sm text-[#888]">{referenceFile ? referenceFile.name : "Drop Reference Track"}</span>
-              </label>
-
-              <button 
-                onClick={() => setIsEnhancing(!isEnhancing)}
-                className={`w-full py-4 rounded-lg font-bold uppercase tracking-widest transition-all ${isEnhancing ? 'bg-red-900 text-white' : 'bg-[#FFD700] text-black hover:bg-[#E5C100]'}`}
-              >
-                {isEnhancing ? 'Stop Processing' : 'Run Mastering Pipeline'}
-              </button>
-            </div>
-          </div>
-          
-          {/* Integrated Real-time D3 Spectral Analyzer in Pipeline */}
-          <div className="space-y-2">
-            <h4 className="text-xs font-mono uppercase tracking-wider text-[#A0A0A0] flex items-center gap-2">
-              <Activity size={14} className="text-[#FFD700]" />
-              Master Bus Spectral Output (D3 Visualizer)
-            </h4>
-            <SpectralAnalyzer height={280} showControls={true} />
-          </div>
-        </div>
+        <GoldPath />
       )}
     </div>
   );

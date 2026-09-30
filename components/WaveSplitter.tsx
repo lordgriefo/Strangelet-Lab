@@ -1,9 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Scissors, Zap, MousePointer2, Play, Pause, Settings2, 
-  Volume2, VolumeX, Radio, Sparkles, Download, Layers, CheckCircle2, Sliders 
+  Volume2, VolumeX, Radio, Sparkles, Download, Layers, CheckCircle2, Sliders,
+  Keyboard, Disc, Upload, ArrowRight
 } from 'lucide-react';
 import ImportArea from './ImportArea';
+import { Track, Clip } from '../types';
+import { BasicPitchModal } from './BasicPitchModal';
+import { PRESET_SONGS } from '../services/basicPitchService';
+import { playLaserBeamSound } from '../lib/laserSound';
 
 interface StemTrack {
   id: string;
@@ -17,6 +22,12 @@ interface StemTrack {
   energy: number;
 }
 
+interface WaveSplitterProps {
+  tracks?: Track[];
+  onAddTrackWithClip?: (trackName: string, clip: Clip) => void;
+  onNavigateToMixer?: () => void;
+}
+
 const INITIAL_STEMS: StemTrack[] = [
   { id: 'st-1', name: 'VOCALS & DIALOGUE', category: 'vocals', color: '#00F0FF', volume: 0.85, muted: false, solo: false, freqRange: '300Hz - 4.5kHz', energy: 72 },
   { id: 'st-2', name: 'SUB & SYNTH BASS', category: 'bass', color: '#FF2E63', volume: 0.9, muted: false, solo: false, freqRange: '20Hz - 250Hz', energy: 88 },
@@ -24,14 +35,24 @@ const INITIAL_STEMS: StemTrack[] = [
   { id: 'st-4', name: 'SYNTHS & GUITARS', category: 'instruments', color: '#C084FC', volume: 0.75, muted: false, solo: false, freqRange: '250Hz - 8kHz', energy: 65 },
 ];
 
-export const WaveSplitter: React.FC = () => {
+export const WaveSplitter: React.FC<WaveSplitterProps> = ({
+  tracks = [],
+  onAddTrackWithClip,
+  onNavigateToMixer
+}) => {
   const [stems, setStems] = useState<StemTrack[]>(INITIAL_STEMS);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [separationModel, setSeparationModel] = useState<string>('Demucs v4 Hybrid');
+  const [separationModel, setSeparationModel] = useState<string>('Demucs v4 Hybrid + Basic Pitch');
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
+  const [selectedSongTitle, setSelectedSongTitle] = useState<string>('Suno AI: Neon Horizon (Master)');
+  
+  // Basic Pitch Audio-to-MIDI Modal State
+  const [isBasicPitchOpen, setIsBasicPitchOpen] = useState<boolean>(false);
+  const [targetMidiStem, setTargetMidiStem] = useState<'vocals' | 'bass' | 'drums' | 'instruments' | 'full'>('instruments');
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animFrameRef = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Multi-band Spectral Waveform Animation
   useEffect(() => {
@@ -136,6 +157,19 @@ export const WaveSplitter: React.FC = () => {
         {/* Global Controls */}
         <div className="flex items-center gap-2">
           <button
+            onClick={() => {
+              setTargetMidiStem('instruments');
+              setIsBasicPitchOpen(true);
+              playLaserBeamSound('laser_select');
+            }}
+            className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-950 to-teal-950 border border-emerald-500/50 text-emerald-300 hover:border-emerald-400 font-bold text-xs flex items-center gap-1.5 transition-all shadow-[0_0_12px_rgba(16,185,129,0.3)]"
+            title="Convert any stem or song to MIDI via Spotify's Basic Pitch neural network"
+          >
+            <Keyboard size={13} className="text-emerald-400" />
+            <span>BASIC PITCH (AUDIO-TO-MIDI)</span>
+          </button>
+
+          <button
             onClick={() => setIsPlaying(!isPlaying)}
             className={`px-4 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-md ${
               isPlaying
@@ -154,6 +188,53 @@ export const WaveSplitter: React.FC = () => {
             <Download size={13} />
             <span>EXPORT ALL STEMS</span>
           </button>
+        </div>
+      </div>
+
+      {/* Song Loader & Decomposer Bar */}
+      <div className="mt-3 p-3 rounded-xl bg-[#090D1C] border border-[#1A253E] flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="flex items-center gap-2">
+          <Disc size={15} className="text-cyan-400 shrink-0" />
+          <span className="text-[#8892B0] font-bold">SONG SOURCE:</span>
+          <select 
+            value={selectedSongTitle} 
+            onChange={(e) => {
+              setSelectedSongTitle(e.target.value);
+              setStatusNotice(`✨ Loaded song into Demucs: ${e.target.value}`);
+              setTimeout(() => setStatusNotice(null), 3000);
+            }}
+            className="px-2.5 py-1 rounded-lg bg-[#11172A] border border-[#202C48] text-white font-bold"
+          >
+            {PRESET_SONGS.map(s => (
+              <option key={s.id} value={`${s.title} (${s.sourceType.toUpperCase()})`}>
+                {s.title} • {s.artist} [{s.bpm} BPM]
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="px-2.5 py-1 rounded-lg bg-[#151D33] hover:bg-[#1E2948] border border-[#2A3758] text-cyan-300 flex items-center gap-1.5 transition-colors font-bold"
+          >
+            <Upload size={12} />
+            <span>Upload Song File (MP3/WAV)</span>
+          </button>
+          <input 
+            ref={fileInputRef} 
+            type="file" 
+            accept="audio/*" 
+            className="hidden" 
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                setSelectedSongTitle(`File: ${file.name}`);
+                setStatusNotice(`✨ Decomposing imported song: ${file.name} into 4 discrete stems...`);
+                setTimeout(() => setStatusNotice(null), 3500);
+              }
+            }}
+          />
         </div>
       </div>
 
@@ -255,10 +336,41 @@ export const WaveSplitter: React.FC = () => {
                   SOLO
                 </button>
               </div>
+
+              {/* Transcribe to MIDI (Spotify Basic Pitch) Button */}
+              <button
+                onClick={() => {
+                  setTargetMidiStem(stem.category);
+                  setIsBasicPitchOpen(true);
+                  playLaserBeamSound('laser_select');
+                }}
+                className="w-full mt-1.5 py-1.5 px-2 rounded-lg bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-500/50 hover:border-emerald-400 text-emerald-300 text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all shadow-[0_0_10px_rgba(16,185,129,0.2)] active:scale-95"
+                title={`Extract polyphonic MIDI from ${stem.name} using Spotify Basic Pitch`}
+              >
+                <Keyboard size={12} className="text-emerald-400" />
+                <span>TRANSCRIBE TO MIDI</span>
+              </button>
             </div>
           </div>
         ))}
       </div>
+
+      {/* Spotify Basic Pitch Audio-to-MIDI Modal */}
+      <BasicPitchModal
+        isOpen={isBasicPitchOpen}
+        onClose={() => setIsBasicPitchOpen(false)}
+        tracks={tracks}
+        initialStemCategory={targetMidiStem}
+        initialSongTitle={selectedSongTitle}
+        onAddMidiTrackToMixer={(trackName, clip, instrumentName) => {
+          if (onAddTrackWithClip) {
+            onAddTrackWithClip(trackName, clip);
+          }
+          if (onNavigateToMixer) {
+            onNavigateToMixer();
+          }
+        }}
+      />
     </div>
   );
 };

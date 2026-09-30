@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   FileText, 
   Sparkles, 
@@ -22,17 +22,30 @@ import {
   Disc,
   Info,
   Flame,
-  Volume2
+  Volume2,
+  X,
+  Save
 } from 'lucide-react';
 import { LyricLabOutput, ArchiveItem, SunoMetaTag, SunoStyleItem } from '../../types';
 import { generateLyricLabGemini } from '../../services/geminiService';
 import { playColliderInjectionSound, playLaserBeamSound } from '../../lib/laserSound';
 import { SUNO_META_TAGS_CATALOG, SUNO_STYLE_CATALOG } from '../../lib/sonicColliderData';
+import { lyricLabDB, tagDescriptions } from '../../lib/sonicSectorStaticData';
+import { SonicPreset } from '../../services/sonicData';
 
 interface LyricLabProps {
   onSaveToArchive: (item: ArchiveItem) => void;
   onOpenArchive: () => void;
+  activePreset?: SonicPreset | null;
+  onClearActivePreset?: () => void;
+  collisionEnergy?: number;
+  onSaveCollisionClick?: (themeA: string, themeB: string, result: LyricLabOutput | null) => void;
+  onOpenSavedCollisions?: () => void;
+  externalThemeA?: string;
+  externalThemeB?: string;
 }
+
+
 
 const THEME_PRESETS_A = [
   { label: 'Quantum Field Theory & Entanglement', desc: 'Wavefunctions, spooky action, leptons, zero-kelvin physics' },
@@ -73,9 +86,25 @@ const STYLE_PRESET_COMBOS = [
   }
 ];
 
-export const LyricLab: React.FC<LyricLabProps> = ({ onSaveToArchive, onOpenArchive }) => {
+export const LyricLab: React.FC<LyricLabProps> = ({ 
+  onSaveToArchive, 
+  onOpenArchive,
+  activePreset,
+  onClearActivePreset,
+  collisionEnergy = 8.4,
+  onSaveCollisionClick,
+  onOpenSavedCollisions,
+  externalThemeA,
+  externalThemeB
+}) => {
   // Navigation tabs inside Lyric Lab
-  const [activeTab, setActiveTab] = useState<'editor' | 'style_builder' | 'tags_palette'>('editor');
+  const [activeTab, setActiveTab] = useState<'editor' | 'style_builder' | 'tags_palette' | 'influences_db'>('editor');
+
+  // Influences & Visuals Archive state
+  const [influenceCategory, setInfluenceCategory] = useState<string>('Songwriting: The Masters');
+  const [influenceSearch, setInfluenceSearch] = useState<string>('');
+  const [influenceGroup, setInfluenceGroup] = useState<string>('all');
+  const [influenceNotification, setInfluenceNotification] = useState<string | null>(null);
 
   // Lyrical Collision state
   const [themeA, setThemeA] = useState<string>('Quantum Field Theory & Entanglement');
@@ -83,6 +112,31 @@ export const LyricLab: React.FC<LyricLabProps> = ({ onSaveToArchive, onOpenArchi
   const [structureType, setStructureType] = useState<string>('Verse - Chorus - Verse - Chorus - Bridge - Outro');
   const [rhymeScheme, setRhymeScheme] = useState<string>('AABB Melodic Rhyme');
   const [cutUpRatio, setCutUpRatio] = useState<number>(0.3); // 0% = classic rhyme, 100% = Burroughs cut-up
+
+  // Sync external preset when selected from LargeSonicCollider preset selector
+  useEffect(() => {
+    if (activePreset && activePreset.mode === 'lyrics') {
+      if (activePreset.beamA) setThemeA(activePreset.beamA);
+      if (activePreset.beamB) setThemeB(activePreset.beamB);
+      if (activePreset.promptSnippet) {
+        setCustomStylePrompt(activePreset.promptSnippet);
+        setSelectedStyleChips(activePreset.promptSnippet.split(',').map(s => s.trim()).filter(Boolean));
+      }
+      if (activePreset.structure) setStructureType(activePreset.structure);
+      if (activePreset.rhymeScheme) setRhymeScheme(activePreset.rhymeScheme);
+      if (activePreset.category && lyricLabDB[activePreset.category]) {
+        setInfluenceCategory(activePreset.category);
+      }
+      playLaserBeamSound('laser_midi');
+    }
+  }, [activePreset]);
+
+  // Sync external restored themes from saved collisions
+  useEffect(() => {
+    if (externalThemeA) setThemeA(externalThemeA);
+    if (externalThemeB) setThemeB(externalThemeB);
+  }, [externalThemeA, externalThemeB]);
+
 
   const [isInjecting, setIsInjecting] = useState<boolean>(false);
   const [output, setOutput] = useState<LyricLabOutput | null>(null);
@@ -373,10 +427,23 @@ Spin state down.`);
             }`}
           >
             <Tag className="w-3.5 h-3.5" />
-            <span>Tags & Solos Encyclopedia</span>
+            <span>Tags & Solos</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('influences_db')}
+            className={`px-3 py-1.5 rounded-md text-xs font-mono font-medium flex items-center gap-1.5 transition-all ${
+              activeTab === 'influences_db'
+                ? 'bg-rose-600 text-white shadow-[0_0_12px_rgba(225,29,72,0.35)]'
+                : 'text-[#8E92B0] hover:text-white hover:bg-[#1A1E2F]'
+            }`}
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>Influences & Visuals DB</span>
           </button>
         </div>
       </div>
+
 
       {/* Quick Suno Style Prompt Sticky Ribbon */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-[#121422] border border-[#232740]">
@@ -576,6 +643,17 @@ Spin state down.`);
                   {copiedLyrics ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{copiedLyrics ? 'COPIED!' : 'COPY LYRICS'}</span>
                 </button>
+
+                {onSaveCollisionClick && (
+                  <button
+                    onClick={() => onSaveCollisionClick(themeA, themeB, output)}
+                    className="px-3 py-1.5 rounded-lg bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-400/50 text-xs font-mono font-bold flex items-center gap-1.5 transition-all shadow-[0_0_12px_rgba(168,85,247,0.25)]"
+                    title="Save this lyrical collision snapshot"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>SAVE COLLISION</span>
+                  </button>
+                )}
 
                 <button
                   onClick={handleArchive}
@@ -916,7 +994,241 @@ Spin state down.`);
           </div>
         </div>
       )}
+
+      {/* ========================================================= */}
+      {/* TAB 4: INFLUENCES & VISUALS ARCHIVE (ORIGINAL BUILD DB) */}
+      {/* ========================================================= */}
+      {activeTab === 'influences_db' && (
+        <div className="flex flex-col gap-4">
+          {/* Action Notification Toast */}
+          {influenceNotification && (
+            <div className="p-2.5 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-200 text-xs font-mono flex items-center justify-between shadow-[0_0_15px_rgba(244,63,94,0.3)]">
+              <span>{influenceNotification}</span>
+              <button 
+                onClick={() => setInfluenceNotification(null)}
+                className="text-rose-300 hover:text-white"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Header Controls & Filter Pills */}
+          <div className="p-4 rounded-xl bg-[#141724] border border-[#242840] space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-rose-400" />
+                  <span>Lyric Lab // Influences, Visuals & Concepts Yard</span>
+                </h3>
+                <p className="text-xs text-[#8E92B0] mt-0.5">
+                  Over 500+ legendary songwriters, strange authors, cinematic auteurs, bizarre esoterica, and hip-hop flows.
+                </p>
+              </div>
+
+              {/* Group filter pills */}
+              <div className="flex flex-wrap gap-1">
+                {[
+                  { id: 'all', label: 'All Categories' },
+                  { id: 'songwriters', label: 'Songwriters' },
+                  { id: 'strange_writers', label: 'Strange Writers' },
+                  { id: 'visuals', label: 'Visuals & Cinema' },
+                  { id: 'bizarre', label: 'Bizarre & Fortean' },
+                  { id: 'flows', label: 'Hip-Hop Flows' },
+                  { id: 'concepts', label: 'Concepts & Constraints' }
+                ].map(grp => (
+                  <button
+                    key={grp.id}
+                    onClick={() => {
+                      setInfluenceGroup(grp.id);
+                      // Select first matching category
+                      const matchingCat = Object.keys(lyricLabDB).find(c => {
+                        const low = c.toLowerCase();
+                        if (grp.id === 'all') return true;
+                        if (grp.id === 'songwriters') return low.includes('songwriting') || low.includes('storyteller') || low.includes('architect') || low.includes('singer-songwriter');
+                        if (grp.id === 'strange_writers') return low.includes('lit:');
+                        if (grp.id === 'visuals') return low.includes('vis:');
+                        if (grp.id === 'bizarre') return low.includes('bizarre') || low.includes('esoterica');
+                        if (grp.id === 'flows') return low.includes('flow');
+                        if (grp.id === 'concepts') return low.includes('concept') || low.includes('constraint') || low.includes('perspective') || low.includes('subject') || low.includes('imagery') || low.includes('device');
+                        return false;
+                      });
+                      if (matchingCat) setInfluenceCategory(matchingCat);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-mono transition-colors ${
+                      influenceGroup === grp.id
+                        ? 'bg-rose-500/20 text-rose-300 border border-rose-500/50'
+                        : 'bg-[#181C2C] text-[#7A809E] hover:text-white'
+                    }`}
+                  >
+                    {grp.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Category selector & search bar */}
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <div className="flex-1 min-w-[240px]">
+                <select
+                  value={influenceCategory}
+                  onChange={e => setInfluenceCategory(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#0C0E16] border border-[#242940] rounded-lg text-xs text-rose-200 font-mono focus:outline-none cursor-pointer"
+                >
+                  {Object.keys(lyricLabDB)
+                    .filter(c => {
+                      const low = c.toLowerCase();
+                      if (influenceGroup === 'all') return true;
+                      if (influenceGroup === 'songwriters') return low.includes('songwriting') || low.includes('storyteller') || low.includes('architect') || low.includes('singer-songwriter');
+                      if (influenceGroup === 'strange_writers') return low.includes('lit:');
+                      if (influenceGroup === 'visuals') return low.includes('vis:');
+                      if (influenceGroup === 'bizarre') return low.includes('bizarre') || low.includes('esoterica');
+                      if (influenceGroup === 'flows') return low.includes('flow');
+                      if (influenceGroup === 'concepts') return low.includes('concept') || low.includes('constraint') || low.includes('perspective') || low.includes('subject') || low.includes('imagery') || low.includes('device');
+                      return false;
+                    })
+                    .map(cat => (
+                      <option key={cat} value={cat} className="bg-[#121422] text-white">
+                        {cat} ({lyricLabDB[cat]?.length || 0} entries)
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div className="relative flex-1 min-w-[240px]">
+                <Search className="w-3.5 h-3.5 text-[#6E7596] absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={influenceSearch}
+                  onChange={e => setInfluenceSearch(e.target.value)}
+                  placeholder="Search across all authors, movies, flows..."
+                  className="w-full pl-8 pr-3 py-2 bg-[#0C0E16] border border-[#242940] rounded-lg text-xs text-white placeholder-[#555C7E] focus:outline-none focus:border-rose-500/60 font-mono"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {(() => {
+              const itemsToRender = influenceSearch.trim()
+                ? Object.entries(lyricLabDB).flatMap(([cat, list]) => 
+                    list
+                      .filter(item => item.toLowerCase().includes(influenceSearch.toLowerCase()))
+                      .map(item => ({ category: cat, name: item }))
+                  )
+                : (lyricLabDB[influenceCategory] || []).map(item => ({ category: influenceCategory, name: item }));
+
+              if (itemsToRender.length === 0) {
+                return (
+                  <div className="col-span-full text-center py-12 text-xs text-[#6B7294] font-mono">
+                    No influences found matching "{influenceSearch}".
+                  </div>
+                );
+              }
+
+              return itemsToRender.map(({ category, name }, idx) => {
+                const desc = tagDescriptions[name] || tagDescriptions[category];
+                return (
+                  <div
+                    key={`${category}-${name}-${idx}`}
+                    className="p-3.5 rounded-xl bg-[#0E101A] border border-[#21263E] hover:border-rose-500/40 transition-all flex flex-col justify-between gap-3 group"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-800/40 truncate">
+                          {category}
+                        </span>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(name);
+                            playLaserBeamSound('laser_select');
+                            setInfluenceNotification(`Copied "${name}" to clipboard`);
+                            setTimeout(() => setInfluenceNotification(null), 2200);
+                          }}
+                          title="Copy"
+                          className="p-1 rounded bg-[#181B2B] hover:bg-[#22273D] text-[#8E92B0] hover:text-white border border-[#252A42] text-xs transition-colors"
+                        >
+                          <Copy className="w-3 h-3" />
+                        </button>
+                      </div>
+
+                      <h4 className="text-sm font-bold text-white mt-2 leading-snug">{name}</h4>
+
+                      {desc && (
+                        <p className="text-[11px] text-[#848BA8] mt-1.5 leading-relaxed bg-[#090B12] p-2 rounded-lg border border-[#1A1E2F]">
+                          {desc}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Quick injection buttons */}
+                    <div className="grid grid-cols-2 gap-1.5 pt-2 border-t border-[#181C2C]">
+                      <button
+                        onClick={() => {
+                          setThemeA(name);
+                          playLaserBeamSound('laser_midi');
+                          setInfluenceNotification(`Set Vector A to "${name}"`);
+                          setTimeout(() => setInfluenceNotification(null), 2200);
+                        }}
+                        className="py-1 px-2 rounded bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[10px] font-mono text-center transition-colors"
+                        title="Inject into Theme Vector A"
+                      >
+                        Set Vector A
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setThemeB(name);
+                          playLaserBeamSound('laser_midi');
+                          setInfluenceNotification(`Set Vector B to "${name}"`);
+                          setTimeout(() => setInfluenceNotification(null), 2200);
+                        }}
+                        className="py-1 px-2 rounded bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-mono text-center transition-colors"
+                        title="Inject into Theme Vector B"
+                      >
+                        Set Vector B
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          insertTagAtCursor(`[Directive: In the lyrical style of ${name}]`);
+                          setInfluenceNotification(`Inserted directive for "${name}" into lyrics!`);
+                          setTimeout(() => setInfluenceNotification(null), 2200);
+                        }}
+                        className="py-1 px-2 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-mono text-center transition-colors"
+                        title="Insert into lyrics text"
+                      >
+                        + Lyric Directive
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const cleanSnippet = name.toLowerCase();
+                          if (!selectedStyleChips.includes(cleanSnippet)) {
+                            const updated = [...selectedStyleChips, cleanSnippet];
+                            setSelectedStyleChips(updated);
+                            setCustomStylePrompt(updated.join(', '));
+                            playLaserBeamSound('laser_select');
+                            setInfluenceNotification(`Added "${name}" to Suno Style Prompt!`);
+                            setTimeout(() => setInfluenceNotification(null), 2200);
+                          }
+                        }}
+                        className="py-1 px-2 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-mono text-center transition-colors"
+                        title="Add to Suno Style Prompt"
+                      >
+                        + Style Chip
+                      </button>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        </div>
+      )}
     </div>
+
   );
 };
 

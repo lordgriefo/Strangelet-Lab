@@ -158,7 +158,8 @@ const Timeline: React.FC<TimelineProps> = ({
 
   const handleRulerMouseDown = (e: React.MouseEvent) => {
     const rawPos = getTimelineAreaMousePosition(e);
-    const snappedPos = snapValue === 'freeform' 
+    const isOff = snapValue === 'freeform' || snapValue === 'off';
+    const snappedPos = isOff 
       ? rawPos 
       : Math.max(0, Math.min(1, snapToGrid(rawPos * 16, snapValue) / 16));
     setPlayheadPosition(snappedPos);
@@ -209,15 +210,14 @@ const Timeline: React.FC<TimelineProps> = ({
             <div className="flex items-center gap-1">
               <span className="text-[9px] font-mono text-[#64748B]">SNAP:</span>
               <select 
-                value={snapValue} 
+                value={snapValue === 'freeform' ? 'off' : snapValue} 
                 onChange={(e) => setSnapValue(e.target.value)}
                 className="bg-[#03060B] text-[#FF8C00] text-[10px] font-mono border border-[#1E293B] rounded px-1 py-0.5 outline-none cursor-pointer hover:border-[#FF8C00]"
               >
-                <option value="1/4">1/4 Beat</option>
-                <option value="1/8">1/8 Beat</option>
-                <option value="1/12">1/12 Trip</option>
-                <option value="1/16">1/16 Beat</option>
-                <option value="freeform">Freeform</option>
+                <option value="1/4">1/4 Grid</option>
+                <option value="1/8">1/8 Grid</option>
+                <option value="1/16">1/16 Grid</option>
+                <option value="off">Off (Free)</option>
               </select>
             </div>
 

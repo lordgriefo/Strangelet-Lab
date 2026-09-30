@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Play, 
   RotateCcw, 
@@ -19,22 +19,56 @@ import {
   Compass,
   Music2,
   Wand2,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Database,
+  Search,
+  Info,
+  Save
 } from 'lucide-react';
 import { ColliderChip, PromptOutputResult, ArchiveItem } from '../../types';
 import { SONIC_COLLIDER_CHIPS } from '../../lib/sonicColliderData';
+import { 
+  sonicSectorDB, 
+  tagDescriptions, 
+  getCategoryGroup, 
+  getCategoryColor, 
+  sanitizeId 
+} from '../../lib/sonicSectorStaticData';
 import { ColliderChamberCanvas } from './ColliderChamberCanvas';
 import { playColliderInjectionSound, playLaserBeamSound } from '../../lib/laserSound';
 import { collideSonicParticlesGemini } from '../../services/geminiService';
+import { SonicPreset, convertPresetToChamberChips } from '../../services/sonicData';
 
 interface SonicSectorProps {
   onSaveToArchive: (item: ArchiveItem) => void;
   onOpenArchive: () => void;
+  activePreset?: SonicPreset | null;
+  onClearActivePreset?: () => void;
+  collisionEnergy?: number;
+  onSaveCollisionClick?: (chips: ColliderChip[], result: PromptOutputResult | null) => void;
+  onOpenSavedCollisions?: () => void;
+  externalChips?: ColliderChip[] | null;
 }
 
-export const SonicSector: React.FC<SonicSectorProps> = ({ onSaveToArchive, onOpenArchive }) => {
-  // Dual Mutually-Exclusive Sidebars: 'beam_a' | 'beam_b' | null (only one open at a time!)
-  const [activeSidebar, setActiveSidebar] = useState<'beam_a' | 'beam_b' | null>('beam_a');
+export const SonicSector: React.FC<SonicSectorProps> = ({ 
+  onSaveToArchive, 
+  onOpenArchive,
+  activePreset,
+  onClearActivePreset,
+  collisionEnergy = 8.4,
+  onSaveCollisionClick,
+  onOpenSavedCollisions,
+  externalChips
+}) => {
+  // Triple Mutually-Exclusive Sidebars: 'beam_a' | 'beam_b' | 'db_yard' | null (only one open at a time!)
+  const [activeSidebar, setActiveSidebar] = useState<'beam_a' | 'beam_b' | 'db_yard' | null>('beam_a');
+
+
+  // Database Yard Category Selection
+  const [selectedDbCategory, setSelectedDbCategory] = useState<string>('Suno Instrument Stacks');
+  const [dbSearchQuery, setDbSearchQuery] = useState<string>('');
+  const [copiedItem, setCopiedItem] = useState<string | null>(null);
+
 
   // Loaded particle chips inside the Collision Chamber
   const [chamberChips, setChamberChips] = useState<ColliderChip[]>([
@@ -44,6 +78,27 @@ export const SonicSector: React.FC<SonicSectorProps> = ({ onSaveToArchive, onOpe
     SONIC_COLLIDER_CHIPS.find(c => c.id === 'inst-theremin')!,
     SONIC_COLLIDER_CHIPS.find(c => c.id === 'prod-tape-flutter-wow')!
   ].filter(Boolean));
+
+  // Sync external chips restored from saved collisions
+  useEffect(() => {
+    if (externalChips && externalChips.length > 0) {
+      setChamberChips(externalChips);
+      playColliderInjectionSound();
+    }
+  }, [externalChips]);
+
+  // Sync external preset when selected from LargeSonicCollider preset selector
+  useEffect(() => {
+    if (activePreset && activePreset.mode === 'sonic') {
+      const newChips = convertPresetToChamberChips(activePreset);
+      setChamberChips(newChips);
+      if (activePreset.category && sonicSectorDB[activePreset.category]) {
+        setSelectedDbCategory(activePreset.category);
+      }
+      playColliderInjectionSound();
+    }
+  }, [activePreset]);
+
 
   // Particle beam states for light show
   const [isAccelerating, setIsAccelerating] = useState<boolean>(false);
@@ -61,9 +116,33 @@ export const SonicSector: React.FC<SonicSectorProps> = ({ onSaveToArchive, onOpe
   const [filterCategory, setFilterCategory] = useState<string>('all');
 
   // Toggle sidebars mutually exclusively
-  const toggleSidebar = (target: 'beam_a' | 'beam_b') => {
+  const toggleSidebar = (target: 'beam_a' | 'beam_b' | 'db_yard') => {
     setActiveSidebar(prev => (prev === target ? null : target));
     playLaserBeamSound('laser_select');
+  };
+
+  // Inject an item from the extensive Sonic Sector Database Yard into the chamber
+  const injectDbItemToChamber = (categoryName: string, itemText: string) => {
+    const chipId = `db-${sanitizeId(categoryName)}-${sanitizeId(itemText)}`;
+    if (chamberChips.some(c => c.id === chipId)) return;
+    const isBeamA = getCategoryGroup(categoryName) === 'beam_a';
+    const chip: ColliderChip = {
+      id: chipId,
+      label: itemText.replace(/^\[(Stack|Template|Pack|FX|Vocal|SFX|Event|Texture|Effect|Warning|System):?\s*/i, '').replace(/\]$/, ''),
+      category: isBeamA ? 'genre' : 'production',
+      sidebarGroup: isBeamA ? 'beam_a' : 'beam_b',
+      color: getCategoryColor(categoryName),
+      description: tagDescriptions[itemText] || `${categoryName}: ${itemText}`,
+      energyWeight: 0.8,
+      tags: [categoryName.toLowerCase().replace(/[^a-z0-9]+/g, '-'), 'database-yard']
+    };
+    addChipToChamber(chip);
+  };
+
+  const copyDbItemText = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedItem(text);
+    setTimeout(() => setCopiedItem(null), 2000);
   };
 
   // Add chip to chamber (via click or drag)
@@ -233,6 +312,20 @@ export const SonicSector: React.FC<SonicSectorProps> = ({ onSaveToArchive, onOpe
             {activeSidebar === 'beam_b' ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
           </button>
 
+          {/* Database Yard Toggle Button */}
+          <button
+            onClick={() => toggleSidebar('db_yard')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 border transition-all ${
+              activeSidebar === 'db_yard'
+                ? 'bg-purple-500/20 text-purple-300 border-purple-500/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
+                : 'bg-[#1A1D2D] text-[#8E92B0] border-[#2A2E45] hover:text-white'
+            }`}
+          >
+            <Database className="w-3.5 h-3.5 text-purple-400" />
+            <span>Sonic Yard DB</span>
+            {activeSidebar === 'db_yard' ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+          </button>
+
           {/* Randomize Preset */}
           <button
             onClick={randomizeSuperposition}
@@ -253,9 +346,13 @@ export const SonicSector: React.FC<SonicSectorProps> = ({ onSaveToArchive, onOpe
             {/* Sidebar Header */}
             <div className="p-3.5 border-b border-[#202438] flex items-center justify-between bg-[#161928]">
               <div className="flex items-center gap-2">
-                <span className={`w-2.5 h-2.5 rounded-full ${activeSidebar === 'beam_a' ? 'bg-amber-400' : 'bg-cyan-400'}`} />
+                <span className={`w-2.5 h-2.5 rounded-full ${activeSidebar === 'beam_a' ? 'bg-amber-400' : activeSidebar === 'beam_b' ? 'bg-cyan-400' : 'bg-purple-400'}`} />
                 <h3 className="text-xs font-semibold text-white uppercase tracking-wider">
-                  {activeSidebar === 'beam_a' ? 'Beam A // Genres, Eras & Rhythms' : 'Beam B // Instruments, Production & Nuance'}
+                  {activeSidebar === 'beam_a' 
+                    ? 'Beam A // Genres, Eras & Rhythms' 
+                    : activeSidebar === 'beam_b' 
+                    ? 'Beam B // Instruments, Production & Nuance' 
+                    : 'Sonic Yard // Full Static Database'}
                 </h3>
               </div>
               <button 
@@ -267,107 +364,236 @@ export const SonicSector: React.FC<SonicSectorProps> = ({ onSaveToArchive, onOpe
               </button>
             </div>
 
-            {/* Filter and Search Bar */}
-            <div className="p-3 border-b border-[#1E2235] space-y-2 bg-[#10121C]">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Filter particles (e.g., Samba, Tape)..."
-                className="w-full px-2.5 py-1.5 bg-[#171A29] border border-[#282D46] rounded-lg text-xs text-white placeholder-[#5A607C] focus:outline-none focus:border-cyan-500/60"
-              />
-              <div className="flex flex-wrap gap-1">
-                {activeSidebar === 'beam_a' ? (
-                  ['all', 'genre', 'era', 'rhythm'].map(cat => (
-                    <button
-                      key={cat}
-                      onClick={() => setFilterCategory(cat)}
-                      className={`px-2 py-0.5 rounded text-[10px] font-mono capitalize transition-colors ${
-                        filterCategory === cat
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                          : 'bg-[#1A1D2E] text-[#717796] hover:text-white'
-                      }`}
-                    >
-                      {cat}
-                    </button>
-                  ))
-                ) : (
-                  ['all', 'instrument', 'production', 'nuance'].map(cat => (
-                    <button
-                      key={cat}
-                      onClick={() => setFilterCategory(cat)}
-                      className={`px-2 py-0.5 rounded text-[10px] font-mono capitalize transition-colors ${
-                        filterCategory === cat
-                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                          : 'bg-[#1A1D2E] text-[#717796] hover:text-white'
-                      }`}
-                    >
-                      {cat}
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {/* Draggable Particle Chips List */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              <p className="text-[11px] text-[#6A7090] italic mb-1">
-                Drag a chip into the collider chamber or click (+) to inject:
-              </p>
-              {currentSidebarChips.map(chip => {
-                const isLoaded = chamberChips.some(c => c.id === chip.id);
-                return (
-                  <div
-                    key={chip.id}
-                    draggable
-                    onDragStart={e => handleDragStart(e, chip)}
-                    onClick={() => addChipToChamber(chip)}
-                    className={`group relative p-2.5 rounded-lg border transition-all cursor-grab active:cursor-grabbing select-none ${
-                      isLoaded
-                        ? 'bg-[#191D2E]/50 border-emerald-500/30 text-emerald-300'
-                        : 'bg-[#151826] hover:bg-[#1C2033] border-[#252A42] hover:border-[#3D456B] text-white'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span 
-                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: chip.color }}
-                        />
-                        <span className="text-xs font-semibold truncate">{chip.label}</span>
-                      </div>
-                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#1D2136] text-[#8E92B0] border border-[#2D3352] uppercase flex-shrink-0">
-                        {chip.category}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-[#7E84A3] mt-1 leading-snug line-clamp-2">
-                      {chip.description}
-                    </p>
-                    {chip.tags && (
-                      <div className="flex flex-wrap gap-1 mt-1.5">
-                        {chip.tags.slice(0, 3).map(tag => (
-                          <span key={tag} className="text-[9px] text-[#5D6488] font-mono">
-                            #{tag}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    {/* Add hover indicator */}
-                    <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <span className="p-1 rounded bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/40">
-                        <Plus className="w-3.5 h-3.5" />
-                      </span>
-                    </div>
+            {/* CONDITIONAL CONTENT: BEAM A / B OR DB YARD */}
+            {activeSidebar === 'db_yard' ? (
+              <div className="flex-1 flex flex-col min-h-0 bg-[#0F111A]">
+                {/* Search Bar */}
+                <div className="p-3 border-b border-[#1E2235] space-y-2 bg-[#121420]">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-[#5A607C]" />
+                    <input
+                      type="text"
+                      value={dbSearchQuery}
+                      onChange={e => setDbSearchQuery(e.target.value)}
+                      placeholder="Search 300+ modules, synths, fx..."
+                      className="w-full pl-8 pr-2.5 py-1.5 bg-[#171A29] border border-[#282D46] rounded-lg text-xs text-white placeholder-[#5A607C] focus:outline-none focus:border-purple-500/60"
+                    />
                   </div>
-                );
-              })}
 
-              {currentSidebarChips.length === 0 && (
-                <div className="text-center py-8 text-xs text-[#5D6488]">
-                  No sonic chips matching query.
+                  {/* Category Dropdown/Selector */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono text-[#717796] uppercase">Module:</span>
+                    <select
+                      value={selectedDbCategory}
+                      onChange={e => setSelectedDbCategory(e.target.value)}
+                      className="flex-1 px-2 py-1 bg-[#171A29] border border-[#282D46] rounded text-[11px] text-purple-300 font-medium focus:outline-none cursor-pointer"
+                    >
+                      {Object.keys(sonicSectorDB).map(catName => (
+                        <option key={catName} value={catName} className="bg-[#121420] text-white">
+                          {catName} ({sonicSectorDB[catName]?.length || 0})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-              )}
-            </div>
+
+                {/* Items List */}
+                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                  <div className="flex items-center justify-between text-[11px] text-[#717796] pb-1 border-b border-[#1E2235]">
+                    <span className="font-semibold text-purple-300">{selectedDbCategory}</span>
+                    <span>Click item to inject into collider</span>
+                  </div>
+
+                  {(() => {
+                    const allItems = dbSearchQuery.trim()
+                      ? Object.entries(sonicSectorDB).flatMap(([cat, items]) => 
+                          items
+                            .filter(it => it.toLowerCase().includes(dbSearchQuery.toLowerCase()))
+                            .map(it => ({ category: cat, text: it }))
+                        )
+                      : (sonicSectorDB[selectedDbCategory] || []).map(it => ({ category: selectedDbCategory, text: it }));
+
+                    if (allItems.length === 0) {
+                      return (
+                        <div className="text-center py-8 text-xs text-[#5D6488]">
+                          No database items found matching "{dbSearchQuery}".
+                        </div>
+                      );
+                    }
+
+                    return allItems.map(({ category, text }, idx) => {
+                      const description = tagDescriptions[text];
+                      const isLoaded = chamberChips.some(c => c.label === text || c.id.includes(sanitizeId(text)));
+                      const chipColor = getCategoryColor(category);
+
+                      return (
+                        <div
+                          key={`${category}-${text}-${idx}`}
+                          onClick={() => injectDbItemToChamber(category, text)}
+                          className={`group relative p-2.5 rounded-lg border transition-all cursor-pointer select-none ${
+                            isLoaded
+                              ? 'bg-purple-950/20 border-purple-500/40 text-purple-200'
+                              : 'bg-[#151826] hover:bg-[#1C2033] border-[#252A42] hover:border-purple-500/40 text-white'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span 
+                                className="w-2 h-2 rounded-full flex-shrink-0 mt-0.5"
+                                style={{ backgroundColor: chipColor }}
+                              />
+                              <span className="text-xs font-medium leading-snug break-words">
+                                {text}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 flex-shrink-0">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  copyDbItemText(text);
+                                }}
+                                title="Copy Tag"
+                                className="p-1 rounded bg-[#1C2033] hover:bg-purple-500/20 text-[#8E92B0] hover:text-purple-300 transition-colors"
+                              >
+                                {copiedItem === text ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  injectDbItemToChamber(category, text);
+                                }}
+                                title="Inject into Collision Chamber"
+                                className="p-1 rounded bg-purple-500/20 hover:bg-purple-500/40 text-purple-300 transition-colors"
+                              >
+                                <Plus className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {description && (
+                            <p className="text-[11px] text-[#8E94B4] mt-1.5 leading-relaxed bg-[#10121C] p-1.5 rounded border border-[#1E2235]">
+                              {description}
+                            </p>
+                          )}
+
+                          <div className="flex items-center justify-between mt-1 text-[9px] font-mono text-[#5D6488]">
+                            <span>{category}</span>
+                            <span className="uppercase text-purple-400/70">
+                              {getCategoryGroup(category) === 'beam_a' ? 'Beam A' : 'Beam B'}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Filter and Search Bar for Beam A & Beam B */}
+                <div className="p-3 border-b border-[#1E2235] space-y-2 bg-[#10121C]">
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    placeholder="Filter particles (e.g., Samba, Tape)..."
+                    className="w-full px-2.5 py-1.5 bg-[#171A29] border border-[#282D46] rounded-lg text-xs text-white placeholder-[#5A607C] focus:outline-none focus:border-cyan-500/60"
+                  />
+                  <div className="flex flex-wrap gap-1">
+                    {activeSidebar === 'beam_a' ? (
+                      ['all', 'genre', 'era', 'rhythm'].map(cat => (
+                        <button
+                          key={cat}
+                          onClick={() => setFilterCategory(cat)}
+                          className={`px-2 py-0.5 rounded text-[10px] font-mono capitalize transition-colors ${
+                            filterCategory === cat
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                              : 'bg-[#1A1D2E] text-[#717796] hover:text-white'
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      ))
+                    ) : (
+                      ['all', 'instrument', 'production', 'nuance'].map(cat => (
+                        <button
+                          key={cat}
+                          onClick={() => setFilterCategory(cat)}
+                          className={`px-2 py-0.5 rounded text-[10px] font-mono capitalize transition-colors ${
+                            filterCategory === cat
+                              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                              : 'bg-[#1A1D2E] text-[#717796] hover:text-white'
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Draggable Particle Chips List */}
+                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                  <p className="text-[11px] text-[#6A7090] italic mb-1">
+                    Drag a chip into the collider chamber or click (+) to inject:
+                  </p>
+                  {currentSidebarChips.map(chip => {
+                    const isLoaded = chamberChips.some(c => c.id === chip.id);
+                    return (
+                      <div
+                        key={chip.id}
+                        draggable
+                        onDragStart={e => handleDragStart(e, chip)}
+                        onClick={() => addChipToChamber(chip)}
+                        className={`group relative p-2.5 rounded-lg border transition-all cursor-grab active:cursor-grabbing select-none ${
+                          isLoaded
+                            ? 'bg-[#191D2E]/50 border-emerald-500/30 text-emerald-300'
+                            : 'bg-[#151826] hover:bg-[#1C2033] border-[#252A42] hover:border-[#3D456B] text-white'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span 
+                              className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: chip.color }}
+                            />
+                            <span className="text-xs font-semibold truncate">{chip.label}</span>
+                          </div>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#1D2136] text-[#8E92B0] border border-[#2D3352] uppercase flex-shrink-0">
+                            {chip.category}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#7E84A3] mt-1 leading-snug line-clamp-2">
+                          {chip.description}
+                        </p>
+                        {chip.tags && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {chip.tags.slice(0, 3).map(tag => (
+                              <span key={tag} className="text-[9px] text-[#5D6488] font-mono">
+                                #{tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {/* Add hover indicator */}
+                        <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <span className="p-1 rounded bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/40">
+                            <Plus className="w-3.5 h-3.5" />
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {currentSidebarChips.length === 0 && (
+                    <div className="text-center py-8 text-xs text-[#5D6488]">
+                      No sonic chips matching query.
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
           </aside>
         )}
 
@@ -385,6 +611,7 @@ export const SonicSector: React.FC<SonicSectorProps> = ({ onSaveToArchive, onOpe
                 isAccelerating={isAccelerating} 
                 isColliding={isColliding} 
                 chipsCount={chamberChips.length}
+                collisionEnergy={collisionEnergy}
               />
 
               {/* Drag Prompt Hint Overlay */}
@@ -481,7 +708,7 @@ export const SonicSector: React.FC<SonicSectorProps> = ({ onSaveToArchive, onOpe
                   </span>
                 </button>
 
-                <div className="flex items-center justify-between text-[11px] text-[#6A7090]">
+                <div className="flex items-center justify-between text-[11px] text-[#6A7090] gap-2 flex-wrap">
                   <button
                     onClick={() => setChamberChips([])}
                     disabled={chamberChips.length === 0}
@@ -490,12 +717,25 @@ export const SonicSector: React.FC<SonicSectorProps> = ({ onSaveToArchive, onOpe
                     <RotateCcw className="w-3 h-3" />
                     <span>Clear Chamber</span>
                   </button>
+
+                  {onSaveCollisionClick && (
+                    <button
+                      onClick={() => onSaveCollisionClick(chamberChips, lastResult)}
+                      disabled={chamberChips.length === 0}
+                      className="text-cyan-400 hover:text-cyan-300 transition-colors flex items-center gap-1 font-mono font-bold"
+                      title="Save current chamber particles, energy, and synthesis"
+                    >
+                      <Save className="w-3 h-3" />
+                      <span>Save Collision</span>
+                    </button>
+                  )}
+
                   <button
                     onClick={onOpenArchive}
                     className="hover:text-cyan-400 transition-colors flex items-center gap-1 font-mono"
                   >
                     <Archive className="w-3 h-3" />
-                    <span>View Archive Vault</span>
+                    <span>Archive Vault</span>
                   </button>
                 </div>
               </div>
@@ -589,6 +829,17 @@ export const SonicSector: React.FC<SonicSectorProps> = ({ onSaveToArchive, onOpe
                     {copiedPrompt ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                     <span>{copiedPrompt ? 'COPIED!' : 'COPY PROMPT'}</span>
                   </button>
+
+                  {onSaveCollisionClick && (
+                    <button
+                      onClick={() => onSaveCollisionClick(chamberChips, lastResult)}
+                      className="px-3 py-1.5 rounded-lg bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 border border-cyan-400/50 text-xs font-mono font-bold flex items-center gap-1.5 transition-all shadow-[0_0_12px_rgba(6,182,212,0.25)]"
+                      title="Save this completed collision with its prompt output"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>SAVE COLLISION</span>
+                    </button>
+                  )}
 
                   <button
                     onClick={handleSaveToArchive}

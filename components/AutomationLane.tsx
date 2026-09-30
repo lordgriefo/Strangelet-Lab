@@ -178,7 +178,8 @@ const AutomationLane: React.FC<AutomationLaneProps> = ({
 
     // In Select or Laser mode: if clicking on blank lane area, add a new point
     if (activeTool === 'select' || activeTool === 'laser_select' || activeTool === 'laser_audio' || activeTool === 'laser_midi' || activeTool === 'beam') {
-      const snappedTime = snapValue === 'freeform' 
+      const isOff = snapValue === 'freeform' || snapValue === 'off';
+      const snappedTime = isOff 
         ? time 
         : Math.max(0, Math.min(1, snapToGrid(time * 16, snapValue) / 16));
       
@@ -228,7 +229,7 @@ const AutomationLane: React.FC<AutomationLaneProps> = ({
       } else if (isLast && points[points.length - 1].time === 1) {
         newTime = 1;
       } else {
-        if (snapValue !== 'freeform' && !e.altKey) {
+        if (snapValue !== 'freeform' && snapValue !== 'off' && !e.altKey) {
           const snappedBar = snapToGrid(rawTime * 16, snapValue);
           newTime = Math.max(0.001, Math.min(0.999, snappedBar / 16));
         }
