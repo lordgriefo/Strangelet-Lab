@@ -1,6 +1,78 @@
 // Web Audio synthesizer for Retro Sci-Fi Laser Beams & David Lynchian Surrealist Audio FX
 
 let sharedAudioContext: AudioContext | null = null;
+// Studio Recording Safety Standard:
+// In professional DAW software, interface feedback sounds (clicks, beeps, laser chirps) MUST be muted by default.
+// Unwanted UI sounds cause acoustic bleed into studio microphones, headphone monitor bleed during tracking,
+// corrupt loopback recording streams, and interfere with critical mixing and mastering decisions.
+let isUiSoundFxMuted: boolean = true;
+let isRecordingSafetyLockActive: boolean = false;
+
+// Initialize state from localStorage if available (default: MUTED for recording safety)
+if (typeof window !== 'undefined') {
+  try {
+    const hasExplicitOptIn = localStorage.getItem('strangelet_ui_sound_fx_explicit_opt_in');
+    const saved = localStorage.getItem('strangelet_ui_sound_fx_muted');
+    if (hasExplicitOptIn === 'true' && saved !== null) {
+      isUiSoundFxMuted = saved === 'true';
+    } else {
+      // Default to Studio Silent / Recording Safety Mode
+      isUiSoundFxMuted = true;
+      localStorage.setItem('strangelet_ui_sound_fx_muted', 'true');
+    }
+  } catch (e) {
+    // Ignore localStorage access issues
+  }
+}
+
+const uiSoundListeners = new Set<(muted: boolean) => void>();
+
+export function isUiSoundMuted(): boolean {
+  return isUiSoundFxMuted;
+}
+
+export function setUiSoundMuted(muted: boolean) {
+  isUiSoundFxMuted = muted;
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('strangelet_ui_sound_fx_muted', String(muted));
+      localStorage.setItem('strangelet_ui_sound_fx_explicit_opt_in', 'true');
+    }
+  } catch (e) {}
+  uiSoundListeners.forEach(cb => {
+    try {
+      cb(muted);
+    } catch (_) {}
+  });
+}
+
+export function toggleUiSoundMuted(): boolean {
+  const next = !isUiSoundFxMuted;
+  setUiSoundMuted(next);
+  return next;
+}
+
+export function subscribeUiSoundMute(cb: (muted: boolean) => void): () => void {
+  uiSoundListeners.add(cb);
+  cb(isUiSoundFxMuted);
+  return () => {
+    uiSoundListeners.delete(cb);
+  };
+}
+
+/**
+ * Recording Safety Guard:
+ * When active (e.g. any audio track is armed for recording or live microphone session is open),
+ * all UI clicks, laser sweeps, and navigation beeps are strictly suppressed with zero latency
+ * to guarantee that no accidental UI sound bleeds into the take.
+ */
+export function setRecordingSafetyGuard(active: boolean) {
+  isRecordingSafetyLockActive = active;
+}
+
+export function isRecordingSafetyActive(): boolean {
+  return isRecordingSafetyLockActive;
+}
 
 export function getAudioContext(): AudioContext | null {
   try {
@@ -23,6 +95,7 @@ export function getAudioContext(): AudioContext | null {
  * Synthesizes retro-futuristic laser beam sound effects based on beam color/type
  */
 export function playLaserBeamSound(beamType: 'laser_audio' | 'laser_midi' | 'laser_erase' | 'laser_curve' | 'laser_select') {
+  if (isUiSoundFxMuted || isRecordingSafetyLockActive) return;
   try {
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -125,6 +198,7 @@ export function playLaserBeamSound(beamType: 'laser_audio' | 'laser_midi' | 'las
  * - 'tape_rewind': 1960s reel-to-reel motor whirr
  */
 export function playLynchianFx(type: 'owl' | 'silencio' | 'tape_rewind' | 'desert_wind') {
+  if (isUiSoundFxMuted || isRecordingSafetyLockActive) return;
   try {
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -276,6 +350,10 @@ export function isLynchianDroneActive(): boolean {
  * 3. Collision Event: Sub-bass sonic boom (45Hz) + white noise spark burst + harmonic crystal chime
  */
 export function playColliderInjectionSound(onCollisionImpact?: () => void) {
+  if (isUiSoundFxMuted || isRecordingSafetyLockActive) {
+    if (onCollisionImpact) onCollisionImpact();
+    return;
+  }
   try {
     const ctx = getAudioContext();
     if (!ctx) return;

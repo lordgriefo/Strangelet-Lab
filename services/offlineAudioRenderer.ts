@@ -3,10 +3,82 @@
 
 import { Track, Clip } from '../types';
 import { evaluateAutomationAt } from '../lib/audioUtils';
-import { audioBufferToWav } from '../lib/sunoAudioEngine';
+import JSZip from 'jszip';
+
+export type NormalizationMode = 'independent' | 'relative' | 'none';
+
+export function dbToLinearPeak(db: number): number {
+  return Math.min(1.0, Math.max(0.001, Math.pow(10, db / 20)));
+}
+
+/**
+ * Universal WAV encoder supporting 16-bit and 24-bit PCM
+ */
+export function encodeAudioBufferToWav(buffer: AudioBuffer, bitDepth: 16 | 24 = 16): Blob {
+  const numOfChan = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const bytesPerSample = bitDepth === 24 ? 3 : 2;
+  const blockAlign = numOfChan * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = buffer.length * blockAlign;
+  const bufferSize = 44 + dataSize;
+  const arrayBuffer = new ArrayBuffer(bufferSize);
+  const out = new DataView(arrayBuffer);
+
+  let pos = 0;
+  function setUint16(data: number) { out.setUint16(pos, data, true); pos += 2; }
+  function setUint32(data: number) { out.setUint32(pos, data, true); pos += 4; }
+
+  // 'RIFF'
+  out.setUint8(pos++, 0x52); out.setUint8(pos++, 0x49); out.setUint8(pos++, 0x46); out.setUint8(pos++, 0x46);
+  setUint32(bufferSize - 8);
+  // 'WAVE'
+  out.setUint8(pos++, 0x57); out.setUint8(pos++, 0x41); out.setUint8(pos++, 0x56); out.setUint8(pos++, 0x45);
+  // 'fmt '
+  out.setUint8(pos++, 0x66); out.setUint8(pos++, 0x6d); out.setUint8(pos++, 0x74); out.setUint8(pos++, 0x20);
+  setUint32(16); // subchunk1size (16 for PCM)
+  setUint16(1);  // format = 1 (PCM)
+  setUint16(numOfChan);
+  setUint32(sampleRate);
+  setUint32(byteRate);
+  setUint16(blockAlign);
+  setUint16(bitDepth);
+
+  // 'data'
+  out.setUint8(pos++, 0x64); out.setUint8(pos++, 0x61); out.setUint8(pos++, 0x74); out.setUint8(pos++, 0x61);
+  setUint32(dataSize);
+
+  const channels: Float32Array[] = [];
+  for (let i = 0; i < numOfChan; i++) {
+    channels.push(buffer.getChannelData(i));
+  }
+
+  if (bitDepth === 24) {
+    for (let offset = 0; offset < buffer.length; offset++) {
+      for (let ch = 0; ch < numOfChan; ch++) {
+        let sample = Math.max(-1, Math.min(1, channels[ch][offset]));
+        const intVal = sample < 0 ? Math.floor(sample * 0x800000) : Math.floor(sample * 0x7FFFFF);
+        out.setUint8(pos++, intVal & 0xFF);
+        out.setUint8(pos++, (intVal >> 8) & 0xFF);
+        out.setUint8(pos++, (intVal >> 16) & 0xFF);
+      }
+    }
+  } else {
+    for (let offset = 0; offset < buffer.length; offset++) {
+      for (let ch = 0; ch < numOfChan; ch++) {
+        let sample = Math.max(-1, Math.min(1, channels[ch][offset]));
+        const intVal = sample < 0 ? Math.floor(sample * 0x8000) : Math.floor(sample * 0x7FFF);
+        out.setInt16(pos, intVal, true);
+        pos += 2;
+      }
+    }
+  }
+
+  return new Blob([out], { type: 'audio/wav' });
+}
 
 export interface ExportOptions {
-  sampleRate: number; // 44100, 48000, 96000
+  sampleRate: number; // 44100, 48000, 88200, 96000, 192000
   bitDepth: 16 | 24;
   totalBars: number;
   tempo: number;
@@ -14,11 +86,40 @@ export interface ExportOptions {
   normalize: boolean;
   limiter: boolean;
   filename?: string;
+  normalizationTargetDb?: number; // e.g. -0.1, -0.35, -1.0, -3.0 dBFS
+  normalizeMode?: NormalizationMode;
   range?: {
     startBar: number;
     endBar: number;
   };
   onProgress?: (percent: number, statusText: string) => void;
+}
+
+export interface BatchStemExportOptions extends ExportOptions {
+  includeManifest?: boolean;
+  dryStems?: boolean; // If true: 0dB fader & center pan; if false: includes mixer track volume & pan & automation
+  namingFormat?: 'numbered' | 'clean' | 'detailed'; // e.g. "01_Drums.wav" vs "Drums_Stem.wav"
+  trackIds?: string[]; // Optional subset of track IDs; defaults to all active tracks
+}
+
+export interface StemExportItem {
+  trackId: string;
+  trackName: string;
+  filename: string;
+  blob: Blob;
+  sizeBytes: number;
+  durationSeconds: number;
+  peakDb?: number;
+}
+
+export interface BatchExportResult {
+  zipBlob: Blob;
+  downloadUrl: string;
+  zipFilename: string;
+  stems: StemExportItem[];
+  totalSizeBytes: number;
+  activeTrackCount: number;
+  durationSeconds: number;
 }
 
 export interface ExportResult {
@@ -167,15 +268,18 @@ export class OfflineAudioRenderer {
     // Run offline bounce
     const renderedBuffer = await offlineCtx.startRendering();
 
-    onProgress?.(85, 'Normalizing & encoding 16-bit PCM WAV container...');
+    onProgress?.(85, `Normalizing & encoding ${options.bitDepth || 16}-bit PCM WAV container...`);
 
-    // Optional Normalization to -0.3 dBFS peak
-    if (normalize) {
-      this.normalizeBuffer(renderedBuffer, 0.96);
+    // Optional Normalization to target dBFS peak
+    if (normalize && options.normalizeMode !== 'none') {
+      const targetCeiling = options.normalizationTargetDb !== undefined 
+        ? dbToLinearPeak(options.normalizationTargetDb) 
+        : 0.96;
+      this.normalizeBuffer(renderedBuffer, targetCeiling);
     }
 
-    // Convert AudioBuffer to WAV Blob
-    const wavBlob = audioBufferToWav(renderedBuffer);
+    // Convert AudioBuffer to WAV Blob with requested bit depth
+    const wavBlob = encodeAudioBufferToWav(renderedBuffer, options.bitDepth || 16);
     const downloadUrl = URL.createObjectURL(wavBlob);
 
     const safeProjectName = (options.filename || `Strangelet_Mix_${tempo}BPM_${Date.now()}`)
@@ -193,6 +297,257 @@ export class OfflineAudioRenderer {
       fileSizeBytes: wavBlob.size,
       sampleRate,
       channels: 2
+    };
+  }
+
+  /**
+   * Renders a single track to a pristine stereo 16-bit or 24-bit PCM WAV Blob
+   */
+  public async renderTrackStem(
+    track: Track,
+    options: ExportOptions,
+    dryStem: boolean = false
+  ): Promise<{ blob: Blob; durationSeconds: number; sizeBytes: number; peakDb: number }> {
+    const {
+      sampleRate = 44100,
+      totalBars = 16,
+      tempo = 120,
+      normalize = true,
+      bitDepth = 16,
+      range
+    } = options;
+
+    const secondsPerBeat = 60 / tempo;
+    const secondsPerBar = secondsPerBeat * 4;
+
+    const startBar = range ? Math.max(0, range.startBar) : 0;
+    const endBar = range ? Math.min(totalBars, range.endBar) : totalBars;
+    const renderBars = Math.max(1, endBar - startBar);
+    
+    // Add 1.5 seconds tail for natural decay / reverb ring-out
+    const durationSeconds = renderBars * secondsPerBar + 1.5;
+    const totalFrames = Math.ceil(durationSeconds * sampleRate);
+
+    const offlineCtx = new OfflineAudioContext(track.isMono ? 1 : 2, totalFrames, sampleRate);
+
+    const trackGain = offlineCtx.createGain();
+    const trackPan = offlineCtx.createStereoPanner();
+
+    if (dryStem) {
+      // Dry unity gain & center pan
+      trackGain.gain.setValueAtTime(1.0, 0);
+      trackPan.pan.setValueAtTime(0, 0);
+    } else {
+      const baseVolume = track.phaseInverted ? -track.volume : track.volume;
+      trackGain.gain.setValueAtTime(baseVolume, 0);
+      trackPan.pan.setValueAtTime(track.pan, 0);
+
+      if (track.automation?.volume?.enabled && track.automation.volume.points.length > 0) {
+        const points = [...track.automation.volume.points].sort((a, b) => a.time - b.time);
+        points.forEach(pt => {
+          const timeSec = pt.time * (renderBars * secondsPerBar);
+          const val = track.phaseInverted ? -pt.value : pt.value;
+          trackGain.gain.linearRampToValueAtTime(val, Math.max(0.01, timeSec));
+        });
+      }
+
+      if (track.automation?.pan?.enabled && track.automation.pan.points.length > 0) {
+        const points = [...track.automation.pan.points].sort((a, b) => a.time - b.time);
+        points.forEach(pt => {
+          const timeSec = pt.time * (renderBars * secondsPerBar);
+          trackPan.pan.linearRampToValueAtTime(pt.value, Math.max(0.01, timeSec));
+        });
+      }
+    }
+
+    trackGain.connect(trackPan);
+    trackPan.connect(offlineCtx.destination);
+
+    // Render clips on this track
+    const clips = track.clips || [];
+    if (clips.length > 0) {
+      for (const clip of clips) {
+        const clipStartSec = Math.max(0, (clip.startBar - startBar) * secondsPerBar);
+        const clipDurSec = (clip.durationBars || 2) * secondsPerBar;
+
+        if (clip.audioUrl) {
+          try {
+            const res = await fetch(clip.audioUrl);
+            const arrayBuffer = await res.arrayBuffer();
+            const audioBuffer = await offlineCtx.decodeAudioData(arrayBuffer);
+
+            const sourceNode = offlineCtx.createBufferSource();
+            sourceNode.buffer = audioBuffer;
+            sourceNode.connect(trackGain);
+            sourceNode.start(clipStartSec, 0, Math.min(clipDurSec, audioBuffer.duration));
+          } catch (_) {
+            this.synthesizeTrackEvent(offlineCtx, track, clip, clipStartSec, clipDurSec, trackGain, tempo);
+          }
+        } else {
+          this.synthesizeTrackEvent(offlineCtx, track, clip, clipStartSec, clipDurSec, trackGain, tempo);
+        }
+      }
+    } else {
+      const fullTrackDur = renderBars * secondsPerBar;
+      this.synthesizeContinuousTrack(offlineCtx, track, 0, fullTrackDur, trackGain, tempo);
+    }
+
+    const renderedBuffer = await offlineCtx.startRendering();
+
+    // Measure peak before/after normalization
+    const targetCeiling = options.normalizationTargetDb !== undefined 
+      ? dbToLinearPeak(options.normalizationTargetDb) 
+      : 0.96;
+
+    if (normalize && options.normalizeMode !== 'none') {
+      this.normalizeBuffer(renderedBuffer, targetCeiling);
+    }
+
+    // Calculate final peak level in dBFS
+    let maxVal = 0;
+    for (let c = 0; c < renderedBuffer.numberOfChannels; c++) {
+      const data = renderedBuffer.getChannelData(c);
+      for (let i = 0; i < data.length; i++) {
+        const abs = Math.abs(data[i]);
+        if (abs > maxVal) maxVal = abs;
+      }
+    }
+    const peakDb = maxVal > 0.0001 ? Number((20 * Math.log10(maxVal)).toFixed(1)) : -96.0;
+
+    const wavBlob = encodeAudioBufferToWav(renderedBuffer, bitDepth);
+    return {
+      blob: wavBlob,
+      durationSeconds,
+      sizeBytes: wavBlob.size,
+      peakDb
+    };
+  }
+
+  /**
+   * Batch exports all active tracks as individual WAV files in a single zipped archive
+   */
+  public async renderBatchStemsZip(
+    tracks: Track[],
+    options: BatchStemExportOptions
+  ): Promise<BatchExportResult> {
+    const {
+      tempo = 120,
+      filename,
+      dryStems = false,
+      namingFormat = 'numbered',
+      includeManifest = true,
+      trackIds,
+      onProgress
+    } = options;
+
+    const anySoloed = tracks.some(t => t.soloed);
+    let targetTracks = tracks.filter(t => !t.muted && (!anySoloed || t.soloed));
+    
+    if (trackIds && trackIds.length > 0) {
+      targetTracks = targetTracks.filter(t => trackIds.includes(t.id));
+    }
+
+    if (targetTracks.length === 0) {
+      throw new Error('No active tracks selected for batch export.');
+    }
+
+    const zip = new JSZip();
+    const stems: StemExportItem[] = [];
+    let totalSizeBytes = 0;
+    let maxDurationSeconds = 0;
+
+    onProgress?.(5, `Initializing batch stem bounce for ${targetTracks.length} active tracks...`);
+
+    for (let i = 0; i < targetTracks.length; i++) {
+      const track = targetTracks[i];
+      const trackIndex = i + 1;
+      const indexPrefix = String(trackIndex).padStart(2, '0');
+      
+      const safeTrackName = track.name
+        .replace(/[^a-zA-Z0-9_-]/g, '_')
+        .replace(/_+/g, '_');
+
+      let stemFilename = `${indexPrefix}_${safeTrackName}.wav`;
+      if (namingFormat === 'clean') {
+        stemFilename = `${safeTrackName}_Stem.wav`;
+      } else if (namingFormat === 'detailed') {
+        stemFilename = `${indexPrefix}_${safeTrackName}_${tempo}BPM_${options.sampleRate || 44100}Hz.wav`;
+      }
+
+      const stepProgress = 5 + Math.round((i / targetTracks.length) * 75);
+      onProgress?.(stepProgress, `Rendering stem [${i + 1}/${targetTracks.length}]: ${track.name}...`);
+
+      const stemResult = await this.renderTrackStem(track, options, dryStems);
+      
+      zip.file(stemFilename, stemResult.blob);
+      totalSizeBytes += stemResult.sizeBytes;
+      maxDurationSeconds = Math.max(maxDurationSeconds, stemResult.durationSeconds);
+
+      stems.push({
+        trackId: track.id,
+        trackName: track.name,
+        filename: stemFilename,
+        blob: stemResult.blob,
+        sizeBytes: stemResult.sizeBytes,
+        durationSeconds: stemResult.durationSeconds,
+        peakDb: stemResult.peakDb
+      });
+    }
+
+    if (includeManifest) {
+      const manifestContent = [
+        `======================================================================`,
+        `STRANGELET LAB - BATCH STEM MULTITRACK ARCHIVE MANIFEST`,
+        `======================================================================`,
+        `Project / Session: ${filename || 'Strangelet_Project'}`,
+        `Tempo: ${tempo} BPM`,
+        `Sample Rate: ${options.sampleRate || 44100} Hz`,
+        `Bit Depth: ${options.bitDepth || 16}-bit PCM WAV`,
+        `Export Timestamp: ${new Date().toISOString()}`,
+        `Total Active Stems: ${stems.length}`,
+        `Stem Mode: ${dryStems ? 'Dry Unity Gain (0dB Fader, Center Pan)' : 'Bounced with Channel Mix & Automation'}`,
+        `----------------------------------------------------------------------`,
+        `STEM TRACKS:`,
+        ...stems.map((s, idx) => `  ${String(idx + 1).padStart(2, '0')}. ${s.filename.padEnd(36)} [${(s.sizeBytes / (1024 * 1024)).toFixed(2)} MB | ${s.durationSeconds.toFixed(1)}s]`),
+        `----------------------------------------------------------------------`,
+        `DAW Compatibility: Ableton Live, Pro Tools, Logic Pro, FL Studio, Reaper`,
+        `Generated via Strangelet Lab Offline Audio Multitrack Engine`,
+        `======================================================================`
+      ].join('\n');
+
+      zip.file('SESSION_MANIFEST.txt', manifestContent);
+    }
+
+    onProgress?.(82, `Compressing ${stems.length} WAV stems into zip archive...`);
+
+    const zipBlob = await zip.generateAsync(
+      { 
+        type: 'blob', 
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 }
+      },
+      (metadata) => {
+        const zipProg = 82 + Math.round(metadata.percent * 0.16);
+        onProgress?.(zipProg, `Compressing zip archive: ${metadata.percent.toFixed(0)}%...`);
+      }
+    );
+
+    const safeProjectName = (filename || `Strangelet_Stems_${tempo}BPM_${Date.now()}`)
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .replace(/_+/g, '_');
+    const zipFilename = safeProjectName.endsWith('.zip') ? safeProjectName : `${safeProjectName}.zip`;
+    const downloadUrl = URL.createObjectURL(zipBlob);
+
+    onProgress?.(100, `Batch export complete! ${stems.length} tracks zipped.`);
+
+    return {
+      zipBlob,
+      downloadUrl,
+      zipFilename,
+      stems,
+      totalSizeBytes: zipBlob.size,
+      activeTrackCount: stems.length,
+      durationSeconds: maxDurationSeconds
     };
   }
 
@@ -412,6 +767,19 @@ export class OfflineAudioRenderer {
     anchor.click();
     document.body.removeChild(anchor);
     setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+
+  /**
+   * Helper to download all stems as individual WAV files directly to the browser
+   */
+  public static async downloadAllStemsIndividually(stems: StemExportItem[], staggerMs: number = 250): Promise<void> {
+    for (let i = 0; i < stems.length; i++) {
+      const stem = stems[i];
+      OfflineAudioRenderer.downloadBlob(stem.blob, stem.filename);
+      if (i < stems.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, staggerMs));
+      }
+    }
   }
 }
 

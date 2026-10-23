@@ -12,10 +12,11 @@ import { AceStepLoopDesigner } from './AceStepLoopDesigner';
 import { FaustDspLab } from './FaustDspLab';
 import { BasicPitchModal } from './BasicPitchModal';
 import { MidiEditor } from './MidiEditor';
+import { BatchStemExportModal } from './BatchStemExportModal';
 import { 
   Settings2, Play, Pause, Square, Repeat, Rewind, Workflow, 
   CircleDot, Mic, Zap, Sparkles, Radio, Music, Download, Crosshair, Pin, Split, Code2, Keyboard,
-  Magnet
+  Magnet, BarChart3, FolderArchive, Activity, Plus, Upload, ChevronDown, Sliders, Disc
 } from 'lucide-react';
 import { audioService } from '../services/audioService';
 import { evaluateAutomationAt, snapToGrid } from '../lib/audioUtils';
@@ -24,6 +25,9 @@ import { playLaserBeamSound } from '../lib/laserSound';
 import { masterAudioBus } from '../lib/masterBus';
 import { midiToNoteName } from '../services/basicPitchService';
 import { MidiNoteEvent } from '../types';
+import { UndoRedoControls } from './UndoRedoControls';
+import { AutoSaveIndicator } from './AutoSaveIndicator';
+import { projectHistory } from '../services/projectHistoryService';
 
 const TOTAL_BARS = 16;
 
@@ -50,6 +54,15 @@ interface MixerProps {
   onOpenFaustDspLab?: () => void;
   onApplySongBedToMixer?: (songBed: AceStepSongBedResult) => void;
   onOpenBasicPitch?: (stemCategory?: 'vocals' | 'bass' | 'drums' | 'instruments' | 'full', songTitle?: string, buffer?: AudioBuffer | null) => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  onManualSave?: () => void;
+  onRestoreAutoSave?: () => void;
+  lastSavedTimestamp?: number | null;
+  isAutoArmMode?: boolean;
+  onToggleAutoArm?: () => void;
+  selectedTrackId?: string | null;
+  onSelectTrack?: (trackId: string) => void;
 }
 
 const Mixer: React.FC<MixerProps> = ({ 
@@ -68,11 +81,67 @@ const Mixer: React.FC<MixerProps> = ({
   onOpenAceStepDesigner,
   onOpenFaustDspLab,
   onApplySongBedToMixer,
-  onOpenBasicPitch
+  onOpenBasicPitch,
+  onUndo,
+  onRedo,
+  onManualSave,
+  onRestoreAutoSave,
+  lastSavedTimestamp,
+  isAutoArmMode: propAutoArmMode,
+  onToggleAutoArm: propOnToggleAutoArm,
+  selectedTrackId: propSelectedTrackId,
+  onSelectTrack: propOnSelectTrack
 }) => {
   const [internalTracks, setInternalTracks] = useState<Track[]>(INITIAL_TRACKS);
   const tracks = externalTracks ?? internalTracks;
   const setTracks = externalSetTracks ?? setInternalTracks;
+
+  const [internalAutoArmMode, setInternalAutoArmMode] = useState<boolean>(() => {
+    return localStorage.getItem('strangelet_auto_arm_mode') !== 'false';
+  });
+  const isAutoArm = propAutoArmMode ?? internalAutoArmMode;
+
+  const [internalSelectedTrackId, setInternalSelectedTrackId] = useState<string | null>(() => {
+    const armed = (externalTracks ?? INITIAL_TRACKS).find(t => t.isArmedForRecord);
+    return armed ? armed.id : ((externalTracks ?? INITIAL_TRACKS)[0]?.id || null);
+  });
+  const selectedTrackId = propSelectedTrackId ?? internalSelectedTrackId;
+
+  const handleSelectTrack = (trackId: string) => {
+    if (propOnSelectTrack) {
+      propOnSelectTrack(trackId);
+    } else {
+      setInternalSelectedTrackId(trackId);
+      if (isAutoArm) {
+        setTracks(prev => prev.map(t => ({
+          ...t,
+          isArmedForRecord: t.id === trackId
+        })));
+      }
+    }
+  };
+
+  const handleToggleAutoArm = () => {
+    if (propOnToggleAutoArm) {
+      propOnToggleAutoArm();
+    } else {
+      setInternalAutoArmMode(prev => {
+        const next = !prev;
+        localStorage.setItem('strangelet_auto_arm_mode', String(next));
+        if (next) {
+          const targetId = selectedTrackId || tracks[0]?.id;
+          if (targetId) {
+            setTracks(prev => prev.map(t => ({
+              ...t,
+              isArmedForRecord: t.id === targetId
+            })));
+          }
+        }
+        return next;
+      });
+    }
+    playLaserBeamSound('laser_select');
+  };
 
   const [internalTempo, setInternalTempo] = useState<number>(120);
   const tempo = externalTempo ?? internalTempo;
@@ -90,6 +159,8 @@ const Mixer: React.FC<MixerProps> = ({
   const [masterGain, setMasterGain] = useState(0.25);
   const [selectedMidiData, setSelectedMidiData] = useState<{ trackName: string, data: string } | null>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
+  const [exportModalInitialMode, setExportModalInitialMode] = useState<'mix' | 'stems'>('mix');
+  const [isBatchStemExportOpen, setIsBatchStemExportOpen] = useState<boolean>(false);
   const [isBeatmapperOpen, setIsBeatmapperOpen] = useState<boolean>(false);
   const [beatmapInitialTrackId, setBeatmapInitialTrackId] = useState<string | undefined>(undefined);
   const [isBeamSplitterOpen, setIsBeamSplitterOpen] = useState<boolean>(false);
@@ -115,6 +186,40 @@ const Mixer: React.FC<MixerProps> = ({
     { id: 'outro', position: 0.875, label: 'Outro' }
   ]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isAceStepStripOpen, setIsAceStepStripOpen] = useState<boolean>(() => {
+    return localStorage.getItem('strangelet_acestep_strip_open') === 'true';
+  });
+  const [isVegasDeckOpen, setIsVegasDeckOpen] = useState<boolean>(() => {
+    return localStorage.getItem('strangelet_vegas_deck_open') !== 'false';
+  });
+
+  const handleAddAudioTrack = () => {
+    const newId = `track-audio-${Date.now()}`;
+    const newTrack: Track = {
+      id: newId,
+      name: `Audio Track ${tracks.length + 1}`,
+      type: 'audio',
+      volume: 0.8,
+      pan: 0,
+      muted: false,
+      soloed: false,
+      color: '#10B981',
+      phaseInverted: false,
+      isMono: false,
+      vstBypassed: true,
+      isArmedForRecord: isAutoArm ? true : false,
+      clips: []
+    };
+    projectHistory.pushSnapshot('Add Audio Track', tracks, tempo);
+    playLaserBeamSound('laser_audio');
+    if (isAutoArm) {
+      if (propOnSelectTrack) propOnSelectTrack(newId);
+      else setInternalSelectedTrackId(newId);
+      setTracks(prev => [...prev.map(t => ({ ...t, isArmedForRecord: false })), newTrack]);
+    } else {
+      setTracks(prev => [...prev, newTrack]);
+    }
+  };
   
   const animationFrameRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -133,6 +238,31 @@ const Mixer: React.FC<MixerProps> = ({
     } else {
       setTracks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
     }
+  };
+
+  const handleDeleteTrack = (trackId: string) => {
+    const target = tracks.find(t => t.id === trackId);
+    if (!target) return;
+    projectHistory.pushSnapshot(`Delete Track [${target.name}]`, tracks, tempo);
+    playLaserBeamSound('laser_erase');
+    setTracks(prev => prev.filter(t => t.id !== trackId));
+  };
+
+  const handleDuplicateTrack = (trackId: string) => {
+    const target = tracks.find(t => t.id === trackId);
+    if (!target) return;
+    const duplicated: Track = {
+      ...target,
+      id: `track-dup-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      name: `${target.name} (Copy)`,
+      clips: target.clips.map(c => ({
+        ...c,
+        id: `clip-dup-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+      }))
+    };
+    projectHistory.pushSnapshot(`Duplicate Track [${target.name}]`, tracks, tempo);
+    playLaserBeamSound('laser_curve');
+    setTracks(prev => [...prev, duplicated]);
   };
 
   const handleOpenMidiEditorForTrack = (track: Track) => {
@@ -684,6 +814,7 @@ const Mixer: React.FC<MixerProps> = ({
 
     // When quantizing to a grid, restrict all existing clips' start times to the grid
     if (qVal !== 'off') {
+      projectHistory.pushSnapshot(`Quantize Clips (${qVal})`, tracks, tempo);
       setTracks(prev => prev.map(track => ({
         ...track,
         clips: track.clips.map(clip => {
@@ -700,6 +831,7 @@ const Mixer: React.FC<MixerProps> = ({
 
   const handleSnapAllClips = () => {
     if (snapValue === 'off' || snapValue === 'freeform') return;
+    projectHistory.pushSnapshot(`Snap All Clips to Grid (${snapValue})`, tracks, tempo);
     playLaserBeamSound('laser_curve');
     setTracks(prev => prev.map(track => ({
       ...track,
@@ -714,10 +846,12 @@ const Mixer: React.FC<MixerProps> = ({
     })));
   };
 
+  const selectedTrack = tracks.find(t => t.id === selectedTrackId);
+
   return (
     <div className="h-full flex flex-col p-4 md:p-6 overflow-hidden bg-[#000000]">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4 border-b border-[#1E293B]/70 pb-3">
-        <div className="flex items-center gap-3.5 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap">
           <h2 className="text-xl md:text-2xl font-bold text-white tracking-tight flex items-center gap-2.5">
             <Settings2 className="text-[#FF8C00]" />
             MIXER CONSOLE
@@ -789,112 +923,42 @@ const Mixer: React.FC<MixerProps> = ({
                         durationBars: 4
                       }]
                     };
+                    projectHistory.pushSnapshot(`Import Audio Track [${file.name}]`, tracks, tempo);
                     setTracks([...tracks, newTrack]);
                 }
             }} />
-            {onOpenNewProject && (
-              <button 
-                onClick={onOpenNewProject}
-                className="px-2.5 py-0.5 border border-[#FFD700] text-[#FFD700] rounded text-[10px] font-bold hover:bg-[#FFD700]/20 transition-colors flex items-center gap-1.5"
-                title="Select from pre-configured routing templates"
-              >
-                <Workflow size={12} /> TEMPLATES
-              </button>
-            )}
+
+            {/* Auto-Arm Mode Toggle Button */}
+            <button
+              onClick={handleToggleAutoArm}
+              className={`px-2.5 py-1 rounded text-[11px] font-bold transition-all flex items-center gap-1.5 shadow-sm cursor-pointer border ${
+                isAutoArm
+                  ? 'bg-red-950/70 border-red-500 text-red-300 shadow-[0_0_12px_rgba(239,68,68,0.4)]'
+                  : 'bg-[#0E121E] border-[#252E48] text-[#8C9BBF] hover:text-white hover:border-[#3E4C74]'
+              }`}
+              title={isAutoArm ? "Auto-Arm Mode: ENABLED. Tracks automatically arm for live recording upon selection. Click to disable." : "Auto-Arm Mode: DISABLED. Click to enable automatic track arming on selection."}
+            >
+              <CircleDot size={13} className={isAutoArm ? 'text-red-400 animate-pulse' : 'text-[#8C9BBF]'} />
+              <span>AUTO-ARM: {isAutoArm ? 'ON' : 'OFF'}</span>
+            </button>
+
+            {/* + Add Audio Track */}
+            <button 
+              onClick={handleAddAudioTrack}
+              className="px-2.5 py-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded text-[11px] font-bold transition-all flex items-center gap-1.5 shadow-[0_0_10px_rgba(16,185,129,0.3)] cursor-pointer"
+              title="Add a new blank Audio track to arrangement"
+            >
+              <Plus size={13} />
+              <span>+ AUDIO</span>
+            </button>
+
+            {/* + Add MIDI Track */}
             <button 
               onClick={() => {
-                setBeatmapInitialTrackId(undefined);
-                setIsBeatmapperOpen(true);
-              }}
-              className="px-2.5 py-0.5 border border-[#00F0FF] bg-[#00F0FF]/15 text-[#00F0FF] font-black rounded text-[10px] hover:bg-[#00F0FF] hover:text-black transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(0,240,255,0.3)]"
-              title="Chrono-Pin Tempo Mapper: Map audio tempo & align project tracks to the same BPM"
-            >
-              <Crosshair size={12} className="text-[#FFD700] animate-spin" style={{ animationDuration: '8s' }} />
-              <span>CHRONO-PIN MAPPER</span>
-            </button>
-            <button 
-              onClick={() => {
-                setBeamSplitterSourceTrackId(undefined);
-                setIsBeamSplitterOpen(true);
-              }}
-              className="px-2.5 py-0.5 border border-[#FF2E63] bg-[#FF2E63]/15 text-[#FF2E63] font-black rounded text-[10px] hover:bg-gradient-to-r hover:from-[#FF2E63] hover:to-[#FFD700] hover:text-black transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(255,46,99,0.3)]"
-              title="Beam Splitter & Optical Prism Chopper: Slices loops and refracts beats into single hits"
-            >
-              <Split size={12} className="text-[#00F0FF] transform -rotate-45" />
-              <span>BEAM SPLITTER</span>
-            </button>
-            <button 
-              onClick={() => {
-                if (onOpenAceStepDesigner) {
-                  onOpenAceStepDesigner();
-                } else {
-                  setIsAceStepOpen(true);
-                }
-              }}
-              className="px-2.5 py-0.5 border border-[#EC4899] bg-[#EC4899]/15 text-[#EC4899] font-black rounded text-[10px] hover:bg-gradient-to-r hover:from-[#EC4899] hover:to-[#00F0FF] hover:text-black transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(236,72,153,0.35)]"
-              title="Ace-Step 1.5 GGUF: Synthesize bar-synced neural loops & stems directly into mixer channels"
-            >
-              <Sparkles size={12} className="text-[#00F0FF] animate-pulse" />
-              <span>ACE-STEP 1.5 LOOPS</span>
-            </button>
-            <button 
-              onClick={() => {
-                if (onOpenFaustDspLab) {
-                  onOpenFaustDspLab();
-                } else {
-                  setIsFaustDspOpen(true);
-                }
-              }}
-              className="px-2.5 py-0.5 border border-cyan-400 bg-cyan-950/40 text-cyan-300 font-black rounded text-[10px] hover:bg-cyan-500 hover:text-black transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(6,182,212,0.3)]"
-              title="Faust DSP Toy Lab: Build boutique effects & instrument toys with live sliders in real-time Web Audio"
-            >
-              <Code2 size={12} className="text-cyan-400" />
-              <span>FAUST DSP TOYS</span>
-            </button>
-            <button 
-              onClick={() => {
-                if (onOpenBasicPitch) {
-                  onOpenBasicPitch('instruments', 'Mixer Audio Track', null);
-                } else {
-                  setBasicPitchInitialStem('instruments');
-                  setIsBasicPitchOpen(true);
-                }
-                playLaserBeamSound('laser_select');
-              }}
-              className="px-2.5 py-0.5 border border-emerald-500 bg-emerald-950/40 text-emerald-300 font-black rounded text-[10px] hover:bg-emerald-500 hover:text-black transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(16,185,129,0.3)]"
-              title="Spotify Basic Pitch: Polyphonic neural audio-to-MIDI transcription with sample-based VSTi instruments"
-            >
-              <Keyboard size={12} className="text-emerald-400" />
-              <span>BASIC PITCH (AUDIO-TO-MIDI)</span>
-            </button>
-            {onOpenAiMixStep && (
-              <button 
-                onClick={onOpenAiMixStep}
-                className="px-2.5 py-0.5 border border-cyan-400 bg-cyan-950/70 text-cyan-300 font-black rounded text-[10px] hover:bg-cyan-500 hover:text-black transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(6,182,212,0.3)]"
-                title="Incorporate an AI Step into the Mix via KoboldCpp / Quinn 3.7"
-              >
-                <Zap size={12} className="text-amber-400" />
-                <span>AI MIX STEP</span>
-              </button>
-            )}
-            <button 
-              onClick={() => setIsExportModalOpen(true)}
-              className="px-2.5 py-0.5 bg-gradient-to-r from-[#FF8C00] to-[#FFD700] text-black font-extrabold rounded text-[10px] hover:brightness-110 transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(255,140,0,0.4)]"
-              title="Render and export the current arrangement as a .wav file"
-            >
-              <Download size={12} /> EXPORT PROJECT (.WAV)
-            </button>
-            <button 
-              onClick={() => fileInputRef.current?.click()}
-              className="px-2 py-0.5 border border-[#10B981] text-[#10B981] rounded text-[10px] font-bold hover:bg-[#10B981]/20 transition-colors"
-            >
-              IMPORT AUDIO
-            </button>
-            <button 
-              onClick={() => {
+                const newId = Math.random().toString(36).substr(2, 9);
                 const newTrack: Track = {
-                  id: Math.random().toString(36).substr(2, 9),
-                  name: 'New MIDI Track',
+                  id: newId,
+                  name: `MIDI Track ${tracks.length + 1}`,
                   type: 'midi',
                   volume: 0.7,
                   pan: 0,
@@ -904,25 +968,130 @@ const Mixer: React.FC<MixerProps> = ({
                   phaseInverted: false,
                   isMono: false,
                   vstBypassed: false,
+                  isArmedForRecord: isAutoArm ? true : false,
                   clips: []
                 };
-                setTracks([...tracks, newTrack]);
+                projectHistory.pushSnapshot('Add MIDI Track', tracks, tempo);
+                playLaserBeamSound('laser_midi');
+                if (isAutoArm) {
+                  if (propOnSelectTrack) propOnSelectTrack(newId);
+                  else setInternalSelectedTrackId(newId);
+                  setTracks(prev => [...prev.map(t => ({ ...t, isArmedForRecord: false })), newTrack]);
+                } else {
+                  setTracks(prev => [...prev, newTrack]);
+                }
               }}
-              className="px-2 py-0.5 border border-[#A020F0] text-[#A020F0] rounded text-[10px] font-bold hover:bg-[#A020F0]/20 transition-colors"
+              className="px-2.5 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded text-[11px] font-bold transition-all flex items-center gap-1.5 shadow-[0_0_10px_rgba(168,85,247,0.3)] cursor-pointer"
+              title="Add a new blank MIDI track with Piano Roll editor"
             >
-              + ADD MIDI TRACK
+              <Music size={13} />
+              <span>+ MIDI</span>
+            </button>
+
+            {/* Import Audio File */}
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className="px-2.5 py-1 border border-[#10B981]/60 text-[#10B981] hover:bg-[#10B981]/20 rounded text-[11px] font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+              title="Import audio file from local disk"
+            >
+              <Upload size={12} />
+              <span>IMPORT</span>
+            </button>
+
+            {/* Batch Stem Export (.WAV) */}
+            <button 
+              onClick={() => setIsBatchStemExportOpen(true)}
+              className="px-2.5 py-1 border border-[#10B981] bg-[#10B981]/15 text-[#10B981] hover:bg-[#10B981] hover:text-black font-extrabold rounded text-[11px] transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(16,185,129,0.3)] cursor-pointer"
+              title="Batch Stem Export: Export all active tracks as individual WAV files with normalization & sample rate conversion"
+            >
+              <FolderArchive size={12} />
+              <span>STEMS (.WAV)</span>
+            </button>
+
+            {/* Ace-Step Multi-Track Bed & AI Sync Trigger */}
+            <button 
+              onClick={() => {
+                if (onOpenAceStepDesigner) onOpenAceStepDesigner();
+                else setIsAceStepOpen(true);
+              }}
+              className="px-2.5 py-1 border border-pink-500/60 bg-pink-950/30 text-pink-300 hover:bg-pink-600 hover:text-black font-extrabold rounded text-[11px] transition-all flex items-center gap-1.5 shadow-[0_0_10px_rgba(236,72,153,0.25)] cursor-pointer"
+              title="Open Ace-Step 1.5 Multi-Track Generator & Stem Synchronizer"
+            >
+              <Sparkles size={12} className="text-pink-400" />
+              <span>ACE-STEP 1.5</span>
+            </button>
+
+            {/* Toggle 1960s Motif Deck to free vertical mixer space */}
+            <button
+              onClick={() => {
+                setIsVegasDeckOpen(prev => {
+                  const next = !prev;
+                  localStorage.setItem('strangelet_vegas_deck_open', String(next));
+                  return next;
+                });
+              }}
+              className={`px-2 py-1 rounded text-[10px] font-mono border transition-all flex items-center gap-1 cursor-pointer ${
+                isVegasDeckOpen 
+                  ? 'bg-[#181508] border-[#FFD700]/40 text-[#FFD700]' 
+                  : 'bg-[#090C16] border-[#202738] text-[#717C9B] hover:text-white'
+              }`}
+              title={isVegasDeckOpen ? "Hide 1960s Sands & Twin Peaks Motif Deck (Maximizes vertical room for mixer faders & arrangement grid)" : "Show 1960s Sands & Twin Peaks Motif Deck"}
+            >
+              <Disc size={11} className={isVegasDeckOpen ? "text-[#FFD700] animate-spin" : "text-[#717C9B]"} style={{ animationDuration: '4s' }} />
+              <span className="hidden sm:inline font-bold">{isVegasDeckOpen ? 'DECK' : 'DECK'}</span>
             </button>
         </div>
       </div>
+
+      {/* Ace-Step 1.5 Multi-Track Synchronizer Strip (Collapsible) */}
+      {isAceStepStripOpen && (
+        <div className="px-4 py-1.5 bg-gradient-to-r from-pink-950/30 via-[#0B0F1C] to-cyan-950/30 border-b border-[#1E2642] flex items-center justify-between text-xs flex-wrap gap-2 animate-fade-in">
+          <div className="flex items-center gap-2">
+            <Sparkles size={13} className="text-[#00F0FF] animate-pulse" />
+            <span className="text-[11px] font-black tracking-wider text-pink-300 uppercase">
+              ACE-STEP 1.5 NEURAL ENGINE:
+            </span>
+            <span className="text-[11px] text-[#9DA7CB]">
+              Generate multi-track AI song bed & line up track-by-track with armed live recording at Bar 0
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                if (onOpenAceStepDesigner) {
+                  onOpenAceStepDesigner();
+                } else {
+                  setIsAceStepOpen(true);
+                }
+              }}
+              className="px-3 py-1 rounded-lg bg-gradient-to-r from-[#EC4899] to-[#00F0FF] text-black font-black text-[10px] hover:brightness-110 transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(236,72,153,0.3)] cursor-pointer"
+            >
+              <Sparkles size={11} className="text-black" />
+              <span>RUN ACE-STEP & SYNC TO MIXER</span>
+            </button>
+
+            <button
+              onClick={() => setIsBatchStemExportOpen(true)}
+              className="px-3 py-1 rounded-lg bg-[#10B981]/20 border border-[#10B981]/50 text-[#10B981] hover:bg-[#10B981] hover:text-black font-bold text-[10px] transition-all flex items-center gap-1.5 cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.2)]"
+            >
+              <FolderArchive size={11} />
+              <span>BATCH STEM EXPORT (.WAV)</span>
+            </button>
+          </div>
+        </div>
+      )}
       
-      {/* 1960s Vegas & David Lynch Surrealist Motif Deck */}
-      <VegasLynchDeck 
-        activeLaserTool={activeLaserTool}
-        isPlaying={isPlaying}
-        isRecording={isRecording}
-        onToggleMidiKeyboard={() => setIsMidiKeyboardOpen(!isMidiKeyboardOpen)}
-        isMidiKeyboardOpen={isMidiKeyboardOpen}
-      />
+      {/* 1960s Vegas & David Lynch Surrealist Motif Deck (Toggleable) */}
+      {isVegasDeckOpen && (
+        <VegasLynchDeck 
+          activeLaserTool={activeLaserTool}
+          isPlaying={isPlaying}
+          isRecording={isRecording}
+          onToggleMidiKeyboard={() => setIsMidiKeyboardOpen(!isMidiKeyboardOpen)}
+          isMidiKeyboardOpen={isMidiKeyboardOpen}
+        />
+      )}
 
       {/* 1960s Transistor MIDI Synth & Keypad Drawer */}
       <RetroMidiKeyboard 
@@ -1014,6 +1183,9 @@ const Mixer: React.FC<MixerProps> = ({
           setBeamSplitterSourceTrackId(undefined);
           setIsBeatmapperOpen(true);
         }}
+        selectedTrackId={selectedTrackId}
+        onSelectTrack={handleSelectTrack}
+        isAutoArmMode={isAutoArm}
       />
 
       <div className="flex-1 bg-[#000000] border border-[#26619C] p-4 flex justify-around gap-4 overflow-x-auto rounded-xl">
@@ -1048,6 +1220,11 @@ const Mixer: React.FC<MixerProps> = ({
               setBasicPitchInitialStem(stem);
               setIsBasicPitchOpen(true);
             }}
+            onDuplicateTrack={handleDuplicateTrack}
+            onDeleteTrack={handleDeleteTrack}
+            isSelected={track.id === selectedTrackId}
+            onSelect={() => handleSelectTrack(track.id)}
+            isAutoArmMode={isAutoArm}
           />
         ))}
       </div>
@@ -1101,6 +1278,28 @@ const Mixer: React.FC<MixerProps> = ({
           <CircleDot size={14} className={isRecording ? 'animate-ping' : ''} />
           <span>{isRecording ? '● RECORDING' : '● REC'}</span>
         </button>
+
+        {/* Auto-Arm Live Telemetry Indicator & Toggle */}
+        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#0A0D18] border border-[#222B42] rounded-full text-xs font-mono select-none">
+          <button
+            onClick={handleToggleAutoArm}
+            className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold transition-all cursor-pointer ${
+              isAutoArm 
+                ? 'bg-red-500/20 text-red-300 border border-red-500/60 shadow-[0_0_8px_rgba(239,68,68,0.3)]' 
+                : 'text-[#64748B] hover:text-white'
+            }`}
+            title="Auto-Arm Mode: Automatically enables recording for selected track (Click to toggle)"
+          >
+            <CircleDot size={11} className={isAutoArm ? 'text-red-400 animate-pulse' : 'text-[#64748B]'} />
+            <span>AUTO-ARM: {isAutoArm ? 'ON' : 'OFF'}</span>
+          </button>
+          {isAutoArm && selectedTrack && (
+            <span className="text-[10px] text-[#94A3B8] max-w-[110px] truncate hidden lg:inline flex items-center gap-1" title={`Armed Active Track: ${selectedTrack.name}`}>
+              <span className="text-red-400">&bull;</span>
+              <span className="truncate">{selectedTrack.name}</span>
+            </span>
+          )}
+        </div>
 
         {/* Loop */}
         <button 
@@ -1174,6 +1373,7 @@ const Mixer: React.FC<MixerProps> = ({
       {/* Offline Audio Export Project Modal */}
       <ExportProjectModal
         isOpen={isExportModalOpen}
+        initialMode={exportModalInitialMode}
         onClose={() => setIsExportModalOpen(false)}
         tracks={tracks}
         tempo={tempo}
@@ -1208,6 +1408,15 @@ const Mixer: React.FC<MixerProps> = ({
           setBasicPitchAudioBuffer(buffer || null);
           setIsBasicPitchOpen(true);
         }}
+      />
+
+      {/* Dedicated Batch Stem Export Modal (Individual WAVs with Normalization & Resampling) */}
+      <BatchStemExportModal
+        isOpen={isBatchStemExportOpen}
+        onClose={() => setIsBatchStemExportOpen(false)}
+        tracks={tracks}
+        tempo={tempo}
+        loopRange={loopRange}
       />
 
       {/* Ace-Step 1.5 GGUF Neural Loop Designer Modal */}

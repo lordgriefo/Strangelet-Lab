@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { liveRecordingEngine, RecordedTake } from '../lib/liveRecordingEngine';
-import { playLaserBeamSound } from '../lib/laserSound';
 import { Track, Clip } from '../types';
 import { Mic, MicOff, Disc, Volume2, Radio, Check, X, Play, Square, Circle, Sparkles, ChevronRight } from 'lucide-react';
 
@@ -160,8 +159,6 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
     timerRef.current = window.setInterval(() => {
       setElapsedSec((prev) => prev + 0.1);
     }, 100);
-
-    playLaserBeamSound('laser_audio');
   };
 
   // Stop Recording & Auto-Place on Timeline
@@ -196,8 +193,6 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
       } else {
         onAddClipToTrack(targetTrackMode, newClip);
       }
-
-      playLaserBeamSound('laser_audio');
     }
   };
 

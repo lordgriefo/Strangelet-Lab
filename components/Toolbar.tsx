@@ -44,7 +44,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
     { 
       id: 'laser_audio' as ActiveTool, 
       label: 'Blue Laser', 
-      sub: 'Audio Loop Paint',
+      sub: 'Audio Loop Paint & Beam',
       beamColor: '#00F0FF', 
       glow: 'rgba(0,240,255,0.4)', 
       icon: Waves 
@@ -52,7 +52,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
     { 
       id: 'laser_midi' as ActiveTool, 
       label: 'Green Laser', 
-      sub: 'MIDI Matrix Paint',
+      sub: 'MIDI Matrix Paint & Beam',
       beamColor: '#10B981', 
       glow: 'rgba(16,185,129,0.4)', 
       icon: Music 
@@ -135,6 +135,22 @@ const Toolbar: React.FC<ToolbarProps> = ({
           );
         })}
       </div>
+
+      {/* Active Laser Tool Loop Paint Hint Badge */}
+      {(normalizedTool === 'laser_audio' || normalizedTool === 'laser_midi') && (
+        <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#09101E] border border-[#00F0FF]/30 text-[10px] font-mono text-[#00F0FF] shadow-[0_0_8px_rgba(0,240,255,0.15)]">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#00F0FF] animate-pulse" />
+          <span className="font-bold">LOOP PAINT MODE:</span>
+          <span className="text-[#8C9BBF]">Click & drag on any track to beam/paint repeating loops</span>
+        </div>
+      )}
+      {normalizedTool === 'laser_erase' && (
+        <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#1C0D12] border border-[#EF4444]/40 text-[10px] font-mono text-[#EF4444] shadow-[0_0_8px_rgba(239,68,68,0.15)]">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444] animate-pulse" />
+          <span className="font-bold">INCINERATOR:</span>
+          <span className="text-[#8C9BBF]">Click & drag across clips to erase</span>
+        </div>
+      )}
 
       {/* Right controls: All Envelopes & Recording Status */}
       <div className="flex items-center gap-2">

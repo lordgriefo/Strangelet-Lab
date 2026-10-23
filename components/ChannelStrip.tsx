@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Track, Clip } from '../types';
 import Knob from './Knob';
-import { Power, Music, Waves, GitCommit, Sparkles, Zap, Mic, Cpu, Scissors, Sliders, Crosshair, Pin, Split, Keyboard, Activity } from 'lucide-react';
+import { Power, Music, Waves, GitCommit, Sparkles, Zap, Mic, Cpu, Scissors, Sliders, Crosshair, Pin, Split, Keyboard, Activity, Copy, Trash2, CircleDot } from 'lucide-react';
 import VstModal from './VstModal';
 import { evaluateAutomationAt, volumeToDb, panToString } from '../lib/audioUtils';
 import { humanizeMidiNotes } from '../services/basicPitchService';
@@ -17,6 +17,11 @@ interface ChannelStripProps {
   onOpenBeamSplitter?: (trackId: string) => void;
   onOpenBasicPitch?: (track: Track) => void;
   onOpenMidiEditor?: (track: Track) => void;
+  onDuplicateTrack?: (trackId: string) => void;
+  onDeleteTrack?: (trackId: string) => void;
+  isSelected?: boolean;
+  onSelect?: () => void;
+  isAutoArmMode?: boolean;
 }
 
 const Fader: React.FC<{ value: number, onChange: (val: number) => void }> = ({ value, onChange }) => {
@@ -99,7 +104,12 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({
   onOpenBeatmapper,
   onOpenBeamSplitter,
   onOpenBasicPitch,
-  onOpenMidiEditor
+  onOpenMidiEditor,
+  onDuplicateTrack,
+  onDeleteTrack,
+  isSelected = false,
+  onSelect,
+  isAutoArmMode = false
 }) => {
   const { id, name, volume, pan, muted, soloed, color, phaseInverted, isMono, vstBypassed, automation } = track;
   const [isVstModalOpen, setIsVstModalOpen] = useState(false);
@@ -193,7 +203,15 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({
 
   return (
     <div 
-        className="w-40 h-full bg-[#151515] border border-[#333] rounded-lg flex flex-col items-center p-2 relative shrink-0 border-t-4"
+        data-track-id={id}
+        onClick={() => onSelect?.()}
+        className={`w-40 h-full bg-[#151515] border rounded-lg flex flex-col items-center p-2 relative shrink-0 border-t-4 transition-all duration-150 cursor-pointer ${
+          isSelected 
+            ? track.isArmedForRecord
+              ? 'border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.45)] ring-2 ring-red-500/70 bg-[#191416]'
+              : 'border-[#00F0FF] shadow-[0_0_16px_rgba(0,240,255,0.3)] ring-1 ring-[#00F0FF]/60 bg-[#121620]'
+            : 'border-[#333] hover:border-[#555]'
+        }`}
         style={{ borderTopColor: color }}
     >
         {/* VST Modal */}
@@ -208,10 +226,47 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({
 
         {/* VST & Name */}
         <div className="w-full text-center p-2">
-            <button onClick={() => setIsVstModalOpen(true)} className={`w-full flex items-center justify-center gap-2 text-xs py-1 rounded ${vstBypassed ? 'bg-[#222] text-[#666]' : 'bg-[#10B981]/20 text-[#10B981]'}`}>
+            <button onClick={(e) => { e.stopPropagation(); setIsVstModalOpen(true); }} className={`w-full flex items-center justify-center gap-2 text-xs py-1 rounded ${vstBypassed ? 'bg-[#222] text-[#666]' : 'bg-[#10B981]/20 text-[#10B981]'}`}>
                 <Power size={12} /> {vstBypassed ? 'BYPASSED' : 'VST ACTIVE'}
             </button>
-            <p className="font-bold text-white mt-1.5 truncate text-xs">{name}</p>
+            <div className="flex items-center justify-between mt-1.5 px-0.5">
+              <p className="font-bold text-white truncate text-xs flex-1 text-left" title={name}>{name}</p>
+              <div className="flex items-center gap-0.5 shrink-0 ml-1">
+                {onDuplicateTrack && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDuplicateTrack(id); }}
+                    className="p-1 rounded text-[#8C9BBF] hover:text-[#00F0FF] hover:bg-white/10 transition-colors"
+                    title="Duplicate Track (Undoable with Ctrl+Z)"
+                  >
+                    <Copy size={11} />
+                  </button>
+                )}
+                {onDeleteTrack && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDeleteTrack(id); }}
+                    className="p-1 rounded text-[#8C9BBF] hover:text-[#EF4444] hover:bg-white/10 transition-colors"
+                    title="Delete Track (Undoable with Ctrl+Z)"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Selection & Auto-Arm Status Badge */}
+            {isSelected && (
+              <div className={`mt-1.5 px-1.5 py-0.5 rounded text-[8px] font-mono font-bold tracking-wider uppercase flex items-center justify-center gap-1 ${
+                track.isArmedForRecord && isAutoArmMode
+                  ? 'bg-red-500/25 text-red-300 border border-red-500/60 shadow-[0_0_10px_rgba(239,68,68,0.35)] animate-pulse'
+                  : track.isArmedForRecord
+                    ? 'bg-red-950/70 text-red-300 border border-red-800'
+                    : 'bg-[#00F0FF]/15 text-[#00F0FF] border border-[#00F0FF]/40'
+              }`}>
+                <CircleDot size={9} className={track.isArmedForRecord ? "text-red-400 animate-spin" : "text-[#00F0FF]"} />
+                <span>{track.isArmedForRecord && isAutoArmMode ? 'AUTO-ARMED' : track.isArmedForRecord ? 'ARMED' : 'SELECTED'}</span>
+              </div>
+            )}
+
             {track.bus && (
               <div className="mt-1 px-1 py-0.5 rounded bg-[#0A0A10] border border-[#26619C]/60 text-[9px] font-mono text-[#FF8C00] truncate" title={`Bus: ${track.bus}`}>
                 &rarr; {track.bus}
@@ -262,17 +317,26 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({
         {/* Record Arm / Mute / Solo / Phase */}
         <div className="flex gap-1.5 w-full p-1 justify-center">
             <button 
-              onClick={() => updateTrack(id, { isArmedForRecord: !track.isArmedForRecord })} 
+              onClick={(e) => {
+                e.stopPropagation();
+                updateTrack(id, { isArmedForRecord: !track.isArmedForRecord });
+              }} 
               className={`w-full py-1.5 rounded text-[10px] font-bold border transition-all ${
                 track.isArmedForRecord 
                   ? 'bg-[#EF4444] border-white text-white shadow-[0_0_8px_#EF4444] animate-pulse font-black' 
                   : 'bg-[#181014] border-[#3E1B1B] text-[#78350F] hover:text-[#EF4444] hover:border-[#EF4444]'
               }`}
-              title={track.isArmedForRecord ? "Track is Armed for Recording" : "Arm Track for Recording"}
+              title={
+                track.isArmedForRecord 
+                  ? isAutoArmMode && isSelected 
+                    ? "Track Auto-Armed on Selection (Ready for Live Record)" 
+                    : "Track is Armed for Recording" 
+                  : "Arm Track for Recording"
+              }
             >
-              REC
+              {track.isArmedForRecord && isAutoArmMode && isSelected ? 'AUTO REC' : 'REC'}
             </button>
-            <button onClick={() => updateTrack(id, { muted: !muted })} className={`w-full py-1.5 rounded text-xs font-bold border ${muted ? 'bg-red-900 border-red-500 text-red-100' : 'bg-[#000000] border-[#26619C] text-[#666]'}`}>M</button>
+            <button onClick={(e) => { e.stopPropagation(); updateTrack(id, { muted: !muted }); }} className={`w-full py-1.5 rounded text-xs font-bold border ${muted ? 'bg-red-900 border-red-500 text-red-100' : 'bg-[#000000] border-[#26619C] text-[#666]'}`}>M</button>
             <button onClick={() => updateTrack(id, { soloed: !soloed })} className={`w-full py-1.5 rounded text-xs font-bold border ${soloed ? 'bg-yellow-800 border-[#FF8C00] text-[#FF8C00]' : 'bg-[#000000] border-[#26619C] text-[#666]'}`}>S</button>
             <button onClick={() => updateTrack(id, { phaseInverted: !phaseInverted })} className={`w-full py-1.5 rounded text-xs font-bold border ${phaseInverted ? 'bg-[#A020F0]/50 border-[#A020F0] text-white' : 'bg-[#000000] border-[#26619C] text-[#666]'}`}>Ø</button>
         </div>

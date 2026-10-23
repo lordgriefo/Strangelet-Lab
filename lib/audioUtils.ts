@@ -1,9 +1,29 @@
 import { AutomationPoint, TrackAutomation } from '../types';
 
 export const snapToGrid = (value: number, snapValue: string): number => {
-  if (snapValue === 'freeform' || snapValue === 'off') return value;
+  if (!snapValue || snapValue === 'freeform' || snapValue === 'off') return value;
   
-  const [numerator, denominator] = snapValue.split('/').map(Number);
+  // Triplet handling (1 bar = 4 beats)
+  // 1/4T = 1/6 bar, 1/8T = 1/12 bar, 1/16T = 1/24 bar, 1/32T = 1/48 bar
+  if (snapValue === 'triplet' || snapValue === '1/12 T' || snapValue === '1/12' || snapValue === '1/8T') {
+    const gridSize = 1 / 12; // 1/8 note triplet
+    return Number((Math.round(value / gridSize) * gridSize).toFixed(4));
+  }
+  if (snapValue === '1/16T' || snapValue === '1/24') {
+    const gridSize = 1 / 24; // 1/16 note triplet
+    return Number((Math.round(value / gridSize) * gridSize).toFixed(4));
+  }
+  if (snapValue === '1/4T' || snapValue === '1/6') {
+    const gridSize = 1 / 6; // 1/4 note triplet
+    return Number((Math.round(value / gridSize) * gridSize).toFixed(4));
+  }
+  if (snapValue === '1/32T' || snapValue === '1/48') {
+    const gridSize = 1 / 48;
+    return Number((Math.round(value / gridSize) * gridSize).toFixed(4));
+  }
+
+  const cleanSnap = snapValue.replace(/[^\d/]/g, '');
+  const [numerator, denominator] = cleanSnap.split('/').map(Number);
   if (!denominator || isNaN(numerator) || isNaN(denominator)) return value;
   const gridSize = numerator / denominator;
   

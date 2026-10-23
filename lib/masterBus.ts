@@ -98,6 +98,12 @@ class MasterAudioBus {
   private eqBypassed: boolean = false;
   private eqChangeListeners: Set<(bands: ParametricEqBand[], bypassed: boolean) => void> = new Set();
 
+  private compressorNode: DynamicsCompressorNode | null = null;
+  private saturationNode: WaveShaperNode | null = null;
+  private saturationMakeupNode: GainNode | null = null;
+  private compressorBypassed: boolean = false;
+  private saturationBypassed: boolean = false;
+
   private masteringBypassed: boolean = false;
   private masteringBypassListeners: Set<(bypassed: boolean) => void> = new Set();
 
@@ -149,8 +155,124 @@ class MasterAudioBus {
       return filter;
     });
 
-    prevNode.connect(this.analyserNode);
-    this.analyserNode.connect(ctx.destination);
+    // Mastering Bus Dynamics Compressor
+    this.compressorNode = ctx.createDynamicsCompressor();
+    this.compressorNode.threshold.value = -12;
+    this.compressorNode.ratio.value = 2.0;
+    this.compressorNode.attack.value = 0.03;
+    this.compressorNode.release.value = 0.15;
+    this.compressorNode.knee.value = 8.0;
+
+    // Analog Saturation WaveShaper & Makeup Gain
+    this.saturationNode = ctx.createWaveShaper();
+    this.saturationNode.oversample = '4x';
+    this.saturationMakeupNode = ctx.createGain();
+    this.saturationMakeupNode.gain.value = 1.0;
+    this.setSaturationCurve(15, 'clean', 5);
+
+    // Chain: EQ Filters -> Compressor -> Saturation -> Saturation Makeup -> Analyser -> Master Gain -> Destination
+    prevNode.connect(this.compressorNode);
+    this.compressorNode.connect(this.saturationNode);
+    this.saturationNode.connect(this.saturationMakeupNode);
+    this.saturationMakeupNode.connect(this.analyserNode);
+    this.analyserNode.connect(this.masterGainNode);
+    this.masterGainNode.connect(ctx.destination);
+  }
+
+  public getCompressorGainReduction(): number {
+    if (!this.compressorNode || this.compressorBypassed || this.masteringBypassed) return 0;
+    try {
+      return Math.abs(this.compressorNode.reduction);
+    } catch {
+      return 0;
+    }
+  }
+
+  public applyDynamicsAndSaturation(
+    comp: { thresholdDb: number; ratio: number; attackMs: number; releaseMs: number; kneeDb: number; makeupGainDb: number; enabled: boolean },
+    sat: { drivePercent: number; warmthPercent: number; character: 'tape' | 'tube' | 'transformer' | 'console' | 'clean'; asymmetry: number; ceilingDb: number; enabled: boolean }
+  ) {
+    const ctx = this.getAudioContext();
+    const now = ctx.currentTime;
+
+    this.compressorBypassed = !comp.enabled;
+    this.saturationBypassed = !sat.enabled;
+
+    if (this.compressorNode) {
+      if (!comp.enabled || this.masteringBypassed) {
+        this.compressorNode.threshold.setTargetAtTime(0, now, 0.015);
+        this.compressorNode.ratio.setTargetAtTime(1, now, 0.015);
+      } else {
+        this.compressorNode.threshold.setTargetAtTime(Math.max(-40, Math.min(0, comp.thresholdDb)), now, 0.015);
+        this.compressorNode.ratio.setTargetAtTime(Math.max(1, Math.min(20, comp.ratio)), now, 0.015);
+        this.compressorNode.attack.setTargetAtTime(Math.max(0.001, Math.min(0.2, comp.attackMs / 1000)), now, 0.015);
+        this.compressorNode.release.setTargetAtTime(Math.max(0.02, Math.min(1.0, comp.releaseMs / 1000)), now, 0.015);
+        this.compressorNode.knee.setTargetAtTime(Math.max(0, Math.min(24, comp.kneeDb)), now, 0.015);
+      }
+    }
+
+    if (this.saturationNode && this.saturationMakeupNode) {
+      if (!sat.enabled || this.masteringBypassed || sat.drivePercent <= 0) {
+        this.setSaturationLinear();
+        this.saturationMakeupNode.gain.setTargetAtTime(1.0, now, 0.015);
+      } else {
+        this.setSaturationCurve(sat.drivePercent, sat.character, sat.asymmetry);
+        const makeup = Math.pow(10, ((comp.enabled ? comp.makeupGainDb : 0) * 0.5) / 20);
+        this.saturationMakeupNode.gain.setTargetAtTime(Math.max(0.2, Math.min(2.5, makeup)), now, 0.015);
+      }
+    }
+  }
+
+  private setSaturationLinear() {
+    if (!this.saturationNode) return;
+    const n = 1024;
+    const curve = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      curve[i] = (i / (n - 1)) * 2 - 1;
+    }
+    this.saturationNode.curve = curve;
+  }
+
+  private setSaturationCurve(drivePercent: number, character: 'tape' | 'tube' | 'transformer' | 'console' | 'clean', asymmetry: number) {
+    if (!this.saturationNode) return;
+    const n = 2048;
+    const curve = new Float32Array(n);
+    const drive = 1 + (drivePercent / 100) * 3.5;
+    const asym = (asymmetry / 100) * 0.35;
+
+    for (let i = 0; i < n; i++) {
+      let x = (i / (n - 1)) * 2 - 1;
+      let y = x;
+
+      if (character === 'tape') {
+        // Tanh soft saturation with tape compression
+        const driven = (x + asym * x * x) * drive;
+        y = Math.tanh(driven) / Math.tanh(drive);
+      } else if (character === 'tube') {
+        // Asymmetric even-order harmonic saturation
+        const xOffset = x + asym;
+        if (xOffset > 0) {
+          y = (1 - Math.exp(-xOffset * drive)) / (1 - Math.exp(-drive));
+        } else {
+          y = -(1 - Math.exp(xOffset * drive)) / (1 - Math.exp(-drive));
+        }
+      } else if (character === 'transformer') {
+        // Magnetic hysteresis core saturation
+        const driven = x * drive;
+        y = (driven / (1 + Math.abs(driven) * 0.7)) * 1.1;
+      } else if (character === 'console') {
+        // Class-A desk soft-clip sigmoid
+        y = (2 / Math.PI) * Math.atan(x * drive * 1.5);
+      } else {
+        // Clean transparent soft ceiling
+        const driven = x * drive;
+        y = Math.max(-1, Math.min(1, driven));
+      }
+
+      curve[i] = Math.max(-1, Math.min(1, y));
+    }
+
+    this.saturationNode.curve = curve;
   }
 
   public getAnalyser(): AnalyserNode {

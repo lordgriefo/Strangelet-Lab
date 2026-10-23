@@ -36,7 +36,9 @@ import {
   Lock,
   Unlock,
   Magnet,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Undo2,
+  Redo2
 } from 'lucide-react';
 import { MidiNoteEvent, Track, Clip, BasicPitchTranscriptionResult } from '../types';
 import { 
@@ -159,9 +161,39 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
   const [bpm, setBpm] = useState<number>(projectBpm);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([]);
+  const [quantizeLengths, setQuantizeLengths] = useState<boolean>(false);
+  const [undoStack, setUndoStack] = useState<MidiNoteEvent[][]>([]);
+  const [redoStack, setRedoStack] = useState<MidiNoteEvent[][]>([]);
   const [currentVelocity, setCurrentVelocity] = useState<number>(95);
   const [showVelocityLane, setShowVelocityLane] = useState<boolean>(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const pushUndoState = useCallback(() => {
+    setUndoStack(prev => [...prev.slice(-30), notes]);
+    setRedoStack([]);
+  }, [notes]);
+
+  const handleUndo = useCallback(() => {
+    if (undoStack.length === 0) return;
+    const prevNotes = undoStack[undoStack.length - 1];
+    setUndoStack(prev => prev.slice(0, -1));
+    setRedoStack(prev => [...prev, notes]);
+    setNotes(prevNotes);
+    playLaserBeamSound('laser_select');
+    setToastMessage('Undo MIDI edit');
+    setTimeout(() => setToastMessage(null), 2500);
+  }, [undoStack, notes]);
+
+  const handleRedo = useCallback(() => {
+    if (redoStack.length === 0) return;
+    const nextNotes = redoStack[redoStack.length - 1];
+    setRedoStack(prev => prev.slice(0, -1));
+    setUndoStack(prev => [...prev, notes]);
+    setNotes(nextNotes);
+    playLaserBeamSound('laser_select');
+    setToastMessage('Redo MIDI edit');
+    setTimeout(() => setToastMessage(null), 2500);
+  }, [redoStack, notes]);
 
   // MIDI Arpeggiator Module State
   const [arpConfig, setArpConfig] = useState<ArpModuleConfig>({
@@ -219,41 +251,6 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
       if (stopSequenceRef.current) stopSequenceRef.current();
     };
   }, []);
-
-  // Keyboard shortcuts (Space = Play/Pause, Del = Delete selected, 1-3 = Tools, Q = Quantize, Cmd/Ctrl+A = Select All)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
-
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
-        e.preventDefault();
-        const allIds = notes.map(n => n.id);
-        setSelectedNoteIds(allIds);
-        if (allIds.length > 0 && !selectedNoteId) setSelectedNoteId(allIds[0]);
-        showToast(`Selected all ${allIds.length} notes`);
-      } else if (e.code === 'Space') {
-        e.preventDefault();
-        handleTogglePlayback();
-      } else if (e.code === 'Delete' || e.code === 'Backspace') {
-        e.preventDefault();
-        handleDeleteSelected();
-      } else if (e.key === 'q' || e.key === 'Q') {
-        e.preventDefault();
-        handleHeaderQuantize();
-      } else if (e.key === 'v' || e.key === 'V') {
-        setActiveTool('select');
-      } else if (e.key === 'p' || e.key === 'P' || e.key === 'd' || e.key === 'D') {
-        setActiveTool('draw');
-      } else if (e.key === 'e' || e.key === 'E') {
-        setActiveTool('erase');
-      } else if (e.key === 'y' || e.key === 'Y') {
-        setActiveTool('velocity');
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNoteId, selectedNoteIds, isPlaying, playheadBar, notes, bpm, instrument, humanizeEnabled, humanizeAmount, effectiveGlobalSnap]);
 
   // Audio audition for single pitch (also latches into Arpeggiator memory if latch is ON)
   const handleAuditionPitch = (pitch: number) => {
@@ -394,7 +391,14 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
   // Adding a note by clicking in the grid (with Arpeggiator transformation if active)
   const handleGridClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (activeTool === 'erase') return;
+    if (activeTool === 'select') {
+      setSelectedNoteIds([]);
+      setSelectedNoteId(null);
+      return;
+    }
     if (!gridContainerRef.current) return;
+
+    pushUndoState();
 
     const rect = gridContainerRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
@@ -521,37 +525,125 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
     }
   };
 
-  // Quantize currently selected MIDI notes to the project's global snap value (1/4, 1/8, 1/16)
-  const handleHeaderQuantize = () => {
-    const targetSnap = effectiveGlobalSnap;
-    const hasSelection = selectedNoteIds.length > 0;
-    const targetIds = hasSelection 
-      ? new Set(selectedNoteIds) 
-      : (selectedNoteId ? new Set([selectedNoteId]) : new Set(notes.map(n => n.id)));
+  // Quantize selected MIDI notes (or all notes if none selected) to the user's selected snap value
+  const handleQuantizeSelected = (overrideSnap?: string) => {
+    const activeSnap = overrideSnap || snapGrid;
+    if (activeSnap === 'off') {
+      showToast('Grid snap is OFF. Choose 1/4, 1/8, 1/16, 1/32, or Triplet to quantize.');
+      return;
+    }
+
+    if (notes.length === 0) {
+      showToast('No notes in clip to quantize.');
+      return;
+    }
+
+    // Determine target note IDs: selected notes have priority; fallback to all notes if none selected
+    const hasSelection = selectedNoteIds.length > 0 || selectedNoteId !== null;
+    const targetIds = new Set<string>();
+
+    if (selectedNoteIds.length > 0) {
+      selectedNoteIds.forEach(id => targetIds.add(id));
+    } else if (selectedNoteId) {
+      targetIds.add(selectedNoteId);
+    } else {
+      notes.forEach(n => targetIds.add(n.id));
+    }
 
     if (targetIds.size === 0) {
       showToast('No notes to quantize.');
       return;
     }
 
+    // Save history snapshot for undo
+    pushUndoState();
+
+    const secPerBar = (60 / bpm) * 4;
+
     setNotes(prev => prev.map(n => {
-      if (targetIds.has(n.id)) {
-        const snappedStart = snapToGrid(n.startBar, targetSnap);
-        const snappedDur = Math.max(0.0625, snapToGrid(n.durationBars, targetSnap));
-        return {
-          ...n,
-          startBar: Number(snappedStart.toFixed(4)),
-          startTimeSeconds: Number((snappedStart * (60 / bpm) * 4).toFixed(4)),
-          durationBars: Number(snappedDur.toFixed(4)),
-          durationSeconds: Number((snappedDur * (60 / bpm) * 4).toFixed(4))
-        };
+      if (!targetIds.has(n.id)) return n;
+
+      // Snap start position to nearest grid division
+      const rawSnappedStart = snapToGrid(n.startBar, activeSnap);
+      const snappedStart = Math.max(0, Math.min(totalBars - 0.03125, rawSnappedStart));
+
+      // Snap duration if quantizeLengths is enabled, else preserve length
+      let snappedDur = n.durationBars;
+      if (quantizeLengths) {
+        snappedDur = Math.max(0.03125, snapToGrid(n.durationBars, activeSnap));
+      } else {
+        snappedDur = Math.max(0.03125, n.durationBars);
       }
-      return n;
+
+      return {
+        ...n,
+        startBar: Number(snappedStart.toFixed(4)),
+        startTimeSeconds: Number((snappedStart * secPerBar).toFixed(4)),
+        durationBars: Number(snappedDur.toFixed(4)),
+        durationSeconds: Number((snappedDur * secPerBar).toFixed(4))
+      };
     }));
 
     playLaserBeamSound('laser_curve');
-    showToast(`Rhythmic precision locked: Quantized ${targetIds.size} notes to ${targetSnap} grid!`);
+    if (hasSelection) {
+      showToast(`Quantized ${targetIds.size} selected note${targetIds.size === 1 ? '' : 's'} to nearest ${activeSnap} grid!`);
+    } else {
+      showToast(`Quantized all ${notes.length} notes to nearest ${activeSnap} grid!`);
+    }
   };
+
+  // Header quantize alias
+  const handleHeaderQuantize = () => handleQuantizeSelected(effectiveGlobalSnap);
+
+  // Quick quantize alias
+  const handleQuantizeAll = () => handleQuantizeSelected(snapGrid);
+
+  // Keyboard shortcuts (Space = Play/Pause, Del = Delete selected, Q = Quantize selected, Cmd/Ctrl+A = Select All, Cmd/Ctrl+Z = Undo, Cmd/Ctrl+Y = Redo)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        const allIds = notes.map(n => n.id);
+        setSelectedNoteIds(allIds);
+        if (allIds.length > 0 && !selectedNoteId) setSelectedNoteId(allIds[0]);
+        showToast(`Selected all ${allIds.length} notes`);
+      } else if (e.code === 'Space') {
+        e.preventDefault();
+        handleTogglePlayback();
+      } else if (e.code === 'Delete' || e.code === 'Backspace') {
+        e.preventDefault();
+        handleDeleteSelected();
+      } else if (e.key === 'q' || e.key === 'Q') {
+        e.preventDefault();
+        handleQuantizeSelected();
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || e.key === 'Y')) {
+        e.preventDefault();
+        handleRedo();
+      } else if (e.key === 'v' || e.key === 'V') {
+        setActiveTool('select');
+      } else if (e.key === 'p' || e.key === 'P' || e.key === 'd' || e.key === 'D') {
+        setActiveTool('draw');
+      } else if (e.key === 'e' || e.key === 'E') {
+        setActiveTool('erase');
+      } else if (e.key === 'y' || e.key === 'Y') {
+        if (!e.metaKey && !e.ctrlKey) {
+          setActiveTool('velocity');
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedNoteId, selectedNoteIds, isPlaying, playheadBar, notes, bpm, instrument, humanizeEnabled, humanizeAmount, effectiveGlobalSnap, snapGrid, quantizeLengths, undoStack, redoStack, handleQuantizeSelected, handleUndo, handleRedo]);
 
   // Transform selected or incoming MIDI notes with the MIDI Arpeggiator
   const handleTransformNotesWithArpeggiator = () => {
@@ -689,27 +781,6 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
     showToast(`Latched ${preset.toUpperCase()} chord [${pitches.map(p => midiToNoteName(p)).join(', ')}]!`);
   };
 
-  // Quantize all notes
-  const handleQuantizeAll = () => {
-    if (snapGrid === 'off') {
-      showToast('Select a snap division (1/4, 1/8, 1/16) to quantize.');
-      return;
-    }
-    setNotes(prev => prev.map(n => {
-      const snappedStart = snapToGrid(n.startBar, snapGrid);
-      const snappedDuration = Math.max(0.0625, snapToGrid(n.durationBars, snapGrid));
-      return {
-        ...n,
-        startBar: Number(snappedStart.toFixed(4)),
-        startTimeSeconds: Number((snappedStart * (60 / bpm) * 4).toFixed(4)),
-        durationBars: Number(snappedDuration.toFixed(4)),
-        durationSeconds: Number((snappedDuration * (60 / bpm) * 4).toFixed(4))
-      };
-    }));
-    playLaserBeamSound('laser_curve');
-    showToast(`Quantized all ${notes.length} notes to ${snapGrid} grid.`);
-  };
-
   // Apply humanization to all or selected notes
   const handleApplyHumanize = () => {
     if (notes.length === 0) return;
@@ -817,7 +888,7 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
       return;
     }
 
-    if (e.shiftKey) {
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
       setSelectedNoteIds(prev => prev.includes(note.id) ? prev.filter(id => id !== note.id) : [...prev, note.id]);
     } else {
       if (!selectedNoteIds.includes(note.id)) {
@@ -1090,6 +1161,62 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
               <Activity size={13} />
               <span className="hidden md:inline">Velocity</span>
             </button>
+
+            {/* Quick Selection & Undo/Redo Actions */}
+            <div className="flex items-center gap-1 border-l border-[#1A2542] pl-1.5 ml-1">
+              <button
+                onClick={() => {
+                  const allIds = notes.map(n => n.id);
+                  setSelectedNoteIds(allIds);
+                  if (allIds.length > 0) setSelectedNoteId(allIds[0]);
+                  showToast(`Selected all ${allIds.length} notes (Cmd/Ctrl+A)`);
+                }}
+                className="px-2 py-1 rounded-lg text-[10px] font-bold bg-[#141B2D] text-[#8C96B5] hover:text-white hover:bg-[#1E2942] transition-colors"
+                title="Select all MIDI notes in clip (Cmd/Ctrl+A)"
+              >
+                ALL
+              </button>
+
+              {(selectedNoteIds.length > 0 || selectedNoteId) && (
+                <button
+                  onClick={() => {
+                    setSelectedNoteIds([]);
+                    setSelectedNoteId(null);
+                    showToast('Selection cleared');
+                  }}
+                  className="px-2 py-1 rounded-lg text-[10px] font-bold bg-rose-950/60 text-rose-300 border border-rose-500/30 hover:bg-rose-900 transition-colors"
+                  title="Clear note selection"
+                >
+                  NONE
+                </button>
+              )}
+
+              <button
+                onClick={handleUndo}
+                disabled={undoStack.length === 0}
+                className={`p-1 rounded-lg flex items-center justify-center transition-all ${
+                  undoStack.length > 0
+                    ? 'text-[#8C96B5] hover:text-white hover:bg-[#1E2942] cursor-pointer'
+                    : 'text-[#334155] opacity-40 cursor-not-allowed'
+                }`}
+                title="Undo last MIDI edit (Ctrl/Cmd+Z)"
+              >
+                <Undo2 size={13} />
+              </button>
+
+              <button
+                onClick={handleRedo}
+                disabled={redoStack.length === 0}
+                className={`p-1 rounded-lg flex items-center justify-center transition-all ${
+                  redoStack.length > 0
+                    ? 'text-[#8C96B5] hover:text-white hover:bg-[#1E2942] cursor-pointer'
+                    : 'text-[#334155] opacity-40 cursor-not-allowed'
+                }`}
+                title="Redo last MIDI edit (Ctrl/Cmd+Y)"
+              >
+                <Redo2 size={13} />
+              </button>
+            </div>
           </div>
 
           {/* Grid Snap Selector */}
@@ -1098,27 +1225,59 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
             {SNAP_DIVISIONS.map(d => (
               <button
                 key={d.id}
-                onClick={() => setSnapGrid(d.id)}
+                onClick={() => {
+                  setSnapGrid(d.id);
+                  showToast(`Snap grid: ${d.label}`);
+                }}
                 className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-all ${
                   snapGrid === d.id
-                    ? 'bg-emerald-500 text-black'
+                    ? 'bg-emerald-400 text-black font-extrabold shadow-[0_0_8px_#10B981]'
                     : 'text-[#8C96B5] hover:text-white hover:bg-[#161D30]'
                 }`}
+                title={`Set snap grid division to ${d.label}`}
               >
                 {d.label}
               </button>
             ))}
           </div>
 
-          {/* Quick Quantize Button */}
-          <button
-            onClick={handleQuantizeAll}
-            className="px-2.5 py-1.5 rounded-xl bg-[#12192F] border border-[#233256] hover:border-emerald-400 text-emerald-300 font-bold flex items-center gap-1.5 transition-all"
-            title="Snap all note start times and lengths to selected grid"
-          >
-            <Zap size={12} className="text-yellow-400" />
-            <span>QUANTIZE</span>
-          </button>
+          {/* Quantize Action Deck */}
+          <div className="flex items-center gap-1.5 bg-[#060810] px-1.5 py-1 rounded-xl border border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
+            {/* Primary Quantize Button */}
+            <button
+              onClick={() => handleQuantizeSelected()}
+              className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:brightness-110 active:scale-95 text-black font-black text-xs flex items-center gap-1.5 transition-all shadow-[0_0_12px_rgba(16,185,129,0.35)] group cursor-pointer"
+              title={`Snap ${selectedNoteIds.length > 0 ? `${selectedNoteIds.length} selected notes` : (selectedNoteId ? '1 selected note' : 'all notes')} to nearest ${snapGrid} grid division (Press 'Q')`}
+            >
+              <Magnet size={13} className="text-black group-hover:rotate-12 transition-transform" />
+              <span className="tracking-wider">QUANTIZE</span>
+              <span className="px-1.5 py-0.2 rounded bg-black/25 text-emerald-950 font-black text-[10px]">
+                {snapGrid}
+              </span>
+              {(selectedNoteIds.length > 0 || selectedNoteId) && (
+                <span className="px-1.5 py-0.2 rounded bg-black/40 text-emerald-200 font-bold text-[9px]">
+                  {selectedNoteIds.length > 0 ? `${selectedNoteIds.length} SEL` : '1 SEL'}
+                </span>
+              )}
+            </button>
+
+            {/* Note Lengths Quantize Toggle */}
+            <button
+              onClick={() => {
+                const nextVal = !quantizeLengths;
+                setQuantizeLengths(nextVal);
+                showToast(nextVal ? 'Quantize will snap Note Starts AND Lengths' : 'Quantize will snap Note Starts only');
+              }}
+              className={`px-2 py-1 rounded-lg text-[9px] font-bold transition-all ${
+                quantizeLengths
+                  ? 'bg-emerald-950/90 text-emerald-300 border border-emerald-500/50 shadow-[0_0_8px_rgba(16,185,129,0.25)]'
+                  : 'bg-[#12192F] text-[#64748B] hover:text-white'
+              }`}
+              title="Toggle whether note lengths are also snapped to the grid division when quantizing"
+            >
+              LENGTHS: {quantizeLengths ? 'ON' : 'OFF'}
+            </button>
+          </div>
         </div>
 
         {/* MIDI Arpeggiator Module Deck */}

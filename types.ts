@@ -14,7 +14,10 @@ export enum View {
   BEAM_SPLITTER = 'BEAM_SPLITTER',
   ACESTEP_LOOP_DESIGNER = 'ACESTEP_LOOP_DESIGNER',
   FAUST_DSP_LAB = 'FAUST_DSP_LAB',
-  MIDI_EDITOR = 'MIDI_EDITOR'
+  MIDI_EDITOR = 'MIDI_EDITOR',
+  PROJECT_STATS = 'PROJECT_STATS',
+  VOICE_CLONER = 'VOICE_CLONER',
+  SPECTRAL_ANALYSIS = 'SPECTRAL_ANALYSIS'
 }
 
 export interface LoopRange {
@@ -388,19 +391,35 @@ export interface ProjectBinClip {
   keyShortcut?: string;
 }
 
-// KOBOLDCPP & QUINN (GHOST IN THE MACHINE) TYPES
-export type AiEngineType = 'koboldcpp' | 'gemini' | 'simulated';
+// KOBOLDCPP, OLLAMA, LM STUDIO & STRANGELET GURU (GHOST IN THE MACHINE) TYPES
+export type AiEngineType = 'koboldcpp' | 'ollama' | 'lmstudio' | 'gemini' | 'simulated';
+
+export type GhostPersona = 'ghost' | 'quinn' | 'duo_team' | 'strangelet_guru' | 'llama' | 'qwen_abliterated';
+
+export interface DojoScroll {
+  id: string;
+  title: string;
+  category: string;
+  summary: string;
+  content: string;
+  enabled: boolean;
+}
 
 export interface KoboldSettings {
-  engine: AiEngineType;
-  endpointUrl: string; // e.g. "http://localhost:5001"
-  modelName: string; // e.g. "Llama 3.1 8B (Studio Buddy GGUF)" or "Quinn 3.7 (Qwen-2.5 GGUF)"
+  endpointUrl: string; // e.g. "http://localhost:5001" (Kobold), "http://localhost:11434" (Ollama), "http://localhost:1234" (LM Studio)
+  modelName: string; // e.g. "Ghost Qwen 4B (Abliterated / Uncensored)", "Llama 3.1 8B", "Qwen 2.5 7B"
   temperature: number; // 0.1 to 1.5
   topP: number;
   maxTokens: number;
   repPenalty: number;
-  vramBudgetMb: number; // e.g. 3500
+  vramBudgetMb: number; // e.g. 2600 to 3800
   defaultPersona?: GhostPersona;
+  knowledgeBaseEnabled?: boolean;
+  customTrainingScroll?: string;
+  activeDojoScrollIds?: string[];
+  engine?: AiEngineType;
+  isAbliterated?: boolean;
+  uncensoredMode?: boolean;
 }
 
 export type AiMixStepType = 
@@ -431,19 +450,130 @@ export interface AiMixStep {
   applied: boolean;
 }
 
-export type GhostPersona = 'quinn' | 'llama';
+export interface SpectralVibeIssue {
+  id: string;
+  category: 'harmonic_clash' | 'rhythm_mismatch' | 'spectral_masking' | 'phase_anomaly';
+  severity: 'critical' | 'warning' | 'info';
+  title: string;
+  description: string;
+  affectedTracks: string[];
+  frequencyBandHz?: string;
+  recommendedAction: string;
+  autoFixType?: 'carve_eq' | 'quantize_groove' | 'sub_mono' | 'desheen_notch' | 'gain_balance';
+}
+
+export interface VibeCheckReport {
+  timestamp: number;
+  overallScore: number; // 0 to 100
+  harmonicHealth: number; // 0 to 100
+  rhythmCoherence: number; // 0 to 100
+  spectralBalance: number; // 0 to 100
+  summary: string;
+  issues: SpectralVibeIssue[];
+  trackFrequencies: {
+    trackId: string;
+    trackName: string;
+    trackColor: string;
+    dominantBand: string;
+    subEnergy: number;
+    lowMidEnergy: number;
+    midEnergy: number;
+    highEnergy: number;
+    presenceEnergy: number;
+  }[];
+}
 
 export interface GhostMessage {
   id: string;
-  sender: 'quinn' | 'llama' | 'user' | 'system';
+  sender: GhostPersona | 'user' | 'system';
   persona?: GhostPersona;
   text: string;
   timestamp: number;
   actionProposal?: {
-    type: 'apply_mix_step' | 'tune_collision_energy' | 'inject_particles' | 'navigate_view' | 'open_acestep_loop_designer' | 'open_faust_dsp_toy' | 'open_faust_dsp_lab' | 'open_basic_pitch';
+    type: 'apply_mix_step' | 'tune_collision_energy' | 'inject_particles' | 'navigate_view' | 'open_acestep_loop_designer' | 'open_faust_dsp_toy' | 'open_faust_dsp_lab' | 'open_basic_pitch' | 'open_gold_path_mastering' | 'open_software_dojo' | 'open_workflow_studio' | 'open_sfz_library' | 'open_lora_library' | 'open_vibe_check';
     payload: any;
     label: string;
   };
+}
+
+// SFZ OPEN LIBRARY COMMUNITY TYPES
+export interface SfzLibraryInstrument {
+  id: string;
+  name: string;
+  category: 'keys' | 'synths' | 'strings' | 'bass' | 'drums' | 'guitars' | 'experimental';
+  author: string;
+  description: string;
+  sampleCount: number;
+  velocityLayers: number;
+  fileSizeMb: number;
+  tags: string[];
+  previewSynthType: 'keys' | 'pad' | 'lead' | 'bass' | 'pluck' | 'bell';
+  sfzDefinition: string;
+  downloadUrl?: string;
+  isCommunityShared?: boolean;
+}
+
+// ACE-STEP 1.5 LORA LENDING LIBRARY TYPES
+export interface AceStepLora {
+  id: string;
+  name: string;
+  triggerWord: string;
+  author: string;
+  description: string;
+  genre: string;
+  recommendedWeight: number; // 0.1 to 1.5
+  active: boolean;
+  currentWeight: number;
+  fileSizeMb: number;
+  tags: string[];
+  sonicCharacter: string;
+  isCustomUploaded?: boolean;
+}
+
+// GUIDED WORKFLOWS & PROJECT TEMPLATES TYPES
+export interface GuidedWorkflowStep {
+  stepNumber: number;
+  title: string;
+  description: string;
+  componentTarget: 'lsc' | 'acestep' | 'mixer' | 'humanizer' | 'beamsplitter' | 'devine' | 'faust' | 'goldpath';
+  actionButtonLabel: string;
+  recommendedPreset?: string;
+  ghostTip: string;
+  quinnTip: string;
+}
+
+export interface GuidedWorkflow {
+  id: string;
+  name: string;
+  tagline: string;
+  difficulty: 'Beginner' | 'Intermediate' | 'Master';
+  estimatedMinutes: number;
+  description: string;
+  steps: GuidedWorkflowStep[];
+  startingBpm: number;
+  tags: string[];
+}
+
+export interface ProjectTemplateConfig {
+  id: string;
+  name: string;
+  bpm: number;
+  genre: string;
+  description: string;
+  color: string;
+  tracks: {
+    name: string;
+    type: 'audio' | 'midi' | 'synth';
+    color: string;
+    instrument?: string;
+    volume: number;
+    pan: number;
+    humanizeEnabled?: boolean;
+    humanizeAmount?: number;
+    initialClipsCount?: number;
+  }[];
+  activeLoras?: string[];
+  workflowId?: string;
 }
 
 // ACE-STEP 1.5 GGUF NEURAL LOOP & SONG BED TYPES
@@ -633,6 +763,93 @@ export interface GoldPathPreset {
   stages: GoldPathStageToggles;
   parameters: GoldPathChainParameters;
 }
+
+// MASTERING PRESET SYSTEM TYPES (EQ Curves, Compressor Settings, Saturation Levels)
+export interface MasteringEqBandConfig {
+  id: string;
+  name: string;
+  type: 'highpass' | 'lowpass' | 'lowshelf' | 'highshelf' | 'peaking' | 'notch';
+  frequency: number;      // 20 - 20000 Hz
+  gain: number;           // -18 to +18 dB
+  q: number;              // 0.1 to 18
+  enabled: boolean;
+}
+
+export interface MasteringCompressorConfig {
+  thresholdDb: number;    // -36 to 0 dB
+  ratio: number;          // 1.0 to 20.0 (:1)
+  attackMs: number;       // 1 to 100 ms
+  releaseMs: number;      // 20 to 1000 ms
+  kneeDb: number;         // 0 to 24 dB
+  makeupGainDb: number;   // 0 to 12 dB
+  multiband: boolean;     // Multiband glue compression
+  enabled: boolean;
+}
+
+export interface MasteringSaturationConfig {
+  drivePercent: number;   // 0 to 100%
+  warmthPercent: number;  // 0 to 100%
+  character: 'tape' | 'tube' | 'transformer' | 'console' | 'clean';
+  asymmetry: number;     // 0 to 50%
+  ceilingDb: number;      // -0.1 to -3.0 dBFS
+  enabled: boolean;
+}
+
+export interface MasteringPreset {
+  id: string;
+  name: string;
+  category: 'Factory' | 'User';
+  description: string;
+  author?: string;
+  createdAt?: string;
+  tags?: string[];
+  eq: {
+    curveName?: string;
+    bands: MasteringEqBandConfig[];
+    lowCutHz: number;
+    highCutHz: number;
+    deMudGainDb: number;
+    presenceAirDb: number;
+  };
+  compressor: MasteringCompressorConfig;
+  saturation: MasteringSaturationConfig;
+  targetLufs?: number;
+  ceilingDb?: number;
+  stereoWidth?: number;
+}
+
+// LOW RESOURCE VOICE CLONER TYPES
+export interface VoiceFormants {
+  f1: number; // 200 - 1000 Hz (jaw / open vowel)
+  f2: number; // 700 - 2800 Hz (tongue position)
+  f3: number; // 1800 - 3500 Hz (vocal tract length)
+  f4: number; // 3000 - 5000 Hz (singer's formant / brightness)
+  q1: number;
+  q2: number;
+  q3: number;
+  q4: number;
+}
+
+export interface VoiceProfile {
+  id: string;
+  name: string;
+  category: 'Factory' | 'User';
+  description: string;
+  vocalType: 'Soprano' | 'Alto' | 'Tenor' | 'Baritone' | 'Bass' | 'Robotic' | 'Hyperpop' | 'Custom';
+  pitchCenterHz: number;      // Fundamental frequency (e.g. 220Hz = A3)
+  pitchRange: { minHz: number; maxHz: number };
+  formants: VoiceFormants;
+  vibratoRateHz: number;      // 4.0 - 7.0 Hz
+  vibratoDepthCents: number;  // 10 - 70 cents
+  breathiness: number;        // 0.0 - 0.5 (aspiration noise ratio)
+  harmonicRichness: number;   // 0.0 - 1.0 (overtone density)
+  spectralTiltDbPerOct: number; // -6 to -18 dB/oct
+  timbreWarmth: number;       // 0 - 100%
+  referenceAudioUrl?: string; // Optional audio data URL for playback preview
+  referenceDurationSec?: number;
+  createdAt: string;
+}
+
 
 
 

@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import BigKnob from './BigKnob';
 import ImportArea from './ImportArea';
-import { SpectralAnalyzer } from './SpectralAnalyzer';
+import { GoldPathSpectralVisualizer } from './GoldPathSpectralVisualizer';
 import { 
   GoldPathPreset, 
   GoldPathStageToggles, 
@@ -41,12 +41,14 @@ import {
   STORAGE_KEY_ACTIVE_PRESET_ID
 } from '../lib/goldPathPresets';
 import { playLaserBeamSound, playColliderInjectionSound } from '../lib/laserSound';
+import { masterAudioBus } from '../lib/masterBus';
 
 interface GoldPathProps {
   onRunPipeline?: (config: GoldPathPreset) => void;
+  onOpenBatchView?: () => void;
 }
 
-export const GoldPath: React.FC<GoldPathProps> = ({ onRunPipeline }) => {
+export const GoldPath: React.FC<GoldPathProps> = ({ onRunPipeline, onOpenBatchView }) => {
   // Preset System State
   const [presets, setPresets] = useState<GoldPathPreset[]>(() => loadAllGoldPathPresets());
   const [activePresetId, setActivePresetId] = useState<string>(() => {
@@ -75,6 +77,10 @@ export const GoldPath: React.FC<GoldPathProps> = ({ onRunPipeline }) => {
   const [saveDesc, setSaveDesc] = useState<string>('');
   const [saveAuthor, setSaveAuthor] = useState<string>('Mastering Engineer');
 
+  // A/B Auditioning State
+  const [abSlot, setAbSlot] = useState<'A' | 'B'>('A');
+  const [bMode, setBMode] = useState<'dry' | 'saved_preset'>('dry');
+
   // File import ref
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -86,15 +92,49 @@ export const GoldPath: React.FC<GoldPathProps> = ({ onRunPipeline }) => {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Sync chain changes to Master Audio Bus
+  const applyAbSlot = (target: 'A' | 'B', modeOverride?: 'dry' | 'saved_preset') => {
+    const effectiveBMode = modeOverride || bMode;
+    if (target === 'A') {
+      setAbSlot('A');
+      masterAudioBus.setMasteringBypass(false);
+      syncGoldPathToMasterBus({
+        ...activePreset,
+        stages: currentStages,
+        parameters: currentParams,
+        masterIntensity
+      });
+      playLaserBeamSound('laser_select');
+      showToast('A/B Audition: Slot [A] Tweaked Working Chain');
+    } else {
+      setAbSlot('B');
+      if (effectiveBMode === 'dry') {
+        masterAudioBus.setMasteringBypass(true);
+        playLaserBeamSound('laser_erase');
+        showToast('A/B Audition: Slot [B] Original Dry Signal (100% Bypass)');
+      } else {
+        masterAudioBus.setMasteringBypass(false);
+        syncGoldPathToMasterBus(activePreset);
+        playLaserBeamSound('laser_curve');
+        showToast(`A/B Audition: Slot [B] Saved Preset Baseline ("${activePreset.name}")`);
+      }
+    }
+  };
+
+  const handleToggleAb = () => {
+    applyAbSlot(abSlot === 'A' ? 'B' : 'A');
+  };
+
+  // Sync chain changes to Master Audio Bus (when in slot A)
   useEffect(() => {
-    syncGoldPathToMasterBus({
-      ...activePreset,
-      stages: currentStages,
-      parameters: currentParams,
-      masterIntensity
-    });
-  }, [currentParams, currentStages, masterIntensity, activePreset]);
+    if (abSlot === 'A') {
+      syncGoldPathToMasterBus({
+        ...activePreset,
+        stages: currentStages,
+        parameters: currentParams,
+        masterIntensity
+      });
+    }
+  }, [currentParams, currentStages, masterIntensity, activePreset, abSlot]);
 
   // Load a preset by ID
   const handleSelectPreset = (presetId: string) => {
@@ -461,6 +501,79 @@ export const GoldPath: React.FC<GoldPathProps> = ({ onRunPipeline }) => {
             </div>
           </div>
         </div>
+
+        {/* A/B Audition Console in Gold Path */}
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-[#060914] border border-[#1D2544]">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+              <RotateCcw size={12} className="text-[#FFD700]" />
+              A/B COMPARISON:
+            </span>
+
+            {/* A/B Toggle Segment */}
+            <div className="flex items-center bg-[#0C1022] p-0.5 rounded-lg border border-[#212C4E]">
+              <button
+                onClick={() => applyAbSlot('A')}
+                className={`px-3 py-1 rounded text-xs font-mono font-bold transition-all cursor-pointer ${
+                  abSlot === 'A'
+                    ? 'bg-amber-400 text-black shadow-[0_0_10px_rgba(245,158,11,0.3)]'
+                    : 'text-[#7E88AA] hover:text-white'
+                }`}
+                title="Audition current working chain settings (Slot A)"
+              >
+                [A] Tweaked Working Chain
+              </button>
+              <button
+                onClick={handleToggleAb}
+                className="px-1.5 py-1 text-[#64748B] hover:text-amber-300 cursor-pointer"
+                title="Flip A/B (Press B)"
+              >
+                &harr;
+              </button>
+              <button
+                onClick={() => applyAbSlot('B')}
+                className={`px-3 py-1 rounded text-xs font-mono font-bold transition-all cursor-pointer ${
+                  abSlot === 'B'
+                    ? bMode === 'dry'
+                      ? 'bg-cyan-400 text-black shadow-[0_0_10px_rgba(6,182,212,0.3)]'
+                      : 'bg-purple-400 text-white shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                    : 'text-[#7E88AA] hover:text-white'
+                }`}
+                title={`Audition Slot B: ${bMode === 'dry' ? 'Original Dry Signal (Bypass)' : 'Saved Preset Baseline'}`}
+              >
+                [B] {bMode === 'dry' ? 'Original Dry Signal' : 'Saved Preset Baseline'}
+              </button>
+            </div>
+
+            {/* B Comparison Target Selector */}
+            <div className="flex items-center gap-1 text-[11px] text-[#7E88AA]">
+              <span>Compare against:</span>
+              <select
+                value={bMode}
+                onChange={(e) => {
+                  const next = e.target.value as 'dry' | 'saved_preset';
+                  setBMode(next);
+                  if (abSlot === 'B') {
+                    applyAbSlot('B', next);
+                  }
+                }}
+                className="bg-[#0C1022] border border-[#232F52] text-amber-300 text-xs font-bold rounded px-2 py-0.5 focus:outline-none cursor-pointer"
+              >
+                <option value="dry">Original Dry Signal (100% Bypass)</option>
+                <option value="saved_preset">Saved Preset State ("{activePreset.name}")</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="text-[10px] font-mono text-[#8E94B4] flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${
+              abSlot === 'A' ? 'bg-amber-400 animate-pulse' : bMode === 'dry' ? 'bg-cyan-400 animate-ping' : 'bg-purple-400 animate-ping'
+            }`} />
+            <span>Auditioning: <strong className={abSlot === 'A' ? 'text-amber-300' : bMode === 'dry' ? 'text-cyan-300' : 'text-purple-300'}>
+              {abSlot === 'A' ? 'Current Tweaked DSP [A]' : bMode === 'dry' ? 'Original Dry Signal [B]' : `Saved Preset Baseline [B]`}
+            </strong></span>
+          </div>
+        </div>
       </div>
 
       {/* ========================================================================= */}
@@ -505,9 +618,22 @@ export const GoldPath: React.FC<GoldPathProps> = ({ onRunPipeline }) => {
                   }`}
                 >
                   <div className="flex flex-col pr-2">
-                    <span className={`text-xs font-bold ${active ? 'text-white' : 'text-[#7E88AA]'}`}>
-                      {item.label}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-bold ${active ? 'text-white' : 'text-[#7E88AA]'}`}>
+                        {item.label}
+                      </span>
+                      {item.key === 'batchProcessing' && onOpenBatchView && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenBatchView();
+                          }}
+                          className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 transition-all cursor-pointer"
+                        >
+                          Open Batch &rarr;
+                        </button>
+                      )}
+                    </div>
                     <span className="text-[10px] text-[#64748B] leading-tight">
                       {item.desc}
                     </span>
@@ -773,16 +899,38 @@ export const GoldPath: React.FC<GoldPathProps> = ({ onRunPipeline }) => {
       {/* INTEGRATED D3 SPECTRAL ANALYZER WITH GOLD PATH CURVE                      */}
       {/* ========================================================================= */}
       <div className="space-y-2 bg-[#090C19] border border-[#212948] rounded-2xl p-4 shadow-xl">
-        <div className="flex items-center justify-between pb-2 border-b border-[#182138]">
-          <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-            <Activity size={14} className="text-[#FFD700]" />
-            <span>Gold Path Frequency Response & Spectrum Analysis</span>
-          </h4>
-          <span className="text-[10px] text-amber-400 font-bold">
-            Real-time FFT Audio Output
-          </span>
-        </div>
-        <SpectralAnalyzer height={260} showControls={true} />
+        <GoldPathSpectralVisualizer 
+          height={320} 
+          parameters={
+            abSlot === 'B' && bMode === 'dry'
+              ? { ...currentParams, lowCutHz: 20, highCutHz: 20000, deMudGainDb: 0, presenceAirDb: 0 }
+              : abSlot === 'B' && bMode === 'saved_preset'
+              ? activePreset.parameters
+              : currentParams
+          }
+          stages={
+            abSlot === 'B' && bMode === 'dry'
+              ? { matchering: false, multiband: false, limiter: false, vst: false, spectralAnalysis: true, batchProcessing: false, tapeSaturation: false, stereoImager: false }
+              : abSlot === 'B' && bMode === 'saved_preset'
+              ? activePreset.stages
+              : currentStages
+          }
+          masterIntensity={
+            abSlot === 'B' && bMode === 'dry'
+              ? 0
+              : abSlot === 'B' && bMode === 'saved_preset'
+              ? activePreset.masterIntensity
+              : masterIntensity
+          }
+          presetName={
+            abSlot === 'A'
+              ? `[SLOT A: WORKING CHAIN] ${activePreset.name}`
+              : bMode === 'dry'
+              ? '[SLOT B: ORIGINAL DRY SIGNAL - BYPASS]'
+              : `[SLOT B: SAVED PRESET] ${activePreset.name}`
+          }
+          showControls={true}
+        />
       </div>
 
       {/* ========================================================================= */}

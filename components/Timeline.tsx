@@ -3,7 +3,8 @@ import { Track, Clip, TimelineMarker } from '../types';
 import TimelineLane from './TimelineLane';
 import Toolbar, { ActiveTool } from './Toolbar';
 import { snapToGrid } from '../lib/audioUtils';
-import { Clock, Sliders, ChevronDown, Pin, Crosshair, Split } from 'lucide-react';
+import { Clock, Sliders, ChevronDown, Pin, Crosshair, Split, LayoutGrid, Magnet } from 'lucide-react';
+import SequencerGridOverlay, { ActivePaintingState } from './SequencerGridOverlay';
 
 interface TimelineProps {
   tracks: Track[];
@@ -23,6 +24,9 @@ interface TimelineProps {
   timelineMarkers?: TimelineMarker[];
   onOpenBeatmapper?: () => void;
   onOpenBeamSplitter?: () => void;
+  selectedTrackId?: string | null;
+  onSelectTrack?: (id: string) => void;
+  isAutoArmMode?: boolean;
 }
 
 const Timeline: React.FC<TimelineProps> = ({ 
@@ -42,7 +46,10 @@ const Timeline: React.FC<TimelineProps> = ({
   onToolChange,
   timelineMarkers,
   onOpenBeatmapper,
-  onOpenBeamSplitter
+  onOpenBeamSplitter,
+  selectedTrackId,
+  onSelectTrack,
+  isAutoArmMode = false
 }) => {
   const [internalTool, setInternalTool] = useState<ActiveTool>('laser_audio');
   const activeTool = activeLaserTool || internalTool;
@@ -54,6 +61,15 @@ const Timeline: React.FC<TimelineProps> = ({
   const [timeSignature, setTimeSignature] = useState<string>('4/4');
   const [showAllEnvelopes, setShowAllEnvelopes] = useState<boolean>(false);
   const [laserPos, setLaserPos] = useState<{ x: number; y: number; visible: boolean }>({ x: 0, y: 0, visible: false });
+  const [hoverTimeline, setHoverTimeline] = useState<{
+    rawBar: number;
+    mouseY: number;
+    isHovering: boolean;
+  }>({ rawBar: 0, mouseY: 0, isHovering: false });
+  const [activePainting, setActivePainting] = useState<ActivePaintingState | null>(null);
+  const [showGridOverlay, setShowGridOverlay] = useState<boolean>(true);
+
+  const isPaintTool = activeTool === 'laser_audio' || activeTool === 'laser_midi' || activeTool === 'beam';
   const [defaultMarkers] = useState<{ position: number, label: string }[]>([
     { position: 0.125, label: 'Intro' },
     { position: 0.5, label: 'Drop / Chorus' },
@@ -205,60 +221,102 @@ const Timeline: React.FC<TimelineProps> = ({
             </div>
           </div>
 
-          {/* Snap Selector & Chrono-Pin Launch */}
-          <div className="flex items-center gap-1.5">
-            <div className="flex items-center gap-1">
-              <span className="text-[9px] font-mono text-[#64748B]">SNAP:</span>
-              <select 
-                value={snapValue === 'freeform' ? 'off' : snapValue} 
-                onChange={(e) => setSnapValue(e.target.value)}
-                className="bg-[#03060B] text-[#FF8C00] text-[10px] font-mono border border-[#1E293B] rounded px-1 py-0.5 outline-none cursor-pointer hover:border-[#FF8C00]"
+            {/* Snap Selector, Grid Overlay Toggle & Chrono-Pin Launch */}
+            <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1">
+                <span className="text-[9px] font-mono text-[#64748B]">SNAP:</span>
+                <select 
+                  value={snapValue === 'freeform' ? 'off' : snapValue} 
+                  onChange={(e) => setSnapValue(e.target.value)}
+                  className="bg-[#03060B] text-[#FF8C00] text-[10px] font-mono border border-[#1E293B] rounded px-1 py-0.5 outline-none cursor-pointer hover:border-[#FF8C00]"
+                >
+                  <option value="1/1">1 Bar</option>
+                  <option value="1/2">1/2 Bar</option>
+                  <option value="1/4">1/4 Beat</option>
+                  <option value="1/8">1/8 Grid</option>
+                  <option value="1/16">1/16 Grid</option>
+                  <option value="1/8T">1/8 Triplet</option>
+                  <option value="1/16T">1/16 Triplet</option>
+                  <option value="off">Off (Free)</option>
+                </select>
+              </div>
+
+              {/* Visual Grid Overlay Toggle Button */}
+              <button
+                onClick={() => setShowGridOverlay(prev => !prev)}
+                className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold flex items-center gap-1 transition-all ${
+                  showGridOverlay
+                    ? 'bg-[#00F0FF]/15 border border-[#00F0FF]/60 text-[#00F0FF] shadow-[0_0_8px_rgba(0,240,255,0.25)]'
+                    : 'bg-[#0E131F] border border-[#1E293B] text-[#64748B] hover:text-[#94A3B8]'
+                }`}
+                title="Toggle Sequencer Quantization Grid Overlay"
               >
-                <option value="1/4">1/4 Grid</option>
-                <option value="1/8">1/8 Grid</option>
-                <option value="1/16">1/16 Grid</option>
-                <option value="off">Off (Free)</option>
-              </select>
+                <LayoutGrid size={10} />
+                <span className="hidden xl:inline">GRID</span>
+              </button>
+
+              {onOpenBeatmapper && (
+                <button
+                  onClick={onOpenBeatmapper}
+                  className="px-1.5 py-0.5 rounded bg-[#00F0FF]/15 border border-[#00F0FF]/40 text-[#00F0FF] text-[9px] font-mono font-bold hover:bg-[#00F0FF] hover:text-black transition-all flex items-center gap-1 shadow-[0_0_8px_rgba(0,240,255,0.25)]"
+                  title="Open Chrono-Pin Tempo Mapper to map track tempo and align grid"
+                >
+                  <Pin size={10} className="text-[#FFD700] fill-current" />
+                  <span className="hidden sm:inline">CHRONO-PIN</span>
+                </button>
+              )}
+
+              {onOpenBeamSplitter && (
+                <button
+                  onClick={onOpenBeamSplitter}
+                  className="px-1.5 py-0.5 rounded bg-[#FF2E63]/15 border border-[#FF2E63]/40 text-[#FF2E63] text-[9px] font-mono font-bold hover:bg-[#FF2E63] hover:text-white transition-all flex items-center gap-1 shadow-[0_0_8px_rgba(255,46,99,0.25)]"
+                  title="Open Beam Splitter & Optical Prism Chopper"
+                >
+                  <Split size={10} className="text-[#00F0FF] transform -rotate-45" />
+                  <span className="hidden sm:inline">BEAM SPLIT</span>
+                </button>
+              )}
             </div>
-
-            {onOpenBeatmapper && (
-              <button
-                onClick={onOpenBeatmapper}
-                className="px-1.5 py-0.5 rounded bg-[#00F0FF]/15 border border-[#00F0FF]/40 text-[#00F0FF] text-[9px] font-mono font-bold hover:bg-[#00F0FF] hover:text-black transition-all flex items-center gap-1 shadow-[0_0_8px_rgba(0,240,255,0.25)]"
-                title="Open Chrono-Pin Tempo Mapper to map track tempo and align grid"
-              >
-                <Pin size={10} className="text-[#FFD700] fill-current" />
-                <span className="hidden sm:inline">CHRONO-PIN</span>
-              </button>
-            )}
-
-            {onOpenBeamSplitter && (
-              <button
-                onClick={onOpenBeamSplitter}
-                className="px-1.5 py-0.5 rounded bg-[#FF2E63]/15 border border-[#FF2E63]/40 text-[#FF2E63] text-[9px] font-mono font-bold hover:bg-[#FF2E63] hover:text-white transition-all flex items-center gap-1 shadow-[0_0_8px_rgba(255,46,99,0.25)]"
-                title="Open Beam Splitter & Optical Prism Chopper"
-              >
-                <Split size={10} className="text-[#00F0FF] transform -rotate-45" />
-                <span className="hidden sm:inline">BEAM SPLIT</span>
-              </button>
-            )}
           </div>
-        </div>
 
-        {/* Right Ruler Area (16 Bars with Measure Ticks) */}
-        <div 
-          ref={rulerRightRef}
-          className="flex-1 h-full relative cursor-pointer bg-[#0A0D15] flex items-center"
-          onMouseDown={handleRulerMouseDown}
-        >
-          {/* Loop Region Highlight on Ruler */}
+          {/* Right Ruler Area (16 Bars with Measure Ticks) */}
           <div 
-            className="absolute top-0 bottom-0 bg-[#A855F7]/25 border-y-2 border-[#A855F7] pointer-events-none"
-            style={{ 
-              left: `${loopRange.start * 100}%`, 
-              width: `${(loopRange.end - loopRange.start) * 100}%` 
-            }}
-          />
+            ref={rulerRightRef}
+            className="flex-1 h-full relative cursor-pointer bg-[#0A0D15] flex items-center"
+            onMouseDown={handleRulerMouseDown}
+          >
+            {/* Ruler Snap Tick Highlight when Paint Tool is hovering and snapped to quantization */}
+            {showGridOverlay && isPaintTool && snapValue !== 'off' && snapValue !== 'freeform' && hoverTimeline.isHovering && (
+              <div
+                className="absolute top-0 bottom-0 pointer-events-none z-20 flex flex-col items-center transition-all duration-75"
+                style={{
+                  left: `${(snapToGrid(hoverTimeline.rawBar, snapValue) / 16) * 100}%`,
+                  transform: 'translateX(-50%)'
+                }}
+              >
+                <div 
+                  className="w-1.5 h-1.5 rotate-45 border"
+                  style={{ 
+                    backgroundColor: laser.color, 
+                    borderColor: '#FFFFFF',
+                    boxShadow: `0 0 8px ${laser.color}` 
+                  }} 
+                />
+                <div 
+                  className="w-0.5 h-full opacity-80"
+                  style={{ backgroundColor: laser.color, boxShadow: `0 0 4px ${laser.color}` }}
+                />
+              </div>
+            )}
+
+            {/* Loop Region Highlight on Ruler */}
+            <div 
+              className="absolute top-0 bottom-0 bg-[#A855F7]/25 border-y-2 border-[#A855F7] pointer-events-none"
+              style={{ 
+                left: `${loopRange.start * 100}%`, 
+                width: `${(loopRange.end - loopRange.start) * 100}%` 
+              }}
+            />
 
           {/* Loop Start Handle */}
           <div 
@@ -332,16 +390,51 @@ const Timeline: React.FC<TimelineProps> = ({
         onMouseMove={(e) => {
           if (!tracksWorkspaceRef.current) return;
           const rect = tracksWorkspaceRef.current.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
           setLaserPos({
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top,
+            x,
+            y,
             visible: true
           });
+
+          // Track hover over the sequencer timeline area (excluding w-64 / 16rem track headers)
+          const timelineWidth = Math.max(1, rect.width - 256);
+          if (x >= 256) {
+            const relX = Math.max(0, Math.min(timelineWidth, x - 256));
+            const rawBar = (relX / timelineWidth) * 16;
+            setHoverTimeline({
+              rawBar,
+              mouseY: y,
+              isHovering: true
+            });
+          } else {
+            setHoverTimeline(prev => ({ ...prev, isHovering: false }));
+          }
         }}
         onMouseLeave={() => {
           setLaserPos(prev => ({ ...prev, visible: false }));
+          setHoverTimeline(prev => ({ ...prev, isHovering: false }));
         }}
       >
+        {/* Visual Quantization Grid Overlay on the Sequencer Timeline */}
+        <div 
+          className="absolute top-0 bottom-0 pointer-events-none z-10"
+          style={{ left: '16rem', right: 0 }}
+        >
+          <SequencerGridOverlay
+            snapValue={snapValue}
+            totalBars={16}
+            activeTool={activeTool}
+            hoverBar={hoverTimeline.isHovering ? hoverTimeline.rawBar : null}
+            isHovering={hoverTimeline.isHovering}
+            mouseY={hoverTimeline.mouseY}
+            activePainting={activePainting}
+            tempo={tempo}
+            showOverlay={showGridOverlay}
+          />
+        </div>
+
         {/* Track Lanes */}
         {tracks.map((track, idx) => (
           <TimelineLane 
@@ -355,6 +448,12 @@ const Timeline: React.FC<TimelineProps> = ({
             snapValue={snapValue}
             onEdit={onEdit}
             isRecording={isRecording}
+            allTracks={tracks}
+            tempo={tempo}
+            onPaintChange={setActivePainting}
+            isSelected={track.id === selectedTrackId}
+            onSelectTrack={onSelectTrack}
+            isAutoArmMode={isAutoArmMode}
           />
         ))}
 

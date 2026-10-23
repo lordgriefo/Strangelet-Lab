@@ -8,8 +8,10 @@ import { midiToNoteName } from '../services/basicPitchService';
 import { 
   Volume2, Compass, Waves, Music, ChevronDown, ChevronRight, 
   Pencil, Sliders, Scissors, Zap, Trash2, CircleDot, Flame, Sparkles,
-  GripVertical, ChevronLeft
+  GripVertical, ChevronLeft, Copy
 } from 'lucide-react';
+import { projectHistory } from '../services/projectHistoryService';
+import { ActivePaintingState } from './SequencerGridOverlay';
 
 interface TimelineLaneProps {
   track: Track;
@@ -21,6 +23,12 @@ interface TimelineLaneProps {
   snapValue: string;
   onEdit: (clip: Clip) => void;
   isRecording?: boolean;
+  allTracks?: Track[];
+  tempo?: number;
+  onPaintChange?: (state: ActivePaintingState | null) => void;
+  isSelected?: boolean;
+  onSelectTrack?: (id: string) => void;
+  isAutoArmMode?: boolean;
 }
 
 const TimelineLane: React.FC<TimelineLaneProps> = ({ 
@@ -32,7 +40,13 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
   timeSignature = '4/4', 
   snapValue, 
   onEdit,
-  isRecording = false
+  isRecording = false,
+  allTracks,
+  tempo = 120,
+  onPaintChange,
+  isSelected = false,
+  onSelectTrack,
+  isAutoArmMode = false
 }) => {
   const { id, name, muted, soloed, phaseInverted, color, volume, pan, clips, type, isArmedForRecord } = track;
   
@@ -106,66 +120,229 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
   const [draggingClipId, setDraggingClipId] = useState<string | null>(null);
   const [dragPreviewStartBar, setDragPreviewStartBar] = useState<number | null>(null);
 
-  // Handle clicking on the clip area with laser tools
-  const handleLaneClick = (e: React.MouseEvent) => {
+  // Loop Paint & Beam Engine State
+  const [paintState, setPaintState] = useState<{
+    isActive: boolean;
+    anchorBar: number;
+    currentBar: number;
+    startBar: number;
+    endBar: number;
+    durationBars: number;
+    hasDragged: boolean;
+  } | null>(null);
+
+  // Handle Loop Painting and Laser Beaming on the Track Lane
+  const handleLaneMouseDown = (e: React.MouseEvent) => {
+    // Only respond to main left click
+    if (e.button !== 0) return;
+
     const isAudioLaser = activeTool === 'laser_audio' || activeTool === 'beam';
     const isMidiLaser = activeTool === 'laser_midi';
+    const isEraseLaser = activeTool === 'laser_erase' || activeTool === 'erase';
     const isCurveLaser = activeTool === 'laser_curve' || activeTool === 'draw';
 
-    if (isAudioLaser || isMidiLaser) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const bar = (x / rect.width) * 16;
-      const isOff = snapValue === 'off' || snapValue === 'freeform';
-      const snappedBar = isOff ? bar : snapToGrid(bar, snapValue);
+    if (!isAudioLaser && !isMidiLaser && !isEraseLaser && !isCurveLaser) return;
 
-      // Generate initial melodic/harmonic notes for laser-placed MIDI clip with humanized velocities
-      let motifNotes: any = undefined;
-      if (isMidiLaser) {
-        const isHumanize = track.midiConfig?.humanizeEnabled ?? track.humanizeEnabled ?? true;
-        const jitterAmt = track.midiConfig?.humanizeAmount ?? track.humanizeAmount ?? 0.18;
-        const baseVel = 95;
-        const maxDelta = Math.round(jitterAmt * 80);
-        const initialMotifPitches = [60, 64, 67, 72]; // C4, E4, G4, C5
-        motifNotes = initialMotifPitches.map((p, idx) => {
-          const velOffset = isHumanize ? Math.round((Math.random() * 2 - 1) * maxDelta) : 0;
-          return {
-            id: `mn-${Date.now()}-${idx}`,
-            pitch: p,
-            noteName: midiToNoteName(p),
-            startBar: idx * 0.5,
-            startTimeSeconds: idx * 0.5 * 2,
-            durationBars: 0.5,
-            durationSeconds: 1,
-            velocity: Math.max(20, Math.min(127, baseVel + velOffset)),
-            confidence: 1.0
-          };
-        });
-      }
-      
-      const newClip: Clip = {
-        id: `clip-${Math.random().toString(36).substr(2, 7)}`,
-        name: isMidiLaser ? `${name} Synth Loop` : `${name} Audio Loop`,
-        startBar: Math.max(0, Math.min(14, Number(snappedBar.toFixed(4)))),
-        durationBars: 2,
-        isMidi: isMidiLaser,
-        midiNotes: motifNotes,
-        instrument: track.instrument || 'SFZ Grand Piano'
-      };
-      
-      playLaserBeamSound(isMidiLaser ? 'laser_midi' : 'laser_audio');
-      updateTrack(id, { clips: [...clips, newClip] });
-    } else if (isCurveLaser) {
-      playLaserBeamSound('laser_curve');
-      if (!automation.volume.visible && !automation.pan.visible) {
-        updateTrack(id, {
-          automation: {
-            ...automation,
-            volume: { ...automation.volume, visible: true }
-          }
-        });
-      }
+    if (!laneAreaRef.current) return;
+    const rect = laneAreaRef.current.getBoundingClientRect();
+    const rawX = e.clientX - rect.left;
+    const rawBar = Math.max(0, Math.min(16, (rawX / rect.width) * 16));
+    const isOff = snapValue === 'off' || snapValue === 'freeform';
+    const snappedBar = isOff ? Number(rawBar.toFixed(2)) : Number(snapToGrid(rawBar, snapValue).toFixed(4));
+    const startAnchor = Math.max(0, Math.min(15.75, snappedBar));
+
+    let hasMoved = false;
+
+    setPaintState({
+      isActive: true,
+      anchorBar: startAnchor,
+      currentBar: startAnchor,
+      startBar: startAnchor,
+      endBar: startAnchor,
+      durationBars: 0,
+      hasDragged: false
+    });
+
+    if ((isAudioLaser || isMidiLaser) && onPaintChange) {
+      onPaintChange({
+        isActive: true,
+        trackId: id,
+        startBar: startAnchor,
+        endBar: startAnchor,
+        currentBar: startAnchor,
+        durationBars: 0
+      });
     }
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!laneAreaRef.current) return;
+      const currentRect = laneAreaRef.current.getBoundingClientRect();
+      const currX = ev.clientX - currentRect.left;
+      const currRawBar = Math.max(0, Math.min(16, (currX / currentRect.width) * 16));
+      const currSnappedBar = isOff ? Number(currRawBar.toFixed(2)) : Number(snapToGrid(currRawBar, snapValue).toFixed(4));
+
+      if (Math.abs(currSnappedBar - startAnchor) >= 0.05) {
+        hasMoved = true;
+      }
+
+      const minB = Math.max(0, Math.min(startAnchor, currSnappedBar));
+      const maxB = Math.min(16, Math.max(startAnchor, currSnappedBar));
+      const dur = Number((maxB - minB).toFixed(4));
+
+      setPaintState({
+        isActive: true,
+        anchorBar: startAnchor,
+        currentBar: currSnappedBar,
+        startBar: minB,
+        endBar: maxB,
+        durationBars: dur,
+        hasDragged: hasMoved
+      });
+
+      if ((isAudioLaser || isMidiLaser) && onPaintChange) {
+        onPaintChange({
+          isActive: true,
+          trackId: id,
+          startBar: minB,
+          endBar: maxB,
+          currentBar: currSnappedBar,
+          durationBars: dur
+        });
+      }
+
+      // If Erase tool, real-time incinerate clips touched by the sweep
+      if (isEraseLaser && hasMoved) {
+        const remainingClips = clips.filter(c => {
+          const cStart = c.startBar;
+          const cEnd = c.startBar + c.durationBars;
+          const overlaps = Math.max(minB, cStart) < Math.min(maxB, cEnd);
+          return !overlaps;
+        });
+        if (remainingClips.length !== clips.length) {
+          updateTrack(id, { clips: remainingClips });
+        }
+      }
+    };
+
+    const handleMouseUp = (ev: MouseEvent) => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      if (onPaintChange) onPaintChange(null);
+
+      if (isCurveLaser) {
+        playLaserBeamSound('laser_curve');
+        if (!automation.volume.visible && !automation.pan.visible) {
+          projectHistory.pushSnapshot(`Enable Volume Automation [${name}]`, allTracks || [track], tempo);
+          updateTrack(id, {
+            automation: {
+              ...automation,
+              volume: { ...automation.volume, visible: true }
+            }
+          });
+        }
+        setPaintState(null);
+        return;
+      }
+
+      if (isEraseLaser) {
+        if (hasMoved) {
+          projectHistory.pushSnapshot(`Erase Region [${name}]`, allTracks || [track], tempo);
+          playLaserBeamSound('laser_erase');
+        } else {
+          // Single click erase
+          const clickedClip = clips.find(c => startAnchor >= c.startBar && startAnchor <= c.startBar + c.durationBars);
+          if (clickedClip) {
+            projectHistory.pushSnapshot(`Erase Clip [${clickedClip.name}]`, allTracks || [track], tempo);
+            playLaserBeamSound('laser_erase');
+            updateTrack(id, { clips: clips.filter(c => c.id !== clickedClip.id) });
+          }
+        }
+        setPaintState(null);
+        return;
+      }
+
+      // Audio or MIDI Loop Paint commit
+      if (isAudioLaser || isMidiLaser) {
+        let finalStart = startAnchor;
+        let finalDuration = 2; // Default single-click unit
+
+        if (laneAreaRef.current) {
+          const endRect = laneAreaRef.current.getBoundingClientRect();
+          const endX = ev.clientX - endRect.left;
+          const endRawBar = Math.max(0, Math.min(16, (endX / endRect.width) * 16));
+          const endSnappedBar = isOff ? Number(endRawBar.toFixed(2)) : Number(snapToGrid(endRawBar, snapValue).toFixed(4));
+          
+          if (hasMoved) {
+            finalStart = Math.max(0, Math.min(startAnchor, endSnappedBar));
+            const finalEnd = Math.min(16, Math.max(startAnchor, endSnappedBar));
+            finalDuration = Math.max(0.25, Number((finalEnd - finalStart).toFixed(4)));
+          } else {
+            finalStart = Math.max(0, Math.min(14, startAnchor));
+            finalDuration = Math.min(2, Math.max(0.5, 16 - finalStart));
+          }
+        }
+
+        // Find nearest existing clip on track to clone its loop profile if available
+        const sourceClip = clips.length > 0 ? clips[clips.length - 1] : null;
+
+        // Generate MIDI notes if MIDI laser
+        let motifNotes: any = undefined;
+        if (isMidiLaser || type === 'midi') {
+          const isHumanize = track.midiConfig?.humanizeEnabled ?? track.humanizeEnabled ?? true;
+          const jitterAmt = track.midiConfig?.humanizeAmount ?? track.humanizeAmount ?? 0.18;
+          const baseVel = 95;
+          const maxDelta = Math.round(jitterAmt * 80);
+          // Repeating loop motif: 4 steps per bar
+          const totalSteps = Math.max(2, Math.round(finalDuration * 2));
+          const basePitches = [60, 63, 67, 70, 65, 68, 72, 60]; // C minor / pentatonic groove
+          
+          motifNotes = Array.from({ length: totalSteps }).map((_, stepIdx) => {
+            const p = basePitches[stepIdx % basePitches.length];
+            const velOffset = isHumanize ? Math.round((Math.random() * 2 - 1) * maxDelta) : 0;
+            return {
+              id: `mn-${Date.now()}-${stepIdx}`,
+              pitch: p,
+              noteName: midiToNoteName(p),
+              startBar: stepIdx * 0.5,
+              startTimeSeconds: stepIdx * 0.5 * 2,
+              durationBars: 0.45,
+              durationSeconds: 0.9,
+              velocity: Math.max(20, Math.min(127, baseVel + velOffset)),
+              confidence: 1.0
+            };
+          });
+        }
+
+        const loopName = sourceClip 
+          ? `${sourceClip.name}`
+          : isMidiLaser || type === 'midi'
+            ? `${name} Synth Groove`
+            : `${name} Audio Loop`;
+
+        const newClip: Clip = {
+          id: `clip-paint-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+          name: loopName,
+          startBar: Number(finalStart.toFixed(4)),
+          durationBars: Number(finalDuration.toFixed(4)),
+          isMidi: isMidiLaser || type === 'midi',
+          midiNotes: (isMidiLaser || type === 'midi') ? (sourceClip?.midiNotes || motifNotes) : undefined,
+          waveformSnippet: sourceClip?.waveformSnippet || Array.from({ length: 32 }, (_, i) => 0.3 + 0.6 * Math.abs(Math.sin(i * 0.6))),
+          audioUrl: sourceClip?.audioUrl,
+          instrument: track.instrument || 'SFZ Grand Piano'
+        };
+
+        projectHistory.pushSnapshot(`Paint Loop (${finalDuration.toFixed(1)} Bars) on [${name}]`, allTracks || [track], tempo);
+        playLaserBeamSound(isMidiLaser || type === 'midi' ? 'laser_midi' : 'laser_audio');
+
+        // Add clip to track
+        updateTrack(id, { clips: [...clips, newClip] });
+      }
+
+      setPaintState(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
   };
 
   const handleClipMouseDown = (e: React.MouseEvent, clip: Clip) => {
@@ -178,6 +355,7 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
     const startX = e.clientX;
     const initialStartBar = clip.startBar;
     let hasMoved = false;
+    let hasRecordedSnapshot = false;
 
     const handleMouseMove = (ev: MouseEvent) => {
       if (!laneAreaRef.current) return;
@@ -186,6 +364,10 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
       
       if (Math.abs(deltaX) > 2) {
         hasMoved = true;
+        if (!hasRecordedSnapshot) {
+          projectHistory.pushSnapshot(`Move Clip [${clip.name}]`, allTracks || [track], tempo);
+          hasRecordedSnapshot = true;
+        }
       }
       if (!hasMoved) return;
 
@@ -232,11 +414,66 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
     if (!targetClip) return;
     const maxBar = Math.max(0, 16 - targetClip.durationBars);
     const newBar = Math.max(0, Math.min(maxBar, Number((targetClip.startBar + direction * step).toFixed(4))));
+    
+    projectHistory.pushSnapshot(`Nudge Clip [${targetClip.name}] ${direction > 0 ? '▶' : '◀'}`, allTracks || [track], tempo);
     const updatedClips = clips.map(c => c.id === clipId ? { ...c, startBar: newBar } : c);
     updateTrack(id, { clips: updatedClips });
   };
 
+  const handleDuplicateClip = (e: React.MouseEvent, clip: Clip) => {
+    e.stopPropagation();
+    const maxBar = Math.max(0, 16 - clip.durationBars);
+    const targetStart = Math.min(maxBar, clip.startBar + clip.durationBars);
+    const isOff = snapValue === 'off' || snapValue === 'freeform';
+    const snappedStart = isOff ? targetStart : snapToGrid(targetStart, snapValue);
+
+    const duplicated: Clip = {
+      ...clip,
+      id: `clip-dup-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      name: `${clip.name} (Copy)`,
+      startBar: Math.min(maxBar, Number(snappedStart.toFixed(4)))
+    };
+
+    projectHistory.pushSnapshot(`Duplicate Clip [${clip.name}]`, allTracks || [track], tempo);
+    playLaserBeamSound('laser_curve');
+    updateTrack(id, { clips: [...clips, duplicated] });
+  };
+
+  const handleSplitClip = (e: React.MouseEvent, clip: Clip) => {
+    e.stopPropagation();
+    if (clip.durationBars <= 0.25) return;
+
+    // Check if playhead intersects clip, otherwise split in half
+    const playheadBar = playheadPosition * 16;
+    let splitPointBars = clip.durationBars / 2;
+    if (playheadBar > clip.startBar && playheadBar < clip.startBar + clip.durationBars) {
+      splitPointBars = Number((playheadBar - clip.startBar).toFixed(4));
+    }
+    splitPointBars = Math.max(0.125, Math.min(clip.durationBars - 0.125, splitPointBars));
+
+    const firstHalf: Clip = {
+      ...clip,
+      id: `clip-split-a-${Date.now()}`,
+      name: `${clip.name} Pt.1`,
+      durationBars: splitPointBars
+    };
+
+    const secondHalf: Clip = {
+      ...clip,
+      id: `clip-split-b-${Date.now()}`,
+      name: `${clip.name} Pt.2`,
+      startBar: Number((clip.startBar + splitPointBars).toFixed(4)),
+      durationBars: Number((clip.durationBars - splitPointBars).toFixed(4))
+    };
+
+    projectHistory.pushSnapshot(`Split Clip [${clip.name}]`, allTracks || [track], tempo);
+    playLaserBeamSound('laser_select');
+    updateTrack(id, { clips: clips.map(c => c.id === clip.id ? firstHalf : c).concat(secondHalf) });
+  };
+
   const removeClip = (clipId: string) => {
+    const target = clips.find(c => c.id === clipId);
+    projectHistory.pushSnapshot(`Delete Clip [${target?.name || clipId}]`, allTracks || [track], tempo);
     playLaserBeamSound('laser_erase');
     updateTrack(id, { clips: clips.filter(c => c.id !== clipId) });
   };
@@ -245,11 +482,20 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
   const showDirectOverlay = (automation.volume.visible || automation.pan.visible) && !isExpanded;
 
   return (
-    <div className="border-b border-[#1A2234] bg-[#07090E] flex flex-col transition-colors">
+    <div className="border-b border-[#1A2234] bg-[#07090E] flex flex-col transition-colors" data-track-id={id}>
       {/* Primary Track Row */}
       <div className="h-16 flex items-stretch relative">
         {/* Track Header */}
-        <div className="w-64 border-r border-[#1E293B] bg-[#0A0D15] p-2 flex flex-col justify-between shrink-0 select-none z-10">
+        <div 
+          onClick={() => onSelectTrack?.(id)}
+          className={`w-64 border-r p-2 flex flex-col justify-between shrink-0 select-none z-10 transition-all cursor-pointer ${
+            isSelected 
+              ? isArmedForRecord
+                ? 'bg-[#180E14] border-r-2 border-r-red-500 ring-1 ring-inset ring-red-500/60 shadow-[inset_0_0_12px_rgba(239,68,68,0.2)]'
+                : 'bg-[#0E1524] border-r-2 border-r-[#00F0FF] ring-1 ring-inset ring-[#00F0FF]/40 shadow-[inset_0_0_12px_rgba(0,240,255,0.15)]'
+              : 'border-[#1E293B] bg-[#0A0D15] hover:bg-[#0E121E]'
+          }`}
+        >
           {/* Top Row: Track Number, Name, Type icon, M/S/Phase */}
           <div className="flex items-center justify-between gap-1">
             <div className="flex items-center gap-1.5 min-w-0">
@@ -281,10 +527,16 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
                     ? 'bg-[#EF4444] text-white border border-[#EF4444] shadow-[0_0_8px_#EF4444] animate-pulse' 
                     : 'bg-[#181116] text-[#78350F] border border-[#3E1B1B] hover:text-[#EF4444] hover:border-[#EF4444]/40'
                 }`}
-                title={isArmedForRecord ? "Track Armed for Live Recording" : "Arm Track for Recording"}
+                title={
+                  isArmedForRecord 
+                    ? isAutoArmMode && isSelected 
+                      ? "Track Auto-Armed on Selection (Ready for Live Record)" 
+                      : "Track Armed for Live Recording" 
+                    : "Arm Track for Recording"
+                }
               >
                 <CircleDot size={8} className={isArmedForRecord ? 'animate-ping' : ''} />
-                <span>REC</span>
+                <span>{isArmedForRecord && isAutoArmMode && isSelected ? 'AUTO' : 'REC'}</span>
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); updateTrack(id, { muted: !muted }); }}
@@ -385,6 +637,14 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
               <span className="text-[9px] font-mono text-[#64748B] ml-1">
                 {volumeToDb(volume)}
               </span>
+
+              {/* Auto-Arm Active Indicator Badge */}
+              {isSelected && isAutoArmMode && isArmedForRecord && (
+                <span className="px-1 py-0.2 rounded bg-red-950/80 text-red-300 border border-red-700/60 text-[8px] font-mono font-bold animate-pulse flex items-center gap-0.5 ml-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+                  AUTO-ARMED
+                </span>
+              )}
             </div>
 
             {/* Expand / Collapse Sub-Lane Button */}
@@ -403,7 +663,7 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
         <div 
           ref={laneAreaRef}
           className="flex-1 h-full relative cursor-pointer overflow-hidden group select-none"
-          onClick={handleLaneClick}
+          onMouseDown={handleLaneMouseDown}
         >
           {/* Subtle horizontal track background & beat grid */}
           {gridLines.map(line => (
@@ -429,6 +689,8 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
             return (
               <div 
                 key={clip.id}
+                data-clip-id={clip.id}
+                data-track-id={id}
                 className={`absolute top-1.5 bottom-1.5 rounded flex flex-col justify-between p-1 transition-all overflow-hidden shadow-md group/clip select-none ${
                   isEraseTool
                     ? 'cursor-pointer hover:border-[#EF4444] hover:shadow-[0_0_12px_rgba(239,68,68,0.7)]'
@@ -468,8 +730,8 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1 shrink-0">
-                    {/* Quick Nudge Buttons on hover */}
-                    <div className="hidden group-hover/clip:flex items-center bg-black/70 rounded px-0.5 border border-[#334155]/60 text-[8px]">
+                    {/* Quick Nudge, Duplicate, Split & Delete Buttons on hover */}
+                    <div className="hidden group-hover/clip:flex items-center bg-black/85 rounded px-1 py-0.5 border border-[#334155]/80 text-[8px] gap-1 z-20">
                       <button 
                         onClick={(e) => handleNudgeClip(e, clip.id, -1)}
                         className="hover:text-amber-400 px-0.5" 
@@ -483,6 +745,27 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
                         title={`Nudge forward by ${snapValue} grid`}
                       >
                         ▶
+                      </button>
+                      <button
+                        onClick={(e) => handleDuplicateClip(e, clip)}
+                        className="hover:text-cyan-400 px-0.5 flex items-center"
+                        title="Duplicate Clip (Undoable with Ctrl+Z)"
+                      >
+                        <Copy size={9} />
+                      </button>
+                      <button
+                        onClick={(e) => handleSplitClip(e, clip)}
+                        className="hover:text-yellow-400 px-0.5 flex items-center"
+                        title="Split Clip at playhead or midpoint (Undoable with Ctrl+Z)"
+                      >
+                        <Scissors size={9} />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); removeClip(clip.id); }}
+                        className="hover:text-red-400 px-0.5 flex items-center"
+                        title="Delete Clip (Undoable with Ctrl+Z)"
+                      >
+                        <Trash2 size={9} />
                       </button>
                     </div>
 
@@ -568,9 +851,102 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
                     <span>INCINERATE</span>
                   </div>
                 )}
+
+                {/* Loop Iteration Notches on Looped Clips */}
+                {clip.durationBars > 2 && (
+                  <div className="absolute top-0 left-0 right-0 h-full pointer-events-none">
+                    {Array.from({ length: Math.floor(clip.durationBars / 2) }).map((_, idx) => {
+                      if (idx === 0) return null;
+                      const notchPct = ((idx * 2) / clip.durationBars) * 100;
+                      return (
+                        <div
+                          key={idx}
+                          className="absolute top-0 bottom-0 flex flex-col items-center -translate-x-1/2 z-10"
+                          style={{ left: `${notchPct}%` }}
+                        >
+                          <div className="w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-t-[4px] border-t-amber-400" />
+                          <div className="w-px h-full border-r border-dashed border-white/20" />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}
+
+          {/* Active Loop Paint Beam Ribbon */}
+          {paintState && paintState.isActive && paintState.durationBars > 0 && (
+            <div
+              className="absolute top-1 bottom-1 rounded z-30 pointer-events-none flex flex-col justify-between overflow-hidden shadow-2xl transition-all"
+              style={{
+                left: `${(paintState.startBar / 16) * 100}%`,
+                width: `${(paintState.durationBars / 16) * 100}%`,
+                backgroundColor: activeTool === 'laser_erase' || activeTool === 'erase'
+                  ? 'rgba(239, 68, 68, 0.35)'
+                  : activeTool === 'laser_midi'
+                    ? 'rgba(16, 185, 129, 0.25)'
+                    : 'rgba(0, 240, 255, 0.25)',
+                borderWidth: '2px',
+                borderStyle: 'solid',
+                borderColor: activeTool === 'laser_erase' || activeTool === 'erase'
+                  ? '#EF4444'
+                  : activeTool === 'laser_midi'
+                    ? '#10B981'
+                    : '#00F0FF',
+                boxShadow: activeTool === 'laser_erase' || activeTool === 'erase'
+                  ? '0 0 18px rgba(239,68,68,0.6)'
+                  : activeTool === 'laser_midi'
+                    ? '0 0 18px rgba(16,185,129,0.6)'
+                    : '0 0 18px rgba(0,240,255,0.6)'
+              }}
+            >
+              {/* Floating HUD Badge */}
+              <div className="flex items-center justify-between px-2 py-0.5 text-[9px] font-mono font-bold text-white bg-black/80 border-b border-white/20">
+                <span className="flex items-center gap-1.5">
+                  <Zap size={10} className="text-[#FFD700] animate-pulse" />
+                  <span>PAINTING {activeTool === 'laser_midi' ? 'MIDI' : 'AUDIO'}: {paintState.durationBars.toFixed(2)} BARS</span>
+                </span>
+                <span className="text-[#00F0FF]">
+                  {Math.max(1, Math.round(paintState.durationBars / 2))} LOOPS • SNAP {snapValue}
+                </span>
+              </div>
+
+              {/* Repeating Waveform / Step Preview inside Paint Beam */}
+              <div className="flex items-center gap-1 px-1 opacity-80 h-6">
+                {Array.from({ length: Math.max(8, Math.round(paintState.durationBars * 10)) }).map((_, bIdx) => (
+                  <div
+                    key={bIdx}
+                    className="flex-1 rounded-full animate-pulse"
+                    style={{
+                      height: `${8 + Math.sin(bIdx * 0.8) * 12}px`,
+                      backgroundColor: activeTool === 'laser_midi' ? '#10B981' : '#00F0FF'
+                    }}
+                  />
+                ))}
+              </div>
+
+              {/* Loop Boundary Notches across the painted span */}
+              {paintState.durationBars > 2 && (
+                <div className="absolute top-0 bottom-0 left-0 right-0 pointer-events-none flex">
+                  {Array.from({ length: Math.floor(paintState.durationBars / 2) }).map((_, idx) => {
+                    if (idx === 0) return null;
+                    const pct = ((idx * 2) / paintState.durationBars) * 100;
+                    return (
+                      <div
+                        key={idx}
+                        className="absolute top-0 bottom-0 flex flex-col items-center -translate-x-1/2 z-20"
+                        style={{ left: `${pct}%` }}
+                      >
+                        <div className="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[5px] border-t-amber-400" />
+                        <div className="w-px h-full border-r border-dashed border-amber-400/50" />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Live Recording Take Visualization Bar when Armed & Recording */}
           {isRecording && isArmedForRecord && (

@@ -22,10 +22,46 @@ import { AceStepLoopDesigner } from './components/AceStepLoopDesigner';
 import { FaustDspLab } from './components/FaustDspLab';
 import { BasicPitchModal } from './components/BasicPitchModal';
 import { MidiEditor } from './components/MidiEditor';
-import { Clip, View, Track, ProjectSession, ProjectTemplate, LaserToolType, ProjectBinClip, AiMixStep, AceStepSongBedResult } from './types';
+import { SoftwareDojoModal } from './components/SoftwareDojoModal';
+import { UserGuideModal } from './components/UserGuideModal';
+import { ResourceVramManagerModal } from './components/ResourceVramManagerModal';
+import { WorkflowStudioModal } from './components/WorkflowStudioModal';
+import { SfzOpenLibraryModal } from './components/SfzOpenLibraryModal';
+import { AceStepLoraLibraryModal } from './components/AceStepLoraLibraryModal';
+import { ProjectStatisticsDashboard } from './components/ProjectStatisticsDashboard';
+import { VoiceCloner } from './components/VoiceCloner';
+import { SpectralAnalysisView } from './components/SpectralAnalysisView';
+import { projectHistory } from './services/projectHistoryService';
+import { projectAutoSave, AutoSaveMetadata } from './services/projectAutoSaveService';
+import { AutoSaveRestoreBanner } from './components/AutoSaveRestoreBanner';
+import { HistoryHudToast } from './components/HistoryHudToast';
+import { 
+  Clip, 
+  View, 
+  Track, 
+  ProjectSession, 
+  ProjectTemplate, 
+  LaserToolType, 
+  ProjectBinClip, 
+  AiMixStep, 
+  AceStepSongBedResult,
+  ProjectTemplateConfig,
+  SfzLibraryInstrument
+} from './types';
 import { INITIAL_TRACKS } from './constants';
 import { Mic, Music, Zap, Layers, Scissors, X } from 'lucide-react';
-import { startLynchianAmbientDrone, stopLynchianAmbientDrone, playLaserBeamSound } from './lib/laserSound';
+import { 
+  startLynchianAmbientDrone, 
+  stopLynchianAmbientDrone, 
+  playLaserBeamSound, 
+  playColliderInjectionSound, 
+  setRecordingSafetyGuard,
+  isUiSoundMuted,
+  toggleUiSoundMuted,
+  subscribeUiSoundMute
+} from './lib/laserSound';
+import { StudioContextMenu, ContextMenuTarget } from './components/StudioContextMenu';
+import { BatchStemExportModal } from './components/BatchStemExportModal';
 
 const PlaceholderView: React.FC<{ title: string; icon: any; desc: string }> = ({ title, icon: Icon, desc }) => (
   <div className="h-full flex flex-col items-center justify-center p-8 text-center bg-[#0D0D11]">
@@ -64,9 +100,50 @@ const App: React.FC = () => {
     templateName: 'Standard Multitrack'
   });
 
+  // Auto-Arm on Selection State
+  const [isAutoArmMode, setIsAutoArmMode] = useState<boolean>(() => {
+    return localStorage.getItem('strangelet_auto_arm_mode') !== 'false';
+  });
+
+  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(() => {
+    const armed = INITIAL_TRACKS.find(t => t.isArmedForRecord);
+    return armed ? armed.id : (INITIAL_TRACKS[0]?.id || null);
+  });
+
+  const handleToggleAutoArm = () => {
+    setIsAutoArmMode(prev => {
+      const next = !prev;
+      localStorage.setItem('strangelet_auto_arm_mode', String(next));
+      if (next) {
+        const targetId = selectedTrackId || tracks[0]?.id;
+        if (targetId) {
+          setTracks(prevTracks => prevTracks.map(t => ({
+            ...t,
+            isArmedForRecord: t.id === targetId
+          })));
+        }
+      }
+      return next;
+    });
+    playLaserBeamSound('laser_select');
+  };
+
+  const handleSelectTrack = (trackId: string) => {
+    setSelectedTrackId(trackId);
+    if (isAutoArmMode) {
+      setTracks(prev => prev.map(t => ({
+        ...t,
+        isArmedForRecord: t.id === trackId
+      })));
+    }
+  };
+
   // KoboldCpp AI Step & Quinn Ghost in the Machine State
   const [isAiMixStepModalOpen, setIsAiMixStepModalOpen] = useState<boolean>(false);
   const [isKoboldSettingsOpen, setIsKoboldSettingsOpen] = useState<boolean>(false);
+  const [isResourceManagerOpen, setIsResourceManagerOpen] = useState<boolean>(false);
+  const [isSoftwareDojoOpen, setIsSoftwareDojoOpen] = useState<boolean>(false);
+  const [isUserGuideOpen, setIsUserGuideOpen] = useState<boolean>(false);
   const [isAceStepModalOpen, setIsAceStepModalOpen] = useState<boolean>(false);
   const [isFaustDspModalOpen, setIsFaustDspModalOpen] = useState<boolean>(false);
   const [isBasicPitchModalOpen, setIsBasicPitchModalOpen] = useState<boolean>(false);
@@ -75,6 +152,292 @@ const App: React.FC = () => {
   const [basicPitchAudioBuffer, setBasicPitchAudioBuffer] = useState<AudioBuffer | null>(null);
   const [appliedAiMixSteps, setAppliedAiMixSteps] = useState<AiMixStep[]>([]);
   const [globalCollisionEnergy, setGlobalCollisionEnergy] = useState<number>(8.4);
+  const [isWorkflowStudioOpen, setIsWorkflowStudioOpen] = useState<boolean>(false);
+  const [isSfzLibraryOpen, setIsSfzLibraryOpen] = useState<boolean>(false);
+  const [isLoraLibraryOpen, setIsLoraLibraryOpen] = useState<boolean>(false);
+  const [isGhostBuddyOpen, setIsGhostBuddyOpen] = useState<boolean>(() => {
+    const saved = localStorage.getItem('strangelet_ghost_buddy_active');
+    return saved !== null ? saved === 'true' : true; // Default active on launch as requested
+  });
+  const [isBatchStemExportOpen, setIsBatchStemExportOpen] = useState<boolean>(false);
+
+  // Studio Right-Click Shortcut Context Menu State & UI Sound Subscription
+  const [contextMenuTarget, setContextMenuTarget] = useState<ContextMenuTarget | null>(null);
+  const [uiSoundMuted, setUiSoundMuted] = useState<boolean>(() => isUiSoundMuted());
+
+  useEffect(() => {
+    return subscribeUiSoundMute((muted) => {
+      setUiSoundMuted(muted);
+    });
+  }, []);
+
+  // Global Right-Click Studio Shortcut Context Menu Trigger
+  useEffect(() => {
+    const handleContextMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // Allow browser native menu inside text inputs / textareas / contenteditables
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
+      e.preventDefault();
+
+      const trackEl = target.closest('[data-track-id]');
+      const clipEl = target.closest('[data-clip-id]');
+
+      const trackId = trackEl?.getAttribute('data-track-id') || null;
+      const clipId = clipEl?.getAttribute('data-clip-id') || null;
+
+      setContextMenuTarget({
+        x: e.clientX,
+        y: e.clientY,
+        trackId,
+        clipId
+      });
+    };
+
+    window.addEventListener('contextmenu', handleContextMenu);
+    return () => window.removeEventListener('contextmenu', handleContextMenu);
+  }, []);
+
+  // Undo/Redo & 60-Second Auto-Save State
+  const [lastAutoSavedTimestamp, setLastAutoSavedTimestamp] = useState<number | null>(projectAutoSave.getLastSavedTimestamp());
+  const [autoSaveRestorePrompt, setAutoSaveRestorePrompt] = useState<AutoSaveMetadata | null>(null);
+
+  // Check for auto-saved session snapshot on initial launch
+  useEffect(() => {
+    if (projectAutoSave.hasAutoSave()) {
+      const meta = projectAutoSave.getMetadata();
+      if (meta && meta.trackCount > 0) {
+        setAutoSaveRestorePrompt(meta);
+      }
+    }
+  }, []);
+
+  // 60-Second Background Auto-Save Interval
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (projectAutoSave.isEnabled()) {
+        const ok = projectAutoSave.save(activeSession, tracks, tempo);
+        if (ok) {
+          setLastAutoSavedTimestamp(Date.now());
+        }
+      }
+    }, 60000); // 60 seconds
+
+    return () => clearInterval(timer);
+  }, [activeSession, tracks, tempo]);
+
+  // Undo operation
+  const handleUndo = () => {
+    const restored = projectHistory.undo(tracks, tempo);
+    if (restored) {
+      setTracks(restored.tracks);
+      setTempo(restored.tempo);
+    }
+  };
+
+  // Redo operation
+  const handleRedo = () => {
+    const restored = projectHistory.redo(tracks, tempo);
+    if (restored) {
+      setTracks(restored.tracks);
+      setTempo(restored.tempo);
+    }
+  };
+
+  // Manual save trigger
+  const handleManualSave = () => {
+    const ok = projectAutoSave.save(activeSession, tracks, tempo);
+    if (ok) {
+      setLastAutoSavedTimestamp(Date.now());
+      playLaserBeamSound('laser_curve');
+    }
+  };
+
+  // Restore auto-saved session
+  const handleRestoreAutoSave = () => {
+    const payload = projectAutoSave.load();
+    if (payload) {
+      projectHistory.pushSnapshot('Before Restoring Auto-Saved Project', tracks, tempo);
+      setTracks(payload.tracks);
+      setTempo(payload.tempo);
+      setActiveSession(payload.session);
+      setAutoSaveRestorePrompt(null);
+      playLaserBeamSound('laser_select');
+    }
+  };
+
+  // Global keyboard shortcuts (Ctrl+Z / Ctrl+Y / Ctrl+S, Alt+G for Ghost Buddy, F1/? for Manual, Ctrl+B for Sidebar)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
+      // Undo: Ctrl+Z / Cmd+Z (without Shift)
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      // Redo: Ctrl+Y / Cmd+Y or Ctrl+Shift+Z / Cmd+Shift+Z
+      if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') ||
+          ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z')) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      // Manual Quick Save: Ctrl+S / Cmd+S
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleManualSave();
+        return;
+      }
+
+      // Alt+G: Toggle Ghost Buddy
+      if (e.altKey && e.key.toLowerCase() === 'g') {
+        e.preventDefault();
+        setIsGhostBuddyOpen(prev => !prev);
+        return;
+      }
+
+      // Ctrl+B: Toggle Sidebar
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        setIsSidebarCollapsed(prev => !prev);
+        return;
+      }
+
+      // Batch Stem Export: Ctrl+E / Cmd+E (triggers from any view)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        setIsBatchStemExportOpen(true);
+        playLaserBeamSound('laser_select');
+        return;
+      }
+
+      // F1 or ?: Open User Guide & Manual
+      if (e.key === 'F1' || (e.key === '?' && !e.ctrlKey && !e.metaKey)) {
+        e.preventDefault();
+        setIsUserGuideOpen(true);
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [tracks, tempo, activeSession]);
+
+  // 1-Click Project Template Loader
+  const handleLoadTemplate = (template: ProjectTemplateConfig) => {
+    projectHistory.pushSnapshot(`Load Template [${template.name}]`, tracks, tempo);
+    setTempo(template.bpm);
+    setActiveSession({
+      name: `${template.name.replace(/\s+/g, '_')}.slp`,
+      bpm: template.bpm,
+      sampleRate: 48000,
+      bitDepth: 24,
+      templateId: template.id,
+      templateName: template.name
+    });
+
+    const newTracks: Track[] = template.tracks.map((t, idx) => ({
+      id: `tmpl-track-${idx}-${Date.now()}`,
+      name: t.name,
+      type: t.type === 'synth' ? 'midi' : t.type,
+      volume: t.volume,
+      pan: t.pan,
+      muted: false,
+      soloed: false,
+      color: t.color,
+      phaseInverted: false,
+      isMono: t.type === 'audio' && t.name.toLowerCase().includes('bass'),
+      vstBypassed: false,
+      instrument: t.instrument,
+      humanizeEnabled: t.humanizeEnabled ?? false,
+      humanizeAmount: t.humanizeAmount ?? 0.18,
+      midiConfig: t.humanizeEnabled ? { humanizeEnabled: true, humanizeAmount: t.humanizeAmount ?? 0.18 } : undefined,
+      clips: (t.initialClipsCount || 0) > 0 ? [{
+        id: `clip-tmpl-${idx}-${Date.now()}`,
+        name: `${t.name} Loop`,
+        startBar: 0,
+        durationBars: 4,
+        isMidi: t.type === 'midi',
+        instrument: t.instrument
+      }] : []
+    }));
+
+    setTracks(newTracks);
+    setCurrentView(View.MIXER);
+  };
+
+  // Launch Guided Workflow Step
+  const handleLaunchWorkflowStep = (stepNumber: number, target: string, workflowId: string) => {
+    switch (target) {
+      case 'lsc':
+        setCurrentView(View.SONIC_COLLIDER);
+        break;
+      case 'acestep':
+        setIsAceStepModalOpen(true);
+        break;
+      case 'mixer':
+        setCurrentView(View.MIXER);
+        break;
+      case 'humanizer':
+        setCurrentView(View.MIXER);
+        setIsLiveRecorderOpen(true);
+        break;
+      case 'beamsplitter':
+        setCurrentView(View.BEAM_SPLITTER);
+        break;
+      case 'devine':
+        setCurrentView(View.INSTRUMENT_GENERATOR);
+        break;
+      case 'faust':
+        setIsFaustDspModalOpen(true);
+        break;
+      case 'goldpath':
+        setCurrentView(View.MASTERING);
+        break;
+      default:
+        setCurrentView(View.MIXER);
+    }
+  };
+
+  // Load SFZ Instrument to Track
+  const handleLoadSfzInstrument = (inst: SfzLibraryInstrument) => {
+    projectHistory.pushSnapshot(`Load SFZ Instrument [${inst.name}]`, tracks, tempo);
+    const newTrack: Track = {
+      id: `sfz-track-${Date.now()}`,
+      name: inst.name,
+      type: 'midi',
+      volume: 0.85,
+      pan: 0,
+      muted: false,
+      soloed: false,
+      color: inst.category === 'keys' ? '#06B6D4' : (inst.category === 'bass' ? '#8B5CF6' : '#EC4899'),
+      phaseInverted: false,
+      isMono: inst.category === 'bass',
+      vstBypassed: false,
+      instrument: inst.name,
+      humanizeEnabled: true,
+      humanizeAmount: 0.18,
+      clips: [{
+        id: `clip-sfz-${Date.now()}`,
+        name: `${inst.name} Region`,
+        startBar: 0,
+        durationBars: 4,
+        isMidi: true,
+        instrument: inst.name
+      }]
+    };
+    setTracks(prev => [...prev, newTrack]);
+    setCurrentView(View.MIXER);
+  };
 
   const handleOpenBasicPitch = (
     stemCategory: 'vocals' | 'bass' | 'drums' | 'instruments' | 'full' = 'instruments',
@@ -89,6 +452,7 @@ const App: React.FC = () => {
 
   // Apply complete multi-track song bed from Ace-Step 1.5 to Mixer Console in sync
   const handleApplySongBedToMixer = (songBed: AceStepSongBedResult) => {
+    projectHistory.pushSnapshot(`Apply Ace-Step Song Bed (${songBed.bpm} BPM)`, tracks, tempo);
     setTempo(songBed.bpm);
     
     // Convert stems to synchronized tracks positioned at bar 0
@@ -136,7 +500,6 @@ const App: React.FC = () => {
     setTracks(prev => [...prev, ...newTracks]);
     setIsAceStepModalOpen(false);
     setCurrentView(View.MIXER);
-    playLaserBeamSound('laser_curve');
   };
 
   const handleApplyVstToTrack = (trackId: string, vstName: string) => {
@@ -154,6 +517,7 @@ const App: React.FC = () => {
   };
 
   const handleApplyAiMixStep = (step: AiMixStep) => {
+    projectHistory.pushSnapshot(`Apply AI Mix: ${step.name}`, tracks, tempo);
     if (step.targetTrackId && step.targetTrackId !== 'master') {
       setTracks(prev => prev.map(t => {
         if (t.id === step.targetTrackId) {
@@ -189,6 +553,29 @@ const App: React.FC = () => {
     };
   }, [lynchianMode, isAmbientDroneMuted]);
 
+  // Audio Recording Safety Guard:
+  // Automatically suppress all UI sound effects (beeps, clicks, sweeps) whenever an audio track is armed for recording
+  // or the live microphone recorder is open, guaranteeing zero acoustic bleed or loopback interference.
+  useEffect(() => {
+    const isArmed = tracks.some(t => t.isArmedForRecord) || isLiveRecorderOpen;
+    setRecordingSafetyGuard(isArmed);
+  }, [tracks, isLiveRecorderOpen]);
+
+  // Global hotkeys (e.g. '?' opens the User Guide)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'TEXTAREA') {
+        return;
+      }
+      if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+        e.preventDefault();
+        setIsUserGuideOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const handleToggleLynchianMode = () => {
     setLynchianMode(prev => {
       const next = !prev;
@@ -206,6 +593,7 @@ const App: React.FC = () => {
     template: ProjectTemplate,
     config: { name: string; bpm: number; sampleRate: number; bitDepth: number }
   ) => {
+    projectHistory.pushSnapshot(`New Project [${config.name}]`, tracks, tempo);
     // Deep clone template tracks to give them distinct mutable references
     const newTracks: Track[] = template.tracks.map((t, idx) => ({
       ...t,
@@ -231,18 +619,39 @@ const App: React.FC = () => {
   };
 
   const handleToggleTrackMute = (trackId: string) => {
+    const target = tracks.find(t => t.id === trackId);
+    if (target) {
+      projectHistory.pushSnapshot(`${target.muted ? 'Unmute' : 'Mute'} Track [${target.name}]`, tracks, tempo);
+    }
     setTracks(prev => prev.map(t => t.id === trackId ? { ...t, muted: !t.muted } : t));
   };
 
   const handleToggleTrackSolo = (trackId: string) => {
+    const target = tracks.find(t => t.id === trackId);
+    if (target) {
+      projectHistory.pushSnapshot(`${target.soloed ? 'Unsolo' : 'Solo'} Track [${target.name}]`, tracks, tempo);
+    }
     setTracks(prev => prev.map(t => t.id === trackId ? { ...t, soloed: !t.soloed } : t));
   };
 
   const handleUpdateTrack = (trackId: string, updates: Partial<Track>) => {
+    const target = tracks.find(t => t.id === trackId);
+    if (target) {
+      if (updates.clips && updates.clips !== target.clips) {
+        projectHistory.pushSnapshot(`Update Clips [${target.name}]`, tracks, tempo);
+      } else if (updates.muted !== undefined && updates.muted !== target.muted) {
+        projectHistory.pushSnapshot(`${updates.muted ? 'Mute' : 'Unmute'} Track [${target.name}]`, tracks, tempo);
+      } else if (updates.soloed !== undefined && updates.soloed !== target.soloed) {
+        projectHistory.pushSnapshot(`${updates.soloed ? 'Solo' : 'Unsolo'} Track [${target.name}]`, tracks, tempo);
+      } else if (updates.name && updates.name !== target.name) {
+        projectHistory.pushSnapshot(`Rename Track to "${updates.name}"`, tracks, tempo);
+      }
+    }
     setTracks(prev => prev.map(t => t.id === trackId ? { ...t, ...updates } : t));
   };
 
   const handleAddTrackWithClip = (trackName: string, clip: Clip) => {
+    projectHistory.pushSnapshot(`Add Recorded Track [${trackName}]`, tracks, tempo);
     const newTrack: Track = {
       id: `rec-track-${Date.now()}`,
       name: trackName,
@@ -262,6 +671,8 @@ const App: React.FC = () => {
   };
 
   const handleAddClipToTrack = (trackId: string, clip: Clip) => {
+    const target = tracks.find(t => t.id === trackId);
+    projectHistory.pushSnapshot(`Add Clip to [${target?.name || 'Track'}]`, tracks, tempo);
     setTracks(prev => prev.map(t => {
       if (t.id === trackId) {
         return {
@@ -282,6 +693,7 @@ const App: React.FC = () => {
     const audioTrack = tracks.find(t => t.type === 'audio') || tracks[0];
     if (!audioTrack) return;
 
+    projectHistory.pushSnapshot(`Insert Bin Clip [${clip.name}]`, tracks, tempo);
     const newClip: Clip = {
       id: `clip-from-bin-${Date.now()}`,
       name: clip.name,
@@ -291,6 +703,144 @@ const App: React.FC = () => {
     };
 
     setTracks(prev => prev.map(t => t.id === audioTrack.id ? { ...t, clips: [...t.clips, newClip] } : t));
+  };
+
+  // Studio Context Menu Track & Clip Operations
+  const handleAddAudioTrack = () => {
+    projectHistory.pushSnapshot('Add Audio Track', tracks, tempo);
+    const count = tracks.filter(t => t.type === 'audio').length + 1;
+    const newId = `audio-track-${Date.now()}`;
+    const newTrack: Track = {
+      id: newId,
+      name: `Audio ${count}`,
+      type: 'audio',
+      volume: 0.85,
+      pan: 0,
+      muted: false,
+      soloed: false,
+      color: '#38BDF8',
+      phaseInverted: false,
+      isMono: false,
+      vstBypassed: false,
+      isArmedForRecord: isAutoArmMode ? true : false,
+      clips: []
+    };
+    if (isAutoArmMode) {
+      setSelectedTrackId(newId);
+      setTracks(prev => [...prev.map(t => ({ ...t, isArmedForRecord: false })), newTrack]);
+    } else {
+      setTracks(prev => [...prev, newTrack]);
+    }
+  };
+
+  const handleAddMidiTrack = () => {
+    projectHistory.pushSnapshot('Add MIDI Track', tracks, tempo);
+    const count = tracks.filter(t => t.type === 'midi').length + 1;
+    const newId = `midi-track-${Date.now()}`;
+    const newTrack: Track = {
+      id: newId,
+      name: `MIDI Synth ${count}`,
+      type: 'midi',
+      volume: 0.85,
+      pan: 0,
+      muted: false,
+      soloed: false,
+      color: '#A855F7',
+      phaseInverted: false,
+      isMono: false,
+      vstBypassed: false,
+      isArmedForRecord: isAutoArmMode ? true : false,
+      clips: []
+    };
+    if (isAutoArmMode) {
+      setSelectedTrackId(newId);
+      setTracks(prev => [...prev.map(t => ({ ...t, isArmedForRecord: false })), newTrack]);
+    } else {
+      setTracks(prev => [...prev, newTrack]);
+    }
+  };
+
+  const handleDeleteTrack = (trackId: string) => {
+    const target = tracks.find(t => t.id === trackId);
+    projectHistory.pushSnapshot(`Delete Track [${target?.name || trackId}]`, tracks, tempo);
+    setTracks(prev => prev.filter(t => t.id !== trackId));
+  };
+
+  const handleDuplicateTrack = (trackId: string) => {
+    const target = tracks.find(t => t.id === trackId);
+    if (!target) return;
+    projectHistory.pushSnapshot(`Duplicate Track [${target.name}]`, tracks, tempo);
+    const duplicated: Track = {
+      ...target,
+      id: `track-dup-${Date.now()}`,
+      name: `${target.name} (Copy)`,
+      clips: target.clips.map(c => ({
+        ...c,
+        id: `clip-dup-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`
+      }))
+    };
+    setTracks(prev => [...prev, duplicated]);
+  };
+
+  const handleArmAllTracks = (arm: boolean = true) => {
+    projectHistory.pushSnapshot(`${arm ? 'Arm' : 'Disarm'} All Tracks`, tracks, tempo);
+    setTracks(prev => prev.map(t => ({ ...t, isArmedForRecord: arm })));
+  };
+
+  const handleClearAllMutes = () => {
+    projectHistory.pushSnapshot('Clear All Mutes', tracks, tempo);
+    setTracks(prev => prev.map(t => ({ ...t, muted: false })));
+  };
+
+  const handleClearAllSolos = () => {
+    projectHistory.pushSnapshot('Clear All Solos', tracks, tempo);
+    setTracks(prev => prev.map(t => ({ ...t, soloed: false })));
+  };
+
+  const handleDeleteClip = (trackId: string, clipId: string) => {
+    projectHistory.pushSnapshot('Delete Clip', tracks, tempo);
+    setTracks(prev => prev.map(t => t.id === trackId ? { ...t, clips: t.clips.filter(c => c.id !== clipId) } : t));
+  };
+
+  const handleDuplicateClip = (trackId: string, clipId: string) => {
+    const track = tracks.find(t => t.id === trackId);
+    const clip = track?.clips.find(c => c.id === clipId);
+    if (!track || !clip) return;
+    projectHistory.pushSnapshot(`Duplicate Clip [${clip.name}]`, tracks, tempo);
+    const maxBar = Math.max(0, 16 - clip.durationBars);
+    const targetStart = Math.min(maxBar, clip.startBar + clip.durationBars);
+    const duplicated: Clip = {
+      ...clip,
+      id: `clip-dup-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      name: `${clip.name} (Copy)`,
+      startBar: targetStart
+    };
+    setTracks(prev => prev.map(t => t.id === trackId ? { ...t, clips: [...t.clips, duplicated] } : t));
+  };
+
+  const handleSplitClip = (trackId: string, clipId: string) => {
+    const track = tracks.find(t => t.id === trackId);
+    const clip = track?.clips.find(c => c.id === clipId);
+    if (!track || !clip || clip.durationBars <= 0.25) return;
+    projectHistory.pushSnapshot(`Split Clip [${clip.name}]`, tracks, tempo);
+    const half = Number((clip.durationBars / 2).toFixed(4));
+    const first: Clip = {
+      ...clip,
+      id: `clip-split-a-${Date.now()}`,
+      name: `${clip.name} Pt.1`,
+      durationBars: half
+    };
+    const second: Clip = {
+      ...clip,
+      id: `clip-split-b-${Date.now()}`,
+      name: `${clip.name} Pt.2`,
+      startBar: Number((clip.startBar + half).toFixed(4)),
+      durationBars: Number((clip.durationBars - half).toFixed(4))
+    };
+    setTracks(prev => prev.map(t => t.id === trackId ? {
+      ...t,
+      clips: t.clips.map(c => c.id === clipId ? first : c).concat(second)
+    } : t));
   };
 
   const renderView = () => {
@@ -331,6 +881,15 @@ const App: React.FC = () => {
             onOpenFaustDspLab={() => setIsFaustDspModalOpen(true)}
             onOpenBasicPitch={handleOpenBasicPitch}
             onApplySongBedToMixer={handleApplySongBedToMixer}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            onManualSave={handleManualSave}
+            onRestoreAutoSave={handleRestoreAutoSave}
+            lastSavedTimestamp={lastAutoSavedTimestamp}
+            isAutoArmMode={isAutoArmMode}
+            onToggleAutoArm={handleToggleAutoArm}
+            selectedTrackId={selectedTrackId}
+            onSelectTrack={handleSelectTrack}
           />
         );
       case View.MASTERING:
@@ -347,7 +906,34 @@ const App: React.FC = () => {
           />
         );
       case View.AUDIO_EDITOR:
-        return <AudioEditor clip={activeClip} snapValue={snapValue} />;
+        return (
+          <AudioEditor 
+            clip={activeClip} 
+            snapValue={snapValue} 
+            onClose={() => setCurrentView(View.MIXER)}
+            tracks={tracks}
+            tempo={tempo}
+            onUpdateClip={(updatedClip) => {
+              projectHistory.pushSnapshot(`Trim Silence on ${updatedClip.name}`, tracks, tempo);
+              setTracks(prev => prev.map(t => ({
+                ...t,
+                clips: t.clips.map(c => c.id === updatedClip.id ? updatedClip : c)
+              })));
+              setActiveClip(updatedClip);
+            }}
+            onSelectClip={(newClip) => setActiveClip(newClip)}
+          />
+        );
+      case View.PROJECT_STATS:
+        return (
+          <ProjectStatisticsDashboard 
+            tracks={tracks} 
+            tempo={tempo} 
+            session={activeSession} 
+            onNavigateToMixer={() => setCurrentView(View.MIXER)}
+            onNavigateView={(view) => setCurrentView(view)}
+          />
+        );
       case View.SONIC_COLLIDER:
         return (
           <LargeSonicCollider 
@@ -434,6 +1020,29 @@ const App: React.FC = () => {
         );
       case View.DRUM_TRIGGER:
         return <PlaceholderView title="DRUM TRIGGER" icon={Music} desc="Audio-to-MIDI conversion logic for drum replacement. Detects transients and maps them to standard General MIDI notes." />;
+      case View.VOICE_CLONER:
+        return (
+          <VoiceCloner
+            onAddTrack={(newTrack) => setTracks(prev => [...prev, newTrack])}
+            currentTracks={tracks}
+            onNavigateToMixer={() => setCurrentView(View.MIXER)}
+          />
+        );
+      case View.SPECTRAL_ANALYSIS:
+        return (
+          <SpectralAnalysisView
+            tracks={tracks}
+            tempo={tempo}
+            activeTrackId={activeClip ? tracks.find(t => t.clips.some(c => c.id === activeClip.id))?.id : undefined}
+            onSelectTrack={(trackId) => {
+              const trk = tracks.find(t => t.id === trackId);
+              if (trk && trk.clips.length > 0) {
+                setActiveClip(trk.clips[0]);
+              }
+            }}
+            onNavigateToMixer={() => setCurrentView(View.MIXER)}
+          />
+        );
       case 'PEDALBOARD':
         return <Pedalboard />;
       default:
@@ -454,6 +1063,15 @@ const App: React.FC = () => {
             onOpenAceStepDesigner={() => setIsAceStepModalOpen(true)}
             onOpenFaustDspLab={() => setIsFaustDspModalOpen(true)}
             onApplySongBedToMixer={handleApplySongBedToMixer}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            onManualSave={handleManualSave}
+            onRestoreAutoSave={handleRestoreAutoSave}
+            lastSavedTimestamp={lastAutoSavedTimestamp}
+            isAutoArmMode={isAutoArmMode}
+            onToggleAutoArm={handleToggleAutoArm}
+            selectedTrackId={selectedTrackId}
+            onSelectTrack={handleSelectTrack}
           />
         );
     }
@@ -463,6 +1081,15 @@ const App: React.FC = () => {
     <>
       <LaserPointerCursor activeTool={activeLaserTool} enabled={true} />
       <TapeSaturatorOverlay intensity={tapeIntensity} lynchianActive={lynchianMode} />
+      <HistoryHudToast />
+
+      {autoSaveRestorePrompt && (
+        <AutoSaveRestoreBanner
+          metadata={autoSaveRestorePrompt}
+          onRestore={handleRestoreAutoSave}
+          onDismiss={() => setAutoSaveRestorePrompt(null)}
+        />
+      )}
 
       <Layout 
         currentView={currentView} 
@@ -487,14 +1114,34 @@ const App: React.FC = () => {
         onInsertBinClipToTrack={handleInsertBinClipToTrack}
         onOpenAiMixStep={() => setIsAiMixStepModalOpen(true)}
         onOpenKoboldSettings={() => setIsKoboldSettingsOpen(true)}
+        onOpenSoftwareDojo={() => setIsSoftwareDojoOpen(true)}
+        onOpenUserGuide={() => setIsUserGuideOpen(true)}
         onOpenAceStepDesigner={() => setIsAceStepModalOpen(true)}
         onOpenFaustDspLab={() => setIsFaustDspModalOpen(true)}
         onOpenBasicPitch={() => handleOpenBasicPitch('instruments')}
+        onOpenResourceManager={() => setIsResourceManagerOpen(true)}
+        onOpenWorkflowStudio={() => setIsWorkflowStudioOpen(true)}
+        onOpenSfzLibrary={() => setIsSfzLibraryOpen(true)}
+        onOpenLoraLibrary={() => setIsLoraLibraryOpen(true)}
+        onOpenGhostBuddy={() => setIsGhostBuddyOpen(prev => !prev)}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onManualSave={handleManualSave}
+        onRestoreAutoSave={handleRestoreAutoSave}
+        lastSavedTimestamp={lastAutoSavedTimestamp}
+        onOpenBatchStemExport={() => setIsBatchStemExportOpen(true)}
+        onAddTrack={(type) => type === 'audio' ? handleAddAudioTrack() : handleAddMidiTrack()}
+        onClearAllMutes={handleClearAllMutes}
+        onClearAllSolos={handleClearAllSolos}
+        onArmAllTracks={() => handleArmAllTracks(true)}
+        tempo={tempo}
+        isAutoArmMode={isAutoArmMode}
+        onToggleAutoArm={handleToggleAutoArm}
       >
         {renderView()}
       </Layout>
 
-      {/* Quinn 3.7 / Llama Studio Buddy: Ghost in the Machine AI Helper */}
+      {/* Strangelet Guru / Ghost / Quinn: Ghost in the Machine AI Helper */}
       <GhostInTheMachine
         currentView={currentView}
         tracks={tracks}
@@ -507,6 +1154,15 @@ const App: React.FC = () => {
         onOpenAceStepDesigner={() => setIsAceStepModalOpen(true)}
         onOpenFaustDspLab={() => setIsFaustDspModalOpen(true)}
         onOpenBasicPitch={(stem) => handleOpenBasicPitch((stem as any) || 'instruments')}
+        onOpenSoftwareDojo={() => setIsSoftwareDojoOpen(true)}
+        onOpenWorkflowStudio={() => setIsWorkflowStudioOpen(true)}
+        onOpenSfzLibrary={() => setIsSfzLibraryOpen(true)}
+        onOpenLoraLibrary={() => setIsLoraLibraryOpen(true)}
+        isOpenExternally={isGhostBuddyOpen}
+        onOpenChange={(open) => {
+          setIsGhostBuddyOpen(open);
+          localStorage.setItem('strangelet_ghost_buddy_active', String(open));
+        }}
       />
 
       {/* AI Mix Step Processor Modal (KoboldCpp Pipeline) */}
@@ -519,10 +1175,35 @@ const App: React.FC = () => {
         onRevertStep={handleRevertAiMixStep}
       />
 
-      {/* KoboldCpp Engine & Quinn Configuration Modal */}
+      {/* Local AI Hub (Kobold.cpp, Ollama, LM Studio) Configuration Modal */}
       <KoboldSettingsModal
         isOpen={isKoboldSettingsOpen}
         onClose={() => setIsKoboldSettingsOpen(false)}
+        onOpenSoftwareDojo={() => setIsSoftwareDojoOpen(true)}
+        onOpenResourceManager={() => setIsResourceManagerOpen(true)}
+      />
+
+      {/* Modular Hardware & VRAM Resource Manager Modal */}
+      <ResourceVramManagerModal
+        isOpen={isResourceManagerOpen}
+        onClose={() => setIsResourceManagerOpen(false)}
+        onOpenSoftwareDojo={() => setIsSoftwareDojoOpen(true)}
+        onOpenAiHub={() => setIsKoboldSettingsOpen(true)}
+      />
+
+      {/* Software Dojo: Offline Knowledge & Ninja Training Modal */}
+      <SoftwareDojoModal
+        isOpen={isSoftwareDojoOpen}
+        onClose={() => setIsSoftwareDojoOpen(false)}
+        onOpenHubSettings={() => setIsKoboldSettingsOpen(true)}
+      />
+
+      {/* Official User Guide & Field Manual Modal */}
+      <UserGuideModal
+        isOpen={isUserGuideOpen}
+        onClose={() => setIsUserGuideOpen(false)}
+        onOpenDojo={() => setIsSoftwareDojoOpen(true)}
+        onOpenAiHub={() => setIsKoboldSettingsOpen(true)}
       />
 
       {/* Ace-Step 1.5 GGUF Neural Loop Designer Modal */}
@@ -621,6 +1302,76 @@ const App: React.FC = () => {
         onClose={() => setIsNewProjectOpen(false)}
         onCreateProject={handleCreateProject}
         currentSessionName={activeSession.name}
+      />
+
+      {/* Guided Workflows & Project Templates Studio Modal */}
+      <WorkflowStudioModal
+        isOpen={isWorkflowStudioOpen}
+        onClose={() => setIsWorkflowStudioOpen(false)}
+        onLoadTemplate={handleLoadTemplate}
+        onLaunchWorkflowStep={handleLaunchWorkflowStep}
+        onOpenGhostTerminal={() => {}}
+      />
+
+      {/* SFZ Open Library & Sample Community Exchange Modal */}
+      <SfzOpenLibraryModal
+        isOpen={isSfzLibraryOpen}
+        onClose={() => setIsSfzLibraryOpen(false)}
+        onLoadInstrumentToTrack={handleLoadSfzInstrument}
+        onOpenSfzBuilder={() => setCurrentView(View.INSTRUMENT_GENERATOR)}
+      />
+
+      {/* Ace-Step 1.5 LoRA Lending Library Standalone Modal */}
+      <AceStepLoraLibraryModal
+        isOpen={isLoraLibraryOpen}
+        onClose={() => setIsLoraLibraryOpen(false)}
+      />
+
+      {/* Global Studio Right-Click Shortcut Context Menu */}
+      <StudioContextMenu
+        target={contextMenuTarget}
+        onClose={() => setContextMenuTarget(null)}
+        tracks={tracks}
+        currentView={currentView}
+        onSelectView={(view) => setCurrentView(view)}
+        onEditClip={(clip) => setActiveClip(clip)}
+        onAddAudioTrack={handleAddAudioTrack}
+        onAddMidiTrack={handleAddMidiTrack}
+        onDeleteTrack={handleDeleteTrack}
+        onDuplicateTrack={handleDuplicateTrack}
+        onUpdateTrack={handleUpdateTrack}
+        onArmAllTracks={handleArmAllTracks}
+        onClearAllMutes={handleClearAllMutes}
+        onClearAllSolos={handleClearAllSolos}
+        onDeleteClip={handleDeleteClip}
+        onDuplicateClip={handleDuplicateClip}
+        onSplitClip={handleSplitClip}
+        onSaveProject={handleManualSave}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onOpenLiveRecorder={() => setIsLiveRecorderOpen(true)}
+        onOpenGhostBuddy={() => setIsGhostBuddyOpen(true)}
+        onOpenAiMixStep={() => setIsAiMixStepModalOpen(true)}
+        onOpenAceStep={() => setIsAceStepModalOpen(true)}
+        onOpenBasicPitch={() => setIsBasicPitchModalOpen(true)}
+        onOpenFaustDsp={() => setIsFaustDspModalOpen(true)}
+        onOpenSfzLibrary={() => setIsSfzLibraryOpen(true)}
+        onOpenWorkflowStudio={() => setIsWorkflowStudioOpen(true)}
+        onOpenNewProject={() => setIsNewProjectOpen(true)}
+        onOpenUserGuide={() => setIsUserGuideOpen(true)}
+        onOpenBatchStemExport={() => setIsBatchStemExportOpen(true)}
+        onToggleUiSound={() => toggleUiSoundMuted()}
+        isUiSoundMuted={uiSoundMuted}
+        onToggleLynchianMode={handleToggleLynchianMode}
+        lynchianMode={lynchianMode}
+      />
+
+      {/* Dedicated Batch Stem Export Modal (All active tracks to WAV with normalization & resampling) */}
+      <BatchStemExportModal
+        isOpen={isBatchStemExportOpen}
+        onClose={() => setIsBatchStemExportOpen(false)}
+        tracks={tracks}
+        tempo={tempo}
       />
     </>
   );

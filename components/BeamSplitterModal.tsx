@@ -523,7 +523,7 @@ export const BeamSplitterModal: React.FC<BeamSplitterModalProps> = ({
     isDraggingHandleRef.current = null;
   };
 
-  // INJECTION ACTIONS (Acid Chopper Core Functionality):
+  // INJECTION ACTIONS (Prism Loop Chopper Core Functionality):
   
   // 1. Inject Perfect Loop into Timeline
   const handleInjectLoop = () => {
@@ -1187,7 +1187,7 @@ export const BeamSplitterModal: React.FC<BeamSplitterModalProps> = ({
           </div>
         </div>
 
-        {/* Footer: Timeline Multitrack Injection & Acid Chopper Export */}
+        {/* Footer: Timeline Multitrack Injection & Prism Loop Chopper Export */}
         <div className="px-5 py-3.5 bg-gradient-to-r from-[#090D1A] via-[#0E1528] to-[#080B14] border-t border-[#00F0FF]/30 flex flex-wrap items-center justify-between gap-3 font-mono text-xs">
           {/* Target Track & Cursor Position Controls */}
           <div className="flex items-center gap-3">
