@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, HardwareStats, Track, ProjectSession, ProjectBinClip } from '../types';
 import { THEME } from '../constants';
 import HardwareMonitor from './HardwareMonitor';
-import { LayoutGrid, Layers, Mic, Music, Settings2, Sparkles, Terminal, Download, ChevronDown, Scissors, Drum, FolderPlus, Plus, Atom, Split, PanelLeftClose, PanelLeftOpen, Play, Volume2, VolumeX, Zap, Cpu, Code2, Keyboard, BookOpen, HelpCircle, Workflow, Bot, SlidersHorizontal, ArrowRightLeft, BarChart3, Activity, Bell, BellOff, ShieldCheck } from 'lucide-react';
+import { LayoutGrid, Layers, Mic, Music, Settings2, Sparkles, Terminal, Download, ChevronDown, Scissors, Drum, FolderPlus, Plus, Atom, Split, PanelLeftClose, PanelLeftOpen, Play, Volume2, VolumeX, Zap, Cpu, Code2, Keyboard, BookOpen, HelpCircle, Workflow, Bot, SlidersHorizontal, ArrowRightLeft, BarChart3, Activity, Bell, BellOff, ShieldCheck, Radio } from 'lucide-react';
 import ImportArea from './ImportArea';
 import { INITIAL_TRACKS } from '../constants';
 import { UndoRedoControls } from './UndoRedoControls';
@@ -186,6 +186,9 @@ interface LayoutProps {
   tempo?: number;
   isAutoArmMode?: boolean;
   onToggleAutoArm?: () => void;
+  onOpenCollabWorkspace?: () => void;
+  collabSessionCode?: string | null;
+  collabMemberCount?: number;
 }
 
 const Layout: React.FC<LayoutProps> = ({ 
@@ -237,7 +240,10 @@ const Layout: React.FC<LayoutProps> = ({
   onOpenBeamSplitter,
   tempo = 120,
   isAutoArmMode,
-  onToggleAutoArm
+  onToggleAutoArm,
+  onOpenCollabWorkspace,
+  collabSessionCode,
+  collabMemberCount
 }) => {
   const [internalSidebarCollapsed, setInternalSidebarCollapsed] = useState<boolean>(false);
   const effectiveSidebarCollapsed = propSidebarCollapsed !== undefined ? propSidebarCollapsed : internalSidebarCollapsed;
@@ -792,6 +798,9 @@ const Layout: React.FC<LayoutProps> = ({
                   onMoveGuruToSidebar={handleToggleGuruDocking}
                   isAutoArmMode={isAutoArmMode}
                   onToggleAutoArm={onToggleAutoArm}
+                  onOpenCollabWorkspace={onOpenCollabWorkspace}
+                  collabSessionCode={collabSessionCode}
+                  collabMemberCount={collabMemberCount}
                 />
 
                 {/* Global Undo & Redo History Controls */}
@@ -911,6 +920,32 @@ const Layout: React.FC<LayoutProps> = ({
                   <span className="text-[8px] px-1 py-0.2 rounded bg-red-950 text-red-300 border border-red-600/50 font-bold hidden sm:inline">
                     ABLITERATED
                   </span>
+                </button>
+              )}
+
+              {/* Real-Time Collaborative Workspace Session Pill in Top Bar */}
+              {onOpenCollabWorkspace && (
+                <button
+                  onClick={() => {
+                    onOpenCollabWorkspace();
+                    playLaserBeamSound('laser_select');
+                  }}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs font-mono transition-all cursor-pointer active:scale-95 ${
+                    collabSessionCode
+                      ? 'bg-gradient-to-r from-cyan-950/80 to-blue-950/80 border-cyan-400 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.35)]'
+                      : 'bg-[#101524] border-[#222E4A] text-[#8C9BBF] hover:text-cyan-300 hover:border-cyan-500/50'
+                  }`}
+                  title={collabSessionCode ? `Connected to Collaborative Session: ${collabSessionCode}. Click to manage room.` : 'Real-Time Collaboration: Join or host a session with a shared 6-character code'}
+                >
+                  <Radio size={13} className={collabSessionCode ? 'text-cyan-400 animate-pulse' : 'text-[#8C9BBF]'} />
+                  <span className="font-bold text-[11px] tracking-tight">
+                    {collabSessionCode ? `COLLAB: ${collabSessionCode}` : 'COLLABORATE'}
+                  </span>
+                  {(collabMemberCount || 0) > 1 && (
+                    <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-cyan-400 text-black font-extrabold shadow-[0_0_6px_#06B6D4]">
+                      {collabMemberCount}
+                    </span>
+                  )}
                 </button>
               )}
 

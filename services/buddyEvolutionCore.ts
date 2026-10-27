@@ -54,31 +54,31 @@ export const LEVEL_THRESHOLDS = [
 
 export const DEFAULT_BUDDY_SOUL: BuddyEvolutionState = {
   version: 1,
-  buddyName: 'Ghost & Quinn Lab Collective',
+  buddyName: 'The Ghost in the Machine',
   currentPersona: 'ghost',
-  experienceXp: 180,
+  experienceXp: 210,
   level: 2,
   levelTitle: 'Collider Apprentice',
   duoSynergyLevel: 2,
   duoSynergyXp: 85,
-  totalInteractions: 14,
-  mixStepsAdvised: 5,
+  totalInteractions: 18,
+  mixStepsAdvised: 6,
   faustToysCompiled: 4,
   studioTalesShared: 3,
   songBedsSpawned: 2,
   createdAt: Date.now() - 1000 * 60 * 60 * 24 * 3,
   lastActiveAt: Date.now(),
   eccentricQuirks: [
-    'Ghost (Llama 3.1): Swears by reel-to-reel tape bias, Lee Scratch Perry smoke ceremonies, and 2-inch Studer saturation',
-    'Quinn (Qwen 3): Calculations accurate to 6 decimal places, spectral FFT surgical precision, and Faust JIT bytecode purity',
-    'Duo Team dynamic: Ghost supplies the wild instinctual analog soul; Quinn supplies the high-order math and DSP architecture',
-    'Refers to frequencies as subatomic particles and protects vigorously against the 8.5kHz digital generative glare'
+    'The Ghost in the Machine: Single resident studio AI mastering all lab disciplines',
+    'Trained on Software Dojo scrolls: Faust JIT bytecode, Ace-Step diffusion, and Gold Path mastering',
+    'Analog instinct meets surgical precision: Studer 2-inch tape saturation and 8.5kHz anti-sheen carving',
+    'Runs Spectral Vibe Checks on active tracks to eliminate phase clashes, low-end masking, and rhythm drift'
   ],
   userCustomDirectives: [
-    'User runs on a 6GB VRAM rig currently, planning upgrade to 16GB soon.',
+    'User runs local refusal-neutralized Qwen 4B on a 6GB VRAM rig (upgrading to 16GB).',
     'Keep background model footprints lean and offer component unload shortcuts.',
-    'Provide Faust DSP code snippets whenever custom distortion or filters are requested.',
-    'Share eccentric studio lore from legendary producers when inspiration is needed.'
+    'Provide Faust DSP code snippets, mix steps, and Vibe Check fixes on request.',
+    'Act as one unified companion getting proficient in all studio operations.'
   ],
   memories: [
     {

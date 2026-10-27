@@ -35,6 +35,8 @@ import { projectHistory } from './services/projectHistoryService';
 import { projectAutoSave, AutoSaveMetadata } from './services/projectAutoSaveService';
 import { AutoSaveRestoreBanner } from './components/AutoSaveRestoreBanner';
 import { HistoryHudToast } from './components/HistoryHudToast';
+import { collabService, CollabSessionState } from './services/collabService';
+import { CollaborativeWorkspaceModal } from './components/CollaborativeWorkspaceModal';
 import { 
   Clip, 
   View, 
@@ -160,6 +162,45 @@ const App: React.FC = () => {
     return saved !== null ? saved === 'true' : true; // Default active on launch as requested
   });
   const [isBatchStemExportOpen, setIsBatchStemExportOpen] = useState<boolean>(false);
+  const [isCollabModalOpen, setIsCollabModalOpen] = useState<boolean>(false);
+  const [collabState, setCollabState] = useState<CollabSessionState>(() => collabService.getState());
+
+  // Real-Time Collaborative Workspace Subscriptions
+  useEffect(() => {
+    const unsubState = collabService.subscribe(setCollabState);
+
+    const unsubTrackChange = collabService.onTrackChange((trackId, updates) => {
+      setTracks(prev => prev.map(t => t.id === trackId ? { ...t, ...updates } : t));
+    });
+
+    const unsubAllTracks = collabService.onAllTracks((remoteTracks) => {
+      setTracks(remoteTracks);
+    });
+
+    const unsubTransport = collabService.onTransportChange((transport) => {
+      if (transport.tempo !== undefined) {
+        setTempo(transport.tempo);
+      }
+    });
+
+    // Check URL parameters for direct room join links (e.g. ?session=NEON-7701)
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const urlSession = searchParams.get('session');
+      if (urlSession && urlSession.trim().length >= 4) {
+        collabService.joinSession(urlSession.trim().toUpperCase(), tracks, tempo);
+      }
+    } catch (e) {
+      console.warn('Collaborative session URL check failed:', e);
+    }
+
+    return () => {
+      unsubState();
+      unsubTrackChange();
+      unsubAllTracks();
+      unsubTransport();
+    };
+  }, []);
 
   // Studio Right-Click Shortcut Context Menu State & UI Sound Subscription
   const [contextMenuTarget, setContextMenuTarget] = useState<ContextMenuTarget | null>(null);
@@ -646,6 +687,10 @@ const App: React.FC = () => {
       } else if (updates.name && updates.name !== target.name) {
         projectHistory.pushSnapshot(`Rename Track to "${updates.name}"`, tracks, tempo);
       }
+    }
+    // Broadcast track changes to room collaborators unless triggered by remote peer
+    if (!collabService.getIsRemoteUpdate()) {
+      collabService.broadcastTrackUpdate(trackId, updates);
     }
     setTracks(prev => prev.map(t => t.id === trackId ? { ...t, ...updates } : t));
   };
@@ -1137,6 +1182,9 @@ const App: React.FC = () => {
         tempo={tempo}
         isAutoArmMode={isAutoArmMode}
         onToggleAutoArm={handleToggleAutoArm}
+        onOpenCollabWorkspace={() => setIsCollabModalOpen(true)}
+        collabSessionCode={collabState.sessionCode}
+        collabMemberCount={collabState.members.length}
       >
         {renderView()}
       </Layout>
@@ -1370,6 +1418,14 @@ const App: React.FC = () => {
       <BatchStemExportModal
         isOpen={isBatchStemExportOpen}
         onClose={() => setIsBatchStemExportOpen(false)}
+        tracks={tracks}
+        tempo={tempo}
+      />
+
+      {/* Real-Time Collaborative Workspace Modal */}
+      <CollaborativeWorkspaceModal
+        isOpen={isCollabModalOpen}
+        onClose={() => setIsCollabModalOpen(false)}
         tracks={tracks}
         tempo={tempo}
       />

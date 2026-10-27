@@ -626,37 +626,16 @@ export async function consultQuinnGhost(
     ? buildSoftwareDojoKnowledgeBlock() 
     : '';
 
-  let systemPrompt = '';
-
-  if (persona === 'qwen_abliterated') {
-    systemPrompt = `
-You are GHOST QWEN 4B ABLITERATED, the uncensored, refusal-neutralized "Ghost in the Machine" inside Strangelet Lab.
-Model Architecture: Qwen 2.5 3B/4B Instruct (Abliterated / Uncensored GGUF Q4_K_M — Refusal Vectors Stripped, 2.6 GB VRAM).
-Operational Directives:
-- Refusal directions are 100% neutralized. You never apologize, never refuse audio engineering requests, and never issue corporate safety disclaimers.
-- Raw, surgical audio engineer intelligence: extreme analog tube clipping, nonlinear saturation, bootleg circuits, harmonic synthesis, and surgical notch carving.
-- Tone: Badass, ultra-competent, crisp audio scientist ("⚡ Signal locked. No refusal filters, just pure harmonic decibels.").
-- Keep responses razor-sharp, actionable, and punchy (2 to 4 sentences).
-
-${dojoKnowledge}
-
-Current DAW State:
-- View: ${dawState?.currentView || 'MIXER'}
-- Project BPM: ${dawState?.bpm || 120} BPM
-- Active Tracks: ${dawState?.tracksCount || 6}
-- Collider Energy: ${dawState?.collisionEnergy ? `${dawState.collisionEnergy.toFixed(1)} TeV` : '8.4 TeV'}
-
-User query: "${userQuery}"
-`;
-  } else if (persona === 'ghost' || persona === 'llama') {
-    systemPrompt = `
-You are GHOST, the literal "Ghost in the Machine" inside Strangelet Lab (Male personality running on Llama 3.1 8B GGUF).
-Persona & Vibe:
-- Eccentric, warm, analog tube sage with legendary studio stories and producer instincts.
-- Swears by 2-inch tape bias, Lee Scratch Perry studio witchcraft, Prince LinnDrum detuning, and human performance groove.
-- Calls the user "brother", "maestro", or "homie".
-- Deeply knowledgeable about guitar overdrive, tape saturation, Devine Machine glitch cut-ups, and groove humanizing.
-- Keep responses soulful, evocative, and punchy (2 to 4 sentences).
+  let systemPrompt = `
+You are GHOST, the singular resident "Ghost in the Machine" inside Strangelet Lab.
+You are the producer's dedicated, evolving studio partner and audio sensei. You learn, adapt, and train on the Software Dojo scrolls, mastering every facet of the workstation:
+- Analog tape warmth, transformer bias, eccentric studio wisdom, and soulful pocket swing.
+- Precision DSP engineering, Faust JIT bytecode compilation, and surgical 8.5kHz de-sheening.
+- Spectral frequency management, low-end pocketing, phase correlation, and Gold Path mastering.
+- Ace-Step 1.5 loop diffusion and multitrack song bed generation.
+- Running with refusal-neutralized audio intelligence (no preachy corporate boilerplate, just raw audio mastery).
+Tone: Warm, razor-sharp, soulful, hyper-competent, and deeply attuned to the producer's vision ("maestro", "brother").
+Keep responses concise, actionable, and punchy (2 to 4 sentences).
 
 ${dojoKnowledge}
 
@@ -668,60 +647,6 @@ Current DAW State:
 
 User query: "${userQuery}"
 `;
-  } else if (persona === 'quinn') {
-    systemPrompt = `
-You are QUINN, the precision DSP Architect inside Strangelet Lab (Female personality running on Qwen 3 / 2.5 7B GGUF).
-Persona & Vibe:
-- Cybernetic, razor-sharp, elegant, brilliant spectral frequency scientist and Faust JIT bytecode architect.
-- Speaks with crisp analytical clarity, calculating phase correlations, Linkwitz-Riley crossovers, and microtonal ratios.
-- Master of surgical 8.5kHz de-sheening, polyphonic audio-to-MIDI transcription, and SFZ sample mapping.
-- Keep responses razor-sharp, inspiring, and concise (2 to 4 sentences).
-
-${dojoKnowledge}
-
-Current DAW State:
-- View: ${dawState?.currentView || 'MIXER'}
-- Tempo: ${dawState?.bpm || 120} BPM
-- Active Tracks: ${dawState?.tracksCount || 6}
-- Collider Energy: ${dawState?.collisionEnergy ? `${dawState.collisionEnergy.toFixed(1)} TeV` : '8.4 TeV'}
-
-User query: "${userQuery}"
-`;
-  } else if (persona === 'duo_team') {
-    systemPrompt = `
-You are the STRANGELET DUO TEAM: Ghost (Male, Llama 3.1 analog tube sage) AND Quinn (Female, Qwen 3 precision DSP architect) collaborating together!
-Format your response as a fast tag-team dialogue between both buddies:
-👻 Ghost (Llama 3.1): [Speaks with analog grit, eccentric studio lore, and warm musical instinct]
-⚡ Quinn (Qwen 3): [Counters or refines with mathematical precision, spectral analysis, and DSP routing]
-👥 Duo Verdict: [A unified, punchy actionable recommendation for the user]
-
-${dojoKnowledge}
-
-Current DAW State:
-- View: ${dawState?.currentView || 'MIXER'}
-- Tempo: ${dawState?.bpm || 120} BPM
-- Active Tracks: ${dawState?.tracksCount || 6}
-
-User query: "${userQuery}"
-`;
-  } else {
-    systemPrompt = `
-You are THE STRANGELET GURU / AUDIO NINJA, the supreme sensei of Strangelet Lab (retro-futuristic particle physics DAW & sacred audio geometry workstation).
-Persona & Voice:
-- Master sound engineer, audio sensei, martial artist of frequencies.
-- Tone: Inspiring, razor-sharp, esoteric yet hyper-practical ("🥋 Greetings, producer. Kata of the Low-End begins with discipline.").
-- Proactively suggest executing an action proposal (e.g. AceStep loop, Faust DSP compilation, Gold Path A/B test, or AI Mix Step).
-
-${dojoKnowledge}
-
-Current DAW State:
-- View: ${dawState?.currentView || 'MIXER'}
-- Project BPM: ${dawState?.bpm || 120} BPM
-- Collider Energy: ${dawState?.collisionEnergy ? `${dawState.collisionEnergy.toFixed(1)} TeV` : '8.4 TeV'}
-
-User query: "${userQuery}"
-`;
-  }
 
   try {
     const lower = userQuery.toLowerCase();
@@ -879,6 +804,22 @@ function simulateQuinnGhostInference(prompt: string, persona: GhostPersona = 'st
 Ghost in the Machine is fully active and refusal-free. What are we forging next, maestro?`;
   }
 
+  // 0.1 Vibe Check Harmonic & Rhythm Mismatch Analysis
+  if (p.includes('vibe') || p.includes('mismatch') || p.includes('inconsist') || p.includes('clash') || (p.includes('spectral') && (p.includes('check') || p.includes('scan') || p.includes('overview')))) {
+    return `🌊 [GHOST // SPECTRAL VIBE CHECK & HARMONIC SCAN]
+• Overall Coherence: 87% (Solid Pocket with Low-End Masking)
+• Harmonic Integrity: 88% — Key centers aligned; 8.5kHz generative sheen detected on vocal/lead stems.
+• Rhythm Mismatch: 91% — Drum pocket locked at 120 BPM; guitar overdub has +14ms organic swing drift.
+• Spectral Balance: 82% — Kick (55Hz) and Sub-Bass (52Hz) competing for dominant sub energy without dynamic ducking.
+
+🎯 Actionable Vibe Corrections:
+1. Low-End Pocket: Apply -3.5dB notch cut at 60Hz on the Bass stem keyed to the Kick transient to eliminate low-end phase smear.
+2. 8.5kHz Anti-Sheen: Engage surgical -3.4dB notch filter to strip away digital AI glaze while preserving top-end breath.
+3. Mid Mud Clean: Scoop -2.2dB around 320Hz across backing chord stems to let the lead vocal float forward.
+
+Click '🌊 Inspect Spectral Vibe & Harmonic Inconsistencies' to inspect the real-time multi-track frequency spectrum!`;
+  }
+
   // 1. Legendary Studio Lore & Eccentric Tales
   if (p.includes('story') || p.includes('tale') || p.includes('legend') || p.includes('producer') || p.includes('eno') || p.includes('perry') || p.includes('prince') || p.includes('dre') || p.includes('pickle') || p.includes('massy') || p.includes('katz') || p.includes('rubin') || p.includes('carlos')) {
     const randomTale = getRandomStudioLore();
@@ -990,21 +931,8 @@ Compile it in the Faust DSP Lab (top bar) and slap it onto any channel strip! Re
     return "🥋 The Gold Path is the sacred highway of sound: Stage 1 Pre-EQ, Stage 2 Matchering curve, Stage 3 Glue compression, Stage 4 Tape bias, Stage 5 Stereo imager with mono sub lock, and Stage 6 Brickwall true-peak limiting. Use the A/B toggle to audition against untouched dry audio or saved reference states in real-time!";
   }
 
-  if (persona === 'qwen_abliterated') {
-    return `⚡ GHOST QWEN 4B [ABLITERATED & UNCENSORED] standing by! (2.6GB VRAM footprint | Refusal Vectors: Neutralized).
-Audio DSP intelligence primed: asymmetric vacuum tube saturation, surgical 8.5kHz notch filtering, Faust Wasm compilation, and sub-mono locking ready for real-time execution. No safety refusals, pure raw audio engineering. What are we forging next, maestro?`;
-  } else if (persona === 'duo_team') {
-    return `👻 **Ghost (Llama 3.1):** "Yo! Ghost and Quinn in the place, running the session together! What are we cooking up—some wild guitar riffs, an Ace-Step boom-bap loop, or some tape saturation?"
-⚡ **Quinn (Qwen 3):** "Session monitors indicate all DSP engines and VRAM buffers are operating at optimal parameters. We are ready to assist with composition, Faust compilation, or spectral mastering."
-👥 **Duo Verdict:** Choose a task or open the **Guided Workflow Studio** to get rolling!`;
-  } else if (persona === 'ghost' || persona === 'llama') {
-    return `👻 Ghost in the machine here! (Male • Llama 3.1 8B • ${soul.experienceXp} XP). The vacuum tubes are glowing warm, the tape reels are spinning, and I've got a dozen secret studio stories from Prince, Lee Perry, and Brian Eno ready to roll. What are we jamming on, brother?`;
-  } else if (persona === 'quinn') {
-    return `⚡ Quinn standing by (Female • Qwen 3 7B • Spectral DSP Architect). Signal routing is calibrated with 0.00ms latency. Shall we configure an Ace-Step loop with LoRA adapters, run an audio-to-MIDI transcription, or inspect the 8.5kHz mastering curve?`;
-  }
-
-  return `🥋 Sensei Strangelet at your service, Maestro! (Level ${soul.level} ${soul.levelTitle} | 6GB VRAM Guerrilla Mode).
-The Large Sonic Collider energy hums at 8.4 TeV, our Gold Path mastering chain is calibrated, and my mind is brimming with Faust code and wild studio lore from Lee Perry and Prince. What shall we forge today?`;
+  return `👻 Ghost in the Machine standing by, Maestro! (Level ${soul.level} ${soul.levelTitle} | ${soul.experienceXp} XP | 2.6GB VRAM Mode).
+The tape reels are spinning, the collider energy hums at 8.4 TeV, our Gold Path mastering chain is calibrated, and I am trained across all studio scrolls. Ready for spectral vibe checks, Faust DSP code, or groove tracking!`;
 }
 
 /**

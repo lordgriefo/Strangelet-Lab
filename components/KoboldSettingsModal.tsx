@@ -14,7 +14,8 @@ import {
   Zap,
   Info,
   BookOpen,
-  Flame
+  Flame,
+  Bot
 } from 'lucide-react';
 import { KoboldSettings, GhostPersona, AiEngineType } from '../types';
 import { 
@@ -147,130 +148,36 @@ export const KoboldSettingsModal: React.FC<KoboldSettingsModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSave} className="p-6 overflow-y-auto space-y-4 text-xs">
-          {/* AI Helper Persona Selector */}
+          {/* Singular Ghost in the Machine Companion Card */}
           <div className="space-y-1.5">
             <label className="text-[11px] font-bold text-[#A2A9D0] uppercase tracking-wider flex items-center justify-between">
-              <span>AI Companion Persona &amp; Voice</span>
-              <span className="text-[10px] text-amber-400 font-normal">Switch personality anytime</span>
+              <span>Resident Studio AI Partner</span>
+              <span className="text-[10px] text-amber-400 font-normal">Single evolving companion</span>
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
-              {/* Qwen 4B Abliterated */}
-              <button
-                type="button"
-                onClick={() => setSettings(prev => ({ 
-                  ...prev, 
-                  defaultPersona: 'qwen_abliterated',
-                  modelName: 'Ghost Qwen 4B (Qwen 2.5 3B/4B Abliterated / Uncensored Q4_K_M)',
-                  uncensoredMode: true,
-                  isAbliterated: true
-                }))}
-                className={`p-2.5 rounded-xl border text-left transition-all relative overflow-hidden ${
-                  (settings.defaultPersona === 'qwen_abliterated')
-                    ? 'bg-red-950/50 border-red-400 text-white shadow-[0_0_15px_rgba(239,68,68,0.3)]'
-                    : 'bg-[#0E1220] border-[#222944] text-[#7A82A4] hover:text-white'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[11px] text-amber-300 flex items-center gap-1">
-                    🔓 Qwen 4B
-                  </span>
-                  {settings.defaultPersona === 'qwen_abliterated' && (
-                    <span className="text-[8px] px-1 py-0.2 rounded bg-red-500/20 text-red-300 border border-red-500/40 font-bold">
-                      ACTIVE
-                    </span>
-                  )}
+            <div className="p-3.5 rounded-xl border border-amber-500/40 bg-gradient-to-r from-[#17120B] via-[#141224] to-[#0A0D1A] shadow-[0_0_20px_rgba(245,158,11,0.15)] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500/30 via-orange-500/20 to-purple-500/30 border border-amber-400/50 flex items-center justify-center text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.3)] flex-shrink-0">
+                  <Bot className="w-5 h-5 animate-pulse" />
                 </div>
-                <p className="text-[9px] text-[#A0A7C4] mt-1 leading-tight">
-                  Abliterated &amp; Uncensored! Zero refusal vectors, raw tube overdriving &amp; surgical DSP.
-                </p>
-              </button>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-xs text-amber-300 tracking-wider">THE GHOST IN THE MACHINE</span>
+                    <span className="text-[8px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-500/50 font-bold uppercase tracking-wider">
+                      RESIDENT COMPANION
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-[#A0A7C4] mt-0.5 leading-snug">
+                    One unified companion mastering how your lab runs: Software Dojo scrolls, Faust DSP JIT bytecode, Ace-Step diffusion, and Spectral Vibe Checks.
+                  </p>
+                </div>
+              </div>
 
-              {/* Strangelet Guru */}
-              <button
-                type="button"
-                onClick={() => setSettings(prev => ({ 
-                  ...prev, 
-                  defaultPersona: 'strangelet_guru',
-                  modelName: 'Strangelet Guru 7B (Qwen-2.5-7B GGUF Q4_K_M)'
-                }))}
-                className={`p-2.5 rounded-xl border text-left transition-all relative overflow-hidden ${
-                  (settings.defaultPersona === 'strangelet_guru')
-                    ? 'bg-amber-950/50 border-amber-400 text-white shadow-[0_0_15px_rgba(245,158,11,0.25)]'
-                    : 'bg-[#0E1220] border-[#222944] text-[#7A82A4] hover:text-white'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[11px] text-amber-300 flex items-center gap-1">
-                    🥋 Strangelet Guru
-                  </span>
-                  {settings.defaultPersona === 'strangelet_guru' && (
-                    <span className="text-[8px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 font-bold">
-                      ACTIVE
-                    </span>
-                  )}
+              <div className="flex items-center gap-2 self-end sm:self-center flex-shrink-0">
+                <div className="px-2.5 py-1 rounded-lg bg-[#0E1222] border border-[#232B45] text-right">
+                  <div className="text-[8px] text-[#71789B] uppercase font-bold">Soul Memory</div>
+                  <div className="text-[10px] text-purple-300 font-bold">Persistent Local XP</div>
                 </div>
-                <p className="text-[9px] text-[#A0A7C4] mt-1 leading-tight">
-                  Audio Sensei &amp; Frequency Ninja! Master of Faust DSP, AceStep, and Gold Path mastering.
-                </p>
-              </button>
-
-              {/* Llama Studio Buddy */}
-              <button
-                type="button"
-                onClick={() => setSettings(prev => ({ 
-                  ...prev, 
-                  defaultPersona: 'llama',
-                  modelName: 'Llama 3.1 8B (Studio Buddy GGUF Q4_K_M)'
-                }))}
-                className={`p-2.5 rounded-xl border text-left transition-all relative overflow-hidden ${
-                  settings.defaultPersona === 'llama'
-                    ? 'bg-orange-950/40 border-orange-400 text-white shadow-[0_0_15px_rgba(249,115,22,0.2)]'
-                    : 'bg-[#0E1220] border-[#222944] text-[#7A82A4] hover:text-white'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[11px] text-orange-300 flex items-center gap-1">
-                    🦙 Llama Buddy
-                  </span>
-                  {settings.defaultPersona === 'llama' && (
-                    <span className="text-[8px] px-1 py-0.2 rounded bg-orange-500/20 text-orange-300 font-bold">
-                      ACTIVE
-                    </span>
-                  )}
-                </div>
-                <p className="text-[9px] text-[#A0A7C4] mt-1 leading-tight">
-                  Chill couch producer buddy! Analog tape stories, Prince lore, and loose pocket swing.
-                </p>
-              </button>
-
-              {/* Quinn 3.7 Ghost */}
-              <button
-                type="button"
-                onClick={() => setSettings(prev => ({ 
-                  ...prev, 
-                  defaultPersona: 'quinn',
-                  modelName: 'Quinn 3.7 (Qwen-2.5-7B GGUF Q4_K_M)'
-                }))}
-                className={`p-2.5 rounded-xl border text-left transition-all relative overflow-hidden ${
-                  settings.defaultPersona === 'quinn'
-                    ? 'bg-cyan-950/40 border-cyan-400 text-white shadow-[0_0_15px_rgba(6,182,212,0.2)]'
-                    : 'bg-[#0E1220] border-[#222944] text-[#7A82A4] hover:text-white'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[11px] text-cyan-300 flex items-center gap-1">
-                    👻 Quinn 3.7
-                  </span>
-                  {settings.defaultPersona === 'quinn' && (
-                    <span className="text-[8px] px-1 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-bold">
-                      ACTIVE
-                    </span>
-                  )}
-                </div>
-                <p className="text-[9px] text-[#A0A7C4] mt-1 leading-tight">
-                  Cybernetic audio ghost! Phase coherence, Linkwitz-Riley crossovers, and spectral math.
-                </p>
-              </button>
+              </div>
             </div>
           </div>
 

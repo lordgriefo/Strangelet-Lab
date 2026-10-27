@@ -18,6 +18,8 @@ import {
   CircleDot, Mic, Zap, Sparkles, Radio, Music, Download, Crosshair, Pin, Split, Code2, Keyboard,
   Magnet, BarChart3, FolderArchive, Activity, Plus, Upload, ChevronDown, Sliders, Disc
 } from 'lucide-react';
+import { midiLearnService, MidiControlMapping, MidiLearningTarget } from '../services/midiLearnService';
+import { VirtualMidiControllerRack } from './VirtualMidiControllerRack';
 import { audioService } from '../services/audioService';
 import { evaluateAutomationAt, snapToGrid } from '../lib/audioUtils';
 import { liveRecordingEngine } from '../lib/liveRecordingEngine';
@@ -95,6 +97,14 @@ const Mixer: React.FC<MixerProps> = ({
   const [internalTracks, setInternalTracks] = useState<Track[]>(INITIAL_TRACKS);
   const tracks = externalTracks ?? internalTracks;
   const setTracks = externalSetTracks ?? setInternalTracks;
+
+  const updateTrack = (id: string, updates: Partial<Track>) => {
+    if (externalUpdateTrack) {
+      externalUpdateTrack(id, updates);
+    } else {
+      setTracks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
+    }
+  };
 
   const [internalAutoArmMode, setInternalAutoArmMode] = useState<boolean>(() => {
     return localStorage.getItem('strangelet_auto_arm_mode') !== 'false';
@@ -180,6 +190,39 @@ const Mixer: React.FC<MixerProps> = ({
   const [midiEditorTargetTrackId, setMidiEditorTargetTrackId] = useState<string | null>(null);
   const [midiEditorTargetClipId, setMidiEditorTargetClipId] = useState<string | null>(null);
 
+  // Hardware MIDI Learn & Controller Desk State
+  const [isMidiLearnMode, setIsMidiLearnMode] = useState<boolean>(false);
+  const [isVirtualControllerOpen, setIsVirtualControllerOpen] = useState<boolean>(false);
+  const [midiMappings, setMidiMappings] = useState<MidiControlMapping[]>(() => midiLearnService.getAllMappings());
+  const [learningTarget, setLearningTarget] = useState<MidiLearningTarget | null>(null);
+
+  useEffect(() => {
+    const unsubMappings = midiLearnService.subscribeChange((mappings) => {
+      setMidiMappings(mappings);
+      // If we were learning, clearing target once mapping is added
+      setLearningTarget(midiLearnService.getLearningTarget());
+    });
+
+    const unsubControl = midiLearnService.onControlValueChange((mapping, normalizedVal) => {
+      if (mapping.targetType === 'volume') {
+        updateTrack(mapping.trackId, { volume: parseFloat(normalizedVal.toFixed(3)) });
+      } else if (mapping.targetType === 'pan') {
+        updateTrack(mapping.trackId, { pan: parseFloat(normalizedVal.toFixed(2)) });
+      }
+    });
+
+    return () => {
+      unsubMappings();
+      unsubControl();
+    };
+  }, [updateTrack]);
+
+  const handleStartMidiLearn = (target: MidiLearningTarget) => {
+    setLearningTarget(target);
+    setIsMidiLearnMode(true);
+    midiLearnService.startLearning(target);
+  };
+
   const [timelineMarkers, setTimelineMarkers] = useState<TimelineMarker[]>([
     { id: 'intro', position: 0.125, label: 'Intro' },
     { id: 'drop', position: 0.5, label: 'Drop / Chorus' },
@@ -231,14 +274,6 @@ const Mixer: React.FC<MixerProps> = ({
           masterGainRef.current.gain.value = masterGain;
       }
   }, [masterGain]);
-
-  const updateTrack = (id: string, updates: Partial<Track>) => {
-    if (externalUpdateTrack) {
-      externalUpdateTrack(id, updates);
-    } else {
-      setTracks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
-    }
-  };
 
   const handleDeleteTrack = (trackId: string) => {
     const target = tracks.find(t => t.id === trackId);
@@ -1021,6 +1056,56 @@ const Mixer: React.FC<MixerProps> = ({
               <span>ACE-STEP 1.5</span>
             </button>
 
+            {/* Hardware MIDI Learn Toggle */}
+            <button
+              onClick={() => {
+                setIsMidiLearnMode(prev => {
+                  const next = !prev;
+                  if (!next) {
+                    midiLearnService.cancelLearning();
+                    setLearningTarget(null);
+                  }
+                  return next;
+                });
+              }}
+              className={`px-2.5 py-1 rounded text-[11px] font-bold font-mono transition-all flex items-center gap-1.5 cursor-pointer border ${
+                isMidiLearnMode
+                  ? 'bg-amber-400 text-black border-amber-300 shadow-[0_0_14px_#F59E0B] animate-pulse'
+                  : midiMappings.length > 0
+                    ? 'bg-amber-950/40 border-amber-500/60 text-amber-300 hover:bg-amber-900/50'
+                    : 'bg-[#0E121E] border-[#252E48] text-[#8C9BBF] hover:text-white hover:border-amber-400'
+              }`}
+              title={
+                isMidiLearnMode 
+                  ? "MIDI Learn ACTIVE: Click any channel strip knob or fader learn badge, then touch your hardware knob/slider. (Click to exit)" 
+                  : "Toggle Hardware MIDI Learn Mode: Map external knobs & faders directly to volume and pan"
+              }
+            >
+              <Sliders size={12} className={isMidiLearnMode ? 'text-black' : 'text-amber-400'} />
+              <span>MIDI LEARN</span>
+              {midiMappings.length > 0 && (
+                <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                  isMidiLearnMode ? 'bg-black text-amber-300' : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                }`}>
+                  {midiMappings.length}
+                </span>
+              )}
+            </button>
+
+            {/* Virtual Hardware Controller Rack Drawer */}
+            <button
+              onClick={() => setIsVirtualControllerOpen(prev => !prev)}
+              className={`px-2.5 py-1 rounded text-[11px] font-bold font-mono transition-all flex items-center gap-1.5 cursor-pointer border ${
+                isVirtualControllerOpen
+                  ? 'bg-cyan-500 text-black border-cyan-300 shadow-[0_0_12px_#06B6D4]'
+                  : 'bg-[#0A101D] border-[#1D2B44] text-cyan-300 hover:bg-cyan-950/50 hover:border-cyan-400'
+              }`}
+              title="Open Virtual 8-Channel Hardware Controller Desk: Test physical CC sliders and rotary knobs directly in browser"
+            >
+              <Radio size={12} className={isVirtualControllerOpen ? 'text-black' : 'text-cyan-400'} />
+              <span>DESK RACK</span>
+            </button>
+
             {/* Toggle 1960s Motif Deck to free vertical mixer space */}
             <button
               onClick={() => {
@@ -1225,6 +1310,10 @@ const Mixer: React.FC<MixerProps> = ({
             isSelected={track.id === selectedTrackId}
             onSelect={() => handleSelectTrack(track.id)}
             isAutoArmMode={isAutoArm}
+            isMidiLearnMode={isMidiLearnMode}
+            midiMappings={midiMappings}
+            learningTarget={learningTarget}
+            onStartMidiLearn={handleStartMidiLearn}
           />
         ))}
       </div>
@@ -1584,6 +1673,15 @@ const Mixer: React.FC<MixerProps> = ({
           globalSnapValue={snapValue}
         />
       )}
+
+      {/* Virtual Hardware MIDI Controller Rack (Motorized 8-Fader & 8-Knob Desk) */}
+      <VirtualMidiControllerRack
+        isOpen={isVirtualControllerOpen}
+        onClose={() => setIsVirtualControllerOpen(false)}
+        onAutoMap8={() => {
+          midiLearnService.autoMap8Tracks(tracks);
+        }}
+      />
     </div>
   );
 };

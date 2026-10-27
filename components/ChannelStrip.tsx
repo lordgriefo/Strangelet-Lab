@@ -6,6 +6,7 @@ import VstModal from './VstModal';
 import { evaluateAutomationAt, volumeToDb, panToString } from '../lib/audioUtils';
 import { humanizeMidiNotes } from '../services/basicPitchService';
 import { playLaserBeamSound } from '../lib/laserSound';
+import { MidiControlMapping, MidiLearningTarget } from '../services/midiLearnService';
 
 interface ChannelStripProps {
   track: Track;
@@ -22,6 +23,10 @@ interface ChannelStripProps {
   isSelected?: boolean;
   onSelect?: () => void;
   isAutoArmMode?: boolean;
+  isMidiLearnMode?: boolean;
+  midiMappings?: MidiControlMapping[];
+  learningTarget?: MidiLearningTarget | null;
+  onStartMidiLearn?: (target: MidiLearningTarget) => void;
 }
 
 const Fader: React.FC<{ value: number, onChange: (val: number) => void }> = ({ value, onChange }) => {
@@ -109,13 +114,23 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({
   onDeleteTrack,
   isSelected = false,
   onSelect,
-  isAutoArmMode = false
+  isAutoArmMode = false,
+  isMidiLearnMode = false,
+  midiMappings = [],
+  learningTarget = null,
+  onStartMidiLearn
 }) => {
   const { id, name, volume, pan, muted, soloed, color, phaseInverted, isMono, vstBypassed, automation } = track;
   const [isVstModalOpen, setIsVstModalOpen] = useState(false);
   const [transcription, setTranscription] = useState<string | null>(null);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isExtractingMidi, setIsExtractingMidi] = useState(false);
+
+  // Active MIDI Learn mapping checks for this channel
+  const volMapping = midiMappings.find(m => m.trackId === id && m.targetType === 'volume');
+  const panMapping = midiMappings.find(m => m.trackId === id && m.targetType === 'pan');
+  const isLearningVol = learningTarget?.trackId === id && learningTarget?.targetType === 'volume';
+  const isLearningPan = learningTarget?.trackId === id && learningTarget?.targetType === 'pan';
 
   // Humanize Feature State for MIDI Tracks
   const isHumanizeEnabled = track.midiConfig?.humanizeEnabled ?? track.humanizeEnabled ?? true;
@@ -301,17 +316,55 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({
         )}
 
         {/* Pan */}
-        <Knob 
-            label="PAN" 
-            value={currentPan} 
-            min={-1} 
-            max={1} 
-            onChange={(val) => updateTrack(id, { pan: val })}
-        />
+        <div className="flex flex-col items-center w-full">
+          {(isMidiLearnMode || panMapping) && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onStartMidiLearn?.({ id: `${id}-pan`, targetType: 'pan', trackId: id, trackName: name });
+              }}
+              className={`mb-1 px-1.5 py-0.5 rounded text-[8px] font-mono font-bold tracking-tight transition-all cursor-pointer border ${
+                isLearningPan
+                  ? 'bg-amber-400 text-black border-amber-300 animate-pulse shadow-[0_0_8px_#F59E0B]'
+                  : panMapping
+                    ? 'bg-amber-950/80 text-amber-300 border-amber-500/50 hover:bg-amber-800/40'
+                    : 'bg-[#151926] text-[#7888A8] border-[#2A3756] hover:text-white hover:border-amber-400'
+              }`}
+              title={panMapping ? `Mapped to MIDI CC ${panMapping.ccNumber} (Ch ${panMapping.channel === -1 ? 'All' : panMapping.channel}). Click to re-map.` : 'Click to map hardware MIDI knob to Pan'}
+            >
+              {isLearningPan ? '● LISTEN CC...' : panMapping ? `CC ${panMapping.ccNumber} [PAN]` : '+ LEARN PAN'}
+            </button>
+          )}
+          <Knob 
+              label="PAN" 
+              value={currentPan} 
+              min={-1} 
+              max={1} 
+              onChange={(val) => updateTrack(id, { pan: val })}
+          />
+        </div>
 
         {/* Fader */}
-        <div className="w-full flex-1 my-4">
-            <Fader value={currentVolume} onChange={(val) => updateTrack(id, { volume: val })} />
+        <div className="w-full flex-1 my-3 flex flex-col items-center">
+          {(isMidiLearnMode || volMapping) && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onStartMidiLearn?.({ id: `${id}-volume`, targetType: 'volume', trackId: id, trackName: name });
+              }}
+              className={`mb-1 px-1.5 py-0.5 rounded text-[8px] font-mono font-bold tracking-tight transition-all cursor-pointer border ${
+                isLearningVol
+                  ? 'bg-amber-400 text-black border-amber-300 animate-pulse shadow-[0_0_8px_#F59E0B]'
+                  : volMapping
+                    ? 'bg-amber-950/80 text-amber-300 border-amber-500/50 hover:bg-amber-800/40'
+                    : 'bg-[#151926] text-[#7888A8] border-[#2A3756] hover:text-white hover:border-amber-400'
+              }`}
+              title={volMapping ? `Mapped to MIDI CC ${volMapping.ccNumber} (Ch ${volMapping.channel === -1 ? 'All' : volMapping.channel}). Click to re-map.` : 'Click to map hardware MIDI fader to Volume'}
+            >
+              {isLearningVol ? '● LISTEN CC...' : volMapping ? `CC ${volMapping.ccNumber} [VOL]` : '+ LEARN VOL'}
+            </button>
+          )}
+          <Fader value={currentVolume} onChange={(val) => updateTrack(id, { volume: val })} />
         </div>
         
         {/* Record Arm / Mute / Solo / Phase */}

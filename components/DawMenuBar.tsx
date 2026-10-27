@@ -37,7 +37,9 @@ import {
   Settings,
   Compass,
   CircleDot,
-  Flame
+  Flame,
+  Radio,
+  Users
 } from 'lucide-react';
 import { View, Track, ProjectSession } from '../types';
 import { playLaserBeamSound } from '../lib/laserSound';
@@ -84,6 +86,9 @@ export interface DawMenuBarProps {
   isGuruDockedInSidebar?: boolean;
   isAutoArmMode?: boolean;
   onToggleAutoArm?: () => void;
+  onOpenCollabWorkspace?: () => void;
+  collabSessionCode?: string | null;
+  collabMemberCount?: number;
 }
 
 type MenuKey = 'file' | 'edit' | 'view' | 'track' | 'ai' | 'export' | 'help' | null;
@@ -129,7 +134,10 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
   onMoveGuruToSidebar,
   isGuruDockedInSidebar,
   isAutoArmMode,
-  onToggleAutoArm
+  onToggleAutoArm,
+  onOpenCollabWorkspace,
+  collabSessionCode,
+  collabMemberCount
 }) => {
   const [openMenu, setOpenMenu] = useState<MenuKey>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -246,6 +254,21 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
                 <span>Import Audio File...</span>
               </span>
             </button>
+
+            {onOpenCollabWorkspace && (
+              <button
+                onClick={() => executeAction(onOpenCollabWorkspace)}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-cyan-300 hover:text-white hover:bg-cyan-950/40 transition-colors font-bold"
+              >
+                <span className="flex items-center gap-2">
+                  <Users size={14} className="text-cyan-400" />
+                  <span>Real-Time Collaborative Workspace...</span>
+                </span>
+                <span className="text-[10px] text-cyan-400 font-mono font-bold">
+                  {collabSessionCode ? `[${collabSessionCode}]` : 'LIVE'}
+                </span>
+              </button>
+            )}
 
             <div className="h-[1px] bg-[#1E2438] my-1" />
 
@@ -624,20 +647,9 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
             >
               <span className="flex items-center gap-2">
                 <Bot size={15} className="text-amber-400 animate-pulse" />
-                <span>🥋 Strangelet Guru // Ninja Sensei</span>
+                <span>👻 Ghost in the Machine (Resident AI)</span>
               </span>
-              <span className="text-[10px] text-amber-500 font-normal">Alt+G</span>
-            </button>
-
-            <button
-              onClick={() => executeAction(onOpenGhostBuddy)}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-orange-300 hover:text-white hover:bg-[#2E180E] transition-colors font-bold"
-            >
-              <span className="flex items-center gap-2">
-                <Flame size={15} className="text-orange-400 animate-pulse" />
-                <span>🔓 Ghost Qwen 4B (Abliterated / Uncensored)</span>
-              </span>
-              <span className="text-[9px] px-1.5 py-0.2 rounded bg-red-950 text-red-300 border border-red-700/60 font-bold">2.6GB</span>
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-600/50 font-bold">Qwen 4B</span>
             </button>
 
             <div className="h-[1px] bg-[#1E2438] my-1" />
@@ -882,6 +894,27 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
           </div>
         )}
       </div>
+
+      {/* Real-Time Collaborative Workspace Quick Trigger */}
+      {onOpenCollabWorkspace && (
+        <button
+          onClick={onOpenCollabWorkspace}
+          className={`ml-2 px-2.5 py-1 rounded text-xs font-mono font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+            collabSessionCode
+              ? 'bg-cyan-950/80 border-cyan-400 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.35)]'
+              : 'bg-[#121624] border-[#222E4A] text-[#8C9BBF] hover:text-cyan-300 hover:border-cyan-500/50'
+          }`}
+          title="Real-Time Collaborative Workspace: Join or share session across local network with room code"
+        >
+          <Radio size={12} className={collabSessionCode ? 'text-cyan-400 animate-pulse' : 'text-[#8C9BBF]'} />
+          <span className="hidden sm:inline">{collabSessionCode ? `ROOM: ${collabSessionCode}` : 'COLLAB'}</span>
+          {(collabMemberCount || 0) > 1 && (
+            <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-cyan-400 text-black font-extrabold shadow-[0_0_6px_#06B6D4]">
+              {collabMemberCount}
+            </span>
+          )}
+        </button>
+      )}
     </div>
   );
 };
