@@ -62,8 +62,10 @@ export interface ModelPresetOption {
 }
 
 export const AVAILABLE_MODELS: ModelPresetOption[] = [
+  { id: 'gemma-2-2b-it', name: 'Google Gemma 2 2B IT (Ultralight GGUF)', vram: '1.6 GB', recommendedTier: '4gb', desc: '🚀 Google Gemma 2 2B: Instant speed on low-spec laptops, snappy mix critique and clean parameter checks' },
   { id: 'ghost-mad-scientist-4b', name: 'GHOST Mad Scientist (Auto VRAM 3B–4B GGUF)', vram: '2.6 GB', recommendedTier: '6gb', desc: '🧪 Default Lab Persona: Eccentric studio mad scientist — recording troubleshooter, Faust DSP alchemist & Sonic Collider prompt writer' },
   { id: 'llama-3.2-3b-slim', name: 'Llama 3.2 3B Instruct (GGUF Q4_K_S)', vram: '2.1 GB', recommendedTier: '4gb', desc: '🗣️ Affable & Conversational: Warm mad-scientist personality for 4GB–6GB VRAM laptops with snappy latency' },
+  { id: 'gemma-2-9b-it', name: 'Google Gemma 2 9B IT (High Precision)', vram: '5.8 GB', recommendedTier: '8gb', desc: '🎯 Google Gemma 2 9B: Deep sliding window reasoning, high-dimensional Faust DSP code & surgical harmonic analysis' },
   { id: 'gemma-3-4b-it', name: 'Gemma 3 4B Instruct (GGUF Q4_K_M)', vram: '2.6 GB', recommendedTier: '6gb', desc: '🎭 Expressive & Quirky: Rich creative banter for Sonic Collider prompts + smart recording troubleshooting on 6GB cards' },
   { id: 'qwen-2.5-3b-lowest', name: 'Qwen 2.5 3B (GGUF Q4_K_S)', vram: '1.9 GB', recommendedTier: '4gb', desc: '🪶 Minimum Footprint: Tight 4GB VRAM coding & structured Faust DSP syntax' },
   { id: 'qwen-4b-abliterated', name: 'Qwen 3 / 2.5 4B Abliterated (Uncensored Q4_K_M)', vram: '2.6 GB', recommendedTier: '6gb', desc: '🔓 Raw DSP & Tube Circuits: Refusal directions neutralized for uninhibited analog clipping & saturation recipes' },

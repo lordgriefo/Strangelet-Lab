@@ -36,6 +36,32 @@ interface AddonItem {
 export const ADDONS_CATALOG: AddonItem[] = [
   // GHOST Models
   {
+    id: 'ghost-gemma-2b',
+    name: 'Ghost Google Gemma 2 2B (Ultralight / 4GB VRAM)',
+    category: 'ghost',
+    badge: 'GOOGLE GEMMA',
+    vram: '1.6 GB VRAM',
+    fileSize: '1.6 GB',
+    description: 'Ultra-compact Google Gemma 2 architecture. Extremely fast response time, perfect for low-spec laptops, providing sharp EQ checks and clean studio advice.',
+    ollamaCommand: 'ollama run gemma2:2b',
+    huggingFaceUrl: 'https://huggingface.co/google/gemma-2-2b-it-GGUF',
+    recommendedHardware: 'Any 4GB GPU / Integrated Graphics',
+    tags: ['Google Gemma 2', 'Ultralight', '2B IT']
+  },
+  {
+    id: 'ghost-gemma-9b',
+    name: 'Ghost Google Gemma 2 9B (High-Precision / 8GB-12GB VRAM)',
+    category: 'ghost',
+    badge: 'DEEP REASONING',
+    vram: '5.8 GB VRAM',
+    fileSize: '5.4 GB',
+    description: 'High-capability Google Gemma 2 model with sliding window attention. Excels at generating complex Faust DSP audio code and surgical mix balancing.',
+    ollamaCommand: 'ollama run gemma2:9b',
+    huggingFaceUrl: 'https://huggingface.co/google/gemma-2-9b-it-GGUF',
+    recommendedHardware: 'RTX 3060 12GB / RTX 4060 / 16GB Macs',
+    tags: ['Google Gemma 2', 'Sliding Window', '9B IT']
+  },
+  {
     id: 'ghost-qwen-3b',
     name: 'Ghost Qwen 2.5 3B (Laptop / 4GB-6GB VRAM)',
     category: 'ghost',
@@ -271,7 +297,7 @@ export const AddonsHubModal: React.FC<AddonsHubModalProps> = ({
           {[
             { id: 'ghost', label: '👻 GHOST AI Brains', desc: 'Local GGUF Models (3B–14B)', color: '#FFD700' },
             { id: 'acestep', label: '⚡ Ace-Step 1.5 Loops', desc: 'Diffusion & ComfyUI Nodes', color: '#EC4899' },
-            { id: 'yue2', label: '🎶 YuE 2.0 Full Song', desc: 'End-to-End Dual-Track Audio', color: '#06B6D4' },
+            { id: 'yue2', label: '🎶 YuE2 Full Song', desc: 'End-to-End Dual-Track Audio', color: '#06B6D4' },
             { id: 'sfz', label: '🎹 SFZ & Sample Packs', desc: 'Grand Piano, Rhodes, 808/909', color: '#10B981' }
           ].map(tab => (
             <button

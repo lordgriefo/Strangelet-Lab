@@ -770,7 +770,7 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
               >
                 <span className="flex items-center gap-2">
                   <Sparkles size={14} className="text-pink-400 animate-pulse" />
-                  <span>YuE 2.0 Full-Song & Multi-Stem Generator</span>
+                  <span>YuE2 Full-Song & Multi-Stem Generator</span>
                 </span>
                 <span className="text-[9px] px-1.5 py-0.2 rounded bg-pink-950 text-pink-300 border border-pink-600/50">
                   DUAL-TRACK

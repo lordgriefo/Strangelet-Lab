@@ -12,8 +12,10 @@ Choose the model that best matches your GPU VRAM:
 
 | Model | Recommended Hardware | VRAM Usage | File Size | 1-Line Ollama Command | Hugging Face GGUF Link |
 | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Google Gemma 2 2B IT** *(Ultralight)* | Any 4GB GPU / Integrated Graphics | **1.6 GB** | 1.6 GB | `ollama run gemma2:2b` | [Gemma-2-2B-IT-GGUF](https://huggingface.co/google/gemma-2-2b-it-GGUF) |
 | **Qwen 2.5 3B Instruct** | GTX 1650, RTX 3050, 4GB–6GB Laptops | **2.1 GB** | 1.9 GB | `ollama run qwen2.5:3b` | [Qwen2.5-3B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF) |
 | **Qwen 2.5 7B Instruct** *(Recommended)* | RTX 3060, RTX 4060, Apple M 16GB | **4.2 GB** | 4.7 GB | `ollama run qwen2.5:7b` | [Qwen2.5-7B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF) |
+| **Google Gemma 2 9B IT** *(Precision)* | RTX 3060 12GB / RTX 4060 / Mac 16GB | **5.8 GB** | 5.4 GB | `ollama run gemma2:9b` | [Gemma-2-9B-IT-GGUF](https://huggingface.co/google/gemma-2-9b-it-GGUF) |
 | **Meta Llama 3.1 8B** *(Analog Sage)* | RTX 3070, RTX 4070 8GB | **4.8 GB** | 4.9 GB | `ollama run llama3.1:8b` | [Llama-3.1-8B-Instruct-GGUF](https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF) |
 | **Qwen 2.5 14B Pro** | RTX 4070 Ti, RTX 4080 16GB, Mac 32GB | **8.8 GB** | 9.2 GB | `ollama run qwen2.5:14b` | [Qwen2.5-14B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen2.5-14B-Instruct-GGUF) |
 
@@ -49,9 +51,9 @@ Ace-Step 1.5 generates bar-synced, tempo-locked audio loops (drums, acid 303 bas
 
 ---
 
-## 🎶 3. YuE 2.0 FULL-SONG GENERATOR
+## 🎶 3. YuE2 FULL-SONG GENERATOR
 
-YuE is a 7B dual-track foundation model for generating complete full-length songs with separated vocal and backing tracks.
+YuE2 is a 7B dual-track foundation model for generating complete full-length songs with separated vocal and backing tracks.
 
 | Model | Description | Size | Download Link |
 | :--- | :--- | :--- | :--- |
