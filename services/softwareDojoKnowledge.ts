@@ -165,6 +165,25 @@ Always supply complete, compilable Faust code blocks enclosed in \`\`\`faust.`,
 - Helper Buddy Soul Preservation:
   * The buddy's memories, personality quirks, XP rank, and custom rules are preserved across ALL model swaps and hardware upgrades via the Buddy Soul JSON state!`,
     enabled: true
+  },
+  {
+    id: 'scroll-track-fx-dsp-rack',
+    title: 'Per-Track Insert FX Chain & Open-Source DSP Ecosystem',
+    category: 'Mixer & Signal Flow',
+    summary: 'Dedicated channel strip inserts: 3-band EQ, tanh tube drive, resonant filter, feedback delay, algorithmic reverb, and open-source DSP modules.',
+    content: `Every mixer channel strip features a real-time Web Audio insert FX chain:
+1. 3-Band Equalizer: Low shelf (100Hz, ±12dB), Mid peaking (1000Hz, ±12dB), High shelf (8000Hz, ±12dB).
+2. Tube Drive / Saturation: Non-linear hyperbolic tangent (tanh) soft-clipping waveshaper delivering 2nd & 3rd order analog harmonic richness.
+3. Resonant State-Variable Filter: Lowpass / Highpass / Bandpass with cutoff (20Hz - 20kHz) and resonance Q.
+4. Delay Station: Precision millisecond delay (50ms - 1000ms) with feedback regeneration and dry/wet mix.
+5. Algorithmic Reverb: Algorithmic impulse convolver with variable decay time (0.5s - 5.0s) and dry/wet blend.
+6. Open-Source DSP Components Ecosystem:
+   - Tuna.js: 14 classic modular stompboxes (Chorus, Phaser, Overdrive, Tremolo, WahWah, Bitcrusher, MoogFilter, Cabinet Sim).
+   - WAM 2.0 (Web Audio Modules): Open-standard WebAssembly audio plugins, including ChowDSP tape/distortion and Dexed FM synth.
+   - Faust DSP Lab: Compiles functional signal algebra straight to live Web Audio nodes for zero-latency custom DSP.
+   - Freeverb & Dattorro Plate: Classic open-source reverb topologies for lush spatial diffusion.
+When users ask for mix adjustments on individual tracks, instruct them to expand the 'FX' drawer on the track's channel strip or propose exact dB and frequency settings.`,
+    enabled: true
   }
 ];
 

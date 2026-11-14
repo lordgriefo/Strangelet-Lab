@@ -1,12 +1,22 @@
 import React, { useState, useRef, useEffect, lazy, Suspense } from 'react';
-import { Track, Clip } from '../types';
+import { Track, Clip, TrackFxParams, DEFAULT_TRACK_FX } from '../types';
 import Knob from './Knob';
-import { Power, Music, GitCommit, Sparkles, Scissors, Sliders, Pin, Split, Keyboard, Copy, Trash2, CircleDot, Cpu, ChevronDown, ChevronUp } from 'lucide-react';
+import { Power, Music, GitCommit, Sparkles, Scissors, Sliders, Pin, Split, Keyboard, Copy, Trash2, CircleDot, Cpu, ChevronDown, ChevronUp, SlidersHorizontal, Activity } from 'lucide-react';
 const VstModal = lazy(() => import('./VstModal'));
 import { evaluateAutomationAt, volumeToDb, panToString } from '../lib/audioUtils';
 import { humanizeMidiNotes } from '../services/basicPitchService';
 import { playLaserBeamSound } from '../lib/laserSound';
 import { MidiControlMapping, MidiLearningTarget } from '../services/midiLearnService';
+import { audioService } from '../services/audioService';
+
+const FX_PRESETS: Record<string, Partial<TrackFxParams>> = {
+  'Warm Tube': { enabled: true, eqLow: 2.5, eqMid: 0.5, eqHigh: 1.0, drive: 0.35, filterCutoff: 18000, delayMix: 0, reverbMix: 0.15, reverbDecay: 1.5 },
+  'Bright Vocal': { enabled: true, eqLow: -2.0, eqMid: 1.5, eqHigh: 4.0, drive: 0.1, filterCutoff: 20000, delayMix: 0.2, delayTime: 0.25, reverbMix: 0.25, reverbDecay: 2.2 },
+  'Punchy Kick/Bass': { enabled: true, eqLow: 5.0, eqMid: -2.0, eqHigh: -1.0, drive: 0.25, filterCutoff: 12000, delayMix: 0, reverbMix: 0 },
+  'Space Echo': { enabled: true, eqLow: 0, eqMid: 0, eqHigh: 1.0, drive: 0.05, filterCutoff: 16000, delayTime: 0.375, delayFeedback: 0.55, delayMix: 0.45, reverbMix: 0.35, reverbDecay: 3.5 },
+  'Telephone Filter': { enabled: true, eqLow: -12, eqMid: 6.0, eqHigh: -12, drive: 0.4, filterType: 'bandpass', filterCutoff: 1500, filterResonance: 4.0, delayMix: 0, reverbMix: 0.05 },
+  'Flat / Reset': { ...DEFAULT_TRACK_FX, enabled: false }
+};
 
 interface ChannelStripProps {
   track: Track;
@@ -148,7 +158,16 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({
   const { id, name, volume, pan, muted, soloed, color, phaseInverted, isMono, vstBypassed, automation } = track;
   const [isVstModalOpen, setIsVstModalOpen] = useState(false);
   const [isToolsOpen, setIsToolsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'fx' | 'tools'>('fx');
   const [isExtractingMidi, setIsExtractingMidi] = useState(false);
+
+  const fxConfig: TrackFxParams = track.fxConfig || DEFAULT_TRACK_FX;
+
+  const handleUpdateFx = (updates: Partial<TrackFxParams>) => {
+    const nextFx: TrackFxParams = { ...fxConfig, ...updates };
+    updateTrack(id, { fxConfig: nextFx });
+    audioService.updateTrackFx(id, nextFx);
+  };
 
   // Active MIDI Learn mapping checks for this channel
   const volMapping = midiMappings.find(m => m.trackId === id && m.targetType === 'volume');
@@ -400,7 +419,10 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({
               value={currentPan} 
               min={-1} 
               max={1} 
-              onChange={(val) => updateTrack(id, { pan: val })}
+              onChange={(val) => {
+                updateTrack(id, { pan: val });
+                audioService.setTrackPan(id, val);
+              }}
               midiId={`${id}-pan`}
               midiLabel={`${name} Pan Knob`}
               midiType="pan"
@@ -432,7 +454,10 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({
           )}
           <Fader
             value={currentVolume}
-            onChange={(val) => updateTrack(id, { volume: val })}
+            onChange={(val) => {
+              updateTrack(id, { volume: val });
+              audioService.setTrackVolume(id, val);
+            }}
             trackId={id}
             trackName={name}
           />
@@ -513,83 +538,245 @@ const ChannelStrip: React.FC<ChannelStripProps> = ({
               className={`px-1.5 py-1 rounded text-[9px] font-mono font-bold border flex items-center gap-0.5 transition-colors cursor-pointer ${
                 isToolsOpen
                   ? 'bg-[#26619C]/30 border-[#00F0FF] text-[#00F0FF]'
-                  : 'bg-[#080B12] border-[#26619C]/60 text-[#7C8AA8] hover:text-white'
+                  : fxConfig.enabled
+                    ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-300'
+                    : 'bg-[#080B12] border-[#26619C]/60 text-[#7C8AA8] hover:text-white'
               }`}
-              title="Expand track DSP & MIDI tools (BasicPitch, Chrono-Pin, Beam Split, Humanize)"
+              title="Expand Track Insert FX Chain & Channel Tools"
             >
+              {fxConfig.enabled && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
               <span>FX</span>
               {isToolsOpen ? <ChevronDown size={10} /> : <ChevronUp size={10} />}
             </button>
           </div>
 
           {isToolsOpen && (
-            <div className="mt-1.5 flex flex-col gap-1 p-1.5 rounded bg-[#070A12] border border-[#1E293B]">
-              {track.type === 'audio' ? (
-                <>
+            <div className="mt-1.5 flex flex-col gap-1.5 p-1.5 rounded bg-[#070A12] border border-[#1E293B]">
+              {/* Tab Selector */}
+              <div className="flex rounded bg-[#03060C] p-0.5 border border-[#18233C] text-[8px] font-mono">
+                <button
+                  onClick={() => setActiveTab('fx')}
+                  className={`flex-1 py-0.5 font-bold rounded flex items-center justify-center gap-1 transition-all ${
+                    activeTab === 'fx'
+                      ? 'bg-[#00F0FF]/20 text-[#00F0FF] border border-[#00F0FF]/40 shadow-sm'
+                      : 'text-[#64748B] hover:text-white'
+                  }`}
+                >
+                  <Activity size={9} />
+                  <span>FX RACK</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('tools')}
+                  className={`flex-1 py-0.5 font-bold rounded flex items-center justify-center gap-1 transition-all ${
+                    activeTab === 'tools'
+                      ? 'bg-[#00F0FF]/20 text-[#00F0FF] border border-[#00F0FF]/40 shadow-sm'
+                      : 'text-[#64748B] hover:text-white'
+                  }`}
+                >
+                  <SlidersHorizontal size={9} />
+                  <span>TOOLS</span>
+                </button>
+              </div>
+
+              {/* FX Rack Tab */}
+              {activeTab === 'fx' && (
+                <div className="flex flex-col gap-1.5">
+                  {/* Master Power Toggle */}
                   <button
-                    onClick={() => {
-                      if (onOpenBasicPitch) onOpenBasicPitch(track);
-                      else handleMidiExtraction();
-                    }}
-                    disabled={isExtractingMidi}
-                    className="w-full py-1 text-[9px] font-mono font-bold text-emerald-300 hover:bg-emerald-500/20 flex items-center justify-center gap-1 bg-[#040814] rounded border border-emerald-500/40"
-                    title="Transcribe Audio to MIDI via Basic Pitch"
+                    onClick={() => handleUpdateFx({ enabled: !fxConfig.enabled })}
+                    className={`w-full py-1 px-1.5 rounded flex items-center justify-between text-[8px] font-mono font-bold transition-all border cursor-pointer ${
+                      fxConfig.enabled 
+                        ? 'bg-emerald-950/80 border-emerald-400 text-emerald-300 shadow-[0_0_8px_rgba(52,211,153,0.3)]' 
+                        : 'bg-[#101420] border-[#2A344E] text-[#64748B]'
+                    }`}
                   >
-                    <Cpu size={10} />
-                    <span>BASIC PITCH</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full ${fxConfig.enabled ? 'bg-emerald-400 shadow-[0_0_6px_#34D399]' : 'bg-[#334155]'}`} />
+                      <span>INSERT CHAIN</span>
+                    </span>
+                    <span>{fxConfig.enabled ? 'ACTIVE' : 'BYPASS'}</span>
                   </button>
-                  {onOpenChronoMap && (
-                    <button
-                      onClick={() => onOpenChronoMap(id)}
-                      className="w-full py-1 text-[9px] font-mono font-bold text-[#00F0FF] hover:bg-[#00F0FF] hover:text-black flex items-center justify-center gap-1 bg-[#040814] rounded border border-[#00F0FF]/40"
-                    >
-                      <Pin size={10} className="text-[#FFD700] fill-current" />
-                      <span>CHRONOMAP</span>
-                    </button>
-                  )}
-                  {onOpenBeamSplitter && (
-                    <button
-                      onClick={() => onOpenBeamSplitter(id)}
-                      className="w-full py-1 text-[9px] font-mono font-bold text-[#FF2E63] hover:bg-[#FF2E63] hover:text-white flex items-center justify-center gap-1 bg-[#14060E] rounded border border-[#FF2E63]/40"
-                    >
-                      <Split size={10} className="text-[#00F0FF] transform -rotate-45" />
-                      <span>BEAM SPLIT</span>
-                    </button>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div className="flex items-center justify-between text-[9px] font-mono">
-                    <span className="font-bold text-[#10B981]">HUMANIZE</span>
-                    <button
-                      onClick={handleToggleHumanize}
-                      className={`px-1.5 py-0.5 rounded text-[8px] font-black cursor-pointer ${
-                        isHumanizeEnabled ? 'bg-[#10B981] text-black' : 'bg-[#1B2234] text-[#64748B]'
-                      }`}
-                    >
-                      {isHumanizeEnabled ? 'ON' : 'OFF'}
-                    </button>
+
+                  {/* Presets Menu */}
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const preset = FX_PRESETS[e.target.value];
+                      if (preset) handleUpdateFx(preset);
+                    }}
+                    className="w-full bg-[#050811] border border-[#26619C]/60 text-[#94A3B8] text-[8px] font-mono rounded px-1 py-0.5 cursor-pointer"
+                  >
+                    <option value="" disabled>Load FX Preset...</option>
+                    {Object.keys(FX_PRESETS).map(name => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+
+                  {/* 3-Band EQ */}
+                  <div className="bg-[#0B0F1C] p-1.5 rounded border border-[#1A253D] flex flex-col gap-1 text-[8px] font-mono">
+                    <div className="flex justify-between items-center text-[#FF8C00] font-bold">
+                      <span>3-BAND EQ</span>
+                      <span className="text-[7px]">
+                        {fxConfig.eqLow > 0 ? `+${fxConfig.eqLow}` : fxConfig.eqLow} / {fxConfig.eqMid > 0 ? `+${fxConfig.eqMid}` : fxConfig.eqMid} / {fxConfig.eqHigh > 0 ? `+${fxConfig.eqHigh}` : fxConfig.eqHigh} dB
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1 text-center">
+                      <div>
+                        <span className="text-[#64748B] text-[7px] block">LOW</span>
+                        <input 
+                          type="range" min="-12" max="12" step="0.5" 
+                          value={fxConfig.eqLow} 
+                          onChange={e => handleUpdateFx({ eqLow: parseFloat(e.target.value) })}
+                          className="w-full h-1 accent-[#FF8C00] bg-[#1E293B] rounded cursor-pointer"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[#64748B] text-[7px] block">MID</span>
+                        <input 
+                          type="range" min="-12" max="12" step="0.5" 
+                          value={fxConfig.eqMid} 
+                          onChange={e => handleUpdateFx({ eqMid: parseFloat(e.target.value) })}
+                          className="w-full h-1 accent-[#FF8C00] bg-[#1E293B] rounded cursor-pointer"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[#64748B] text-[7px] block">HI</span>
+                        <input 
+                          type="range" min="-12" max="12" step="0.5" 
+                          value={fxConfig.eqHigh} 
+                          onChange={e => handleUpdateFx({ eqHigh: parseFloat(e.target.value) })}
+                          className="w-full h-1 accent-[#FF8C00] bg-[#1E293B] rounded cursor-pointer"
+                        />
+                      </div>
+                    </div>
                   </div>
-                  {isHumanizeEnabled && (
-                    <>
-                      <input
-                        type="range"
-                        min="0.05"
-                        max="0.4"
-                        step="0.02"
-                        value={humanizeAmount}
-                        onChange={e => handleHumanizeAmountChange(parseFloat(e.target.value))}
-                        className="w-full accent-[#10B981] cursor-pointer h-1 bg-[#141B2E] rounded"
+
+                  {/* Tube Drive / Saturation */}
+                  <div className="bg-[#0B0F1C] p-1.5 rounded border border-[#1A253D] flex flex-col gap-0.5 text-[8px] font-mono">
+                    <div className="flex justify-between text-[#FF2E63] font-bold">
+                      <span>TUBE DRIVE</span>
+                      <span>{Math.round(fxConfig.drive * 100)}%</span>
+                    </div>
+                    <input 
+                      type="range" min="0" max="1" step="0.02" 
+                      value={fxConfig.drive} 
+                      onChange={e => handleUpdateFx({ drive: parseFloat(e.target.value) })}
+                      className="w-full h-1 accent-[#FF2E63] bg-[#1E293B] rounded cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Filter Cutoff */}
+                  <div className="bg-[#0B0F1C] p-1.5 rounded border border-[#1A253D] flex flex-col gap-0.5 text-[8px] font-mono">
+                    <div className="flex justify-between text-amber-400 font-bold">
+                      <span>FILTER CUTOFF</span>
+                      <span>{fxConfig.filterCutoff >= 1000 ? `${(fxConfig.filterCutoff / 1000).toFixed(1)}k` : `${Math.round(fxConfig.filterCutoff)}`} Hz</span>
+                    </div>
+                    <input 
+                      type="range" min="100" max="20000" step="100" 
+                      value={fxConfig.filterCutoff} 
+                      onChange={e => handleUpdateFx({ filterCutoff: parseFloat(e.target.value) })}
+                      className="w-full h-1 accent-amber-400 bg-[#1E293B] rounded cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Delay & Reverb */}
+                  <div className="bg-[#0B0F1C] p-1.5 rounded border border-[#1A253D] flex flex-col gap-1 text-[8px] font-mono">
+                    <div className="flex justify-between text-[#00F0FF] font-bold">
+                      <span>DELAY & REVERB</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[7px] text-[#94A3B8]">
+                      <span>DLY {Math.round(fxConfig.delayMix * 100)}%</span>
+                      <input 
+                        type="range" min="0" max="1" step="0.05" 
+                        value={fxConfig.delayMix} 
+                        onChange={e => handleUpdateFx({ delayMix: parseFloat(e.target.value) })}
+                        className="w-16 h-1 accent-[#00F0FF] bg-[#1E293B] rounded cursor-pointer"
                       />
+                    </div>
+                    <div className="flex items-center justify-between text-[7px] text-[#94A3B8]">
+                      <span>VERB {Math.round(fxConfig.reverbMix * 100)}%</span>
+                      <input 
+                        type="range" min="0" max="1" step="0.05" 
+                        value={fxConfig.reverbMix} 
+                        onChange={e => handleUpdateFx({ reverbMix: parseFloat(e.target.value) })}
+                        className="w-16 h-1 accent-[#A020F0] bg-[#1E293B] rounded cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tools Tab */}
+              {activeTab === 'tools' && (
+                <div className="flex flex-col gap-1">
+                  {track.type === 'audio' ? (
+                    <>
                       <button
-                        onClick={handleHumanizeClipNotes}
-                        className="w-full py-0.5 text-[8px] font-mono font-bold bg-[#10B981]/20 hover:bg-[#10B981] hover:text-black text-[#10B981] rounded border border-[#10B981]/40 cursor-pointer"
+                        onClick={() => {
+                          if (onOpenBasicPitch) onOpenBasicPitch(track);
+                          else handleMidiExtraction();
+                        }}
+                        disabled={isExtractingMidi}
+                        className="w-full py-1 text-[9px] font-mono font-bold text-emerald-300 hover:bg-emerald-500/20 flex items-center justify-center gap-1 bg-[#040814] rounded border border-emerald-500/40 cursor-pointer"
+                        title="Transcribe Audio to MIDI via Basic Pitch"
                       >
-                        RANDOMIZE VEL
+                        <Cpu size={10} />
+                        <span>BASIC PITCH</span>
                       </button>
+                      {onOpenChronoMap && (
+                        <button
+                          onClick={() => onOpenChronoMap(id)}
+                          className="w-full py-1 text-[9px] font-mono font-bold text-[#00F0FF] hover:bg-[#00F0FF] hover:text-black flex items-center justify-center gap-1 bg-[#040814] rounded border border-[#00F0FF]/40 cursor-pointer"
+                        >
+                          <Pin size={10} className="text-[#FFD700] fill-current" />
+                          <span>CHRONOMAP</span>
+                        </button>
+                      )}
+                      {onOpenBeamSplitter && (
+                        <button
+                          onClick={() => onOpenBeamSplitter(id)}
+                          className="w-full py-1 text-[9px] font-mono font-bold text-[#FF2E63] hover:bg-[#FF2E63] hover:text-white flex items-center justify-center gap-1 bg-[#14060E] rounded border border-[#FF2E63]/40 cursor-pointer"
+                        >
+                          <Split size={10} className="text-[#00F0FF] transform -rotate-45" />
+                          <span>BEAM SPLIT</span>
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between text-[9px] font-mono">
+                        <span className="font-bold text-[#10B981]">HUMANIZE</span>
+                        <button
+                          onClick={handleToggleHumanize}
+                          className={`px-1.5 py-0.5 rounded text-[8px] font-black cursor-pointer ${
+                            isHumanizeEnabled ? 'bg-[#10B981] text-black' : 'bg-[#1B2234] text-[#64748B]'
+                          }`}
+                        >
+                          {isHumanizeEnabled ? 'ON' : 'OFF'}
+                        </button>
+                      </div>
+                      {isHumanizeEnabled && (
+                        <>
+                          <input
+                            type="range"
+                            min="0.05"
+                            max="0.4"
+                            step="0.02"
+                            value={humanizeAmount}
+                            onChange={e => handleHumanizeAmountChange(parseFloat(e.target.value))}
+                            className="w-full accent-[#10B981] cursor-pointer h-1 bg-[#141B2E] rounded"
+                          />
+                          <button
+                            onClick={handleHumanizeClipNotes}
+                            className="w-full py-0.5 text-[8px] font-mono font-bold bg-[#10B981]/20 hover:bg-[#10B981] hover:text-black text-[#10B981] rounded border border-[#10B981]/40 cursor-pointer"
+                          >
+                            RANDOMIZE VEL
+                          </button>
+                        </>
+                      )}
                     </>
                   )}
-                </>
+                </div>
               )}
             </div>
           )}

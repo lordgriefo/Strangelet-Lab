@@ -126,6 +126,38 @@ export interface MidiTrackConfig {
   octaveShift?: number; // -2 to +2
 }
 
+export interface TrackFxParams {
+  enabled: boolean;
+  eqLow: number;         // -12 to +12 dB (Low shelf @ 100Hz)
+  eqMid: number;         // -12 to +12 dB (Peaking @ 1kHz)
+  eqHigh: number;        // -12 to +12 dB (High shelf @ 8kHz)
+  drive: number;         // 0 to 1.0 (Harmonic warmth / saturation)
+  filterCutoff: number;  // 20 to 20000 Hz
+  filterResonance: number; // 0.1 to 12
+  filterType: 'lowpass' | 'highpass' | 'bandpass';
+  delayTime: number;     // 0.05 to 1.0 s
+  delayFeedback: number; // 0 to 0.90
+  delayMix: number;      // 0 to 1.0 (Dry/Wet)
+  reverbDecay: number;   // 0.5 to 6.0 s
+  reverbMix: number;     // 0 to 1.0 (Dry/Wet)
+}
+
+export const DEFAULT_TRACK_FX: TrackFxParams = {
+  enabled: false,
+  eqLow: 0,
+  eqMid: 0,
+  eqHigh: 0,
+  drive: 0,
+  filterCutoff: 20000,
+  filterResonance: 1.0,
+  filterType: 'lowpass',
+  delayTime: 0.25,
+  delayFeedback: 0.35,
+  delayMix: 0,
+  reverbDecay: 2.0,
+  reverbMix: 0
+};
+
 export interface Track {
   id: string;
   name: string;
@@ -143,6 +175,7 @@ export interface Track {
   bus?: string; // e.g. 'Vocal Bus', 'Mastering Chain', 'Stereo Master'
   inputSource?: string; // e.g. 'Mic 1 (XLR)', 'Stereo Input', 'Internal Bus'
   vsts?: string[]; // list of active VST/DSP effects
+  fxConfig?: TrackFxParams; // per-track real-time Web Audio insert FX chain
   instrument?: string; // e.g. 'SFZ Grand Piano', 'TB-303 Acid Synth', 'Rhodes Mark I', 'Faust Karplus Guitar'
   sends?: TrackSend[];
   automation?: TrackAutomation;
