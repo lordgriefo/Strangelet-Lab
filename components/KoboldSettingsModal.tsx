@@ -54,6 +54,7 @@ export const KoboldSettingsModal: React.FC<KoboldSettingsModalProps> = ({
   } | null>(null);
 
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
+  const [selectedTierFilter, setSelectedTierFilter] = useState<'all' | '4-6gb' | '8-12gb' | '16gb+'>('all');
 
   if (!isOpen) return null;
 
@@ -403,8 +404,57 @@ export const KoboldSettingsModal: React.FC<KoboldSettingsModalProps> = ({
               </div>
             </div>
 
-            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
-              {AVAILABLE_MODELS.map(m => (
+            {/* VRAM Tier Filter Tabs */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px] font-mono">
+              <span className="text-[#64748B] text-[9px] uppercase font-bold mr-1">VRAM Tiers:</span>
+              <button
+                type="button"
+                onClick={() => setSelectedTierFilter('all')}
+                className={`px-2 py-0.5 rounded-lg border transition-all ${
+                  selectedTierFilter === 'all'
+                    ? 'bg-cyan-500 text-black border-cyan-400 font-bold shadow-sm'
+                    : 'bg-[#0E1322] border-[#222B48] text-[#8E95B8] hover:text-white'
+                }`}
+              >
+                All ({AVAILABLE_MODELS.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedTierFilter('4-6gb')}
+                className={`px-2 py-0.5 rounded-lg border transition-all ${
+                  selectedTierFilter === '4-6gb'
+                    ? 'bg-amber-500 text-black border-amber-400 font-bold shadow-sm'
+                    : 'bg-[#0E1322] border-[#222B48] text-[#8E95B8] hover:text-white'
+                }`}
+              >
+                4GB–6GB (3B–4B)
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedTierFilter('8-12gb')}
+                className={`px-2 py-0.5 rounded-lg border transition-all ${
+                  selectedTierFilter === '8-12gb'
+                    ? 'bg-cyan-500 text-black border-cyan-400 font-bold shadow-sm'
+                    : 'bg-[#0E1322] border-[#222B48] text-[#8E95B8] hover:text-white'
+                }`}
+              >
+                8GB–12GB (7B–9B)
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedTierFilter('16gb+')}
+                className={`px-2 py-0.5 rounded-lg border transition-all ${
+                  selectedTierFilter === '16gb+'
+                    ? 'bg-emerald-500 text-black border-emerald-400 font-bold shadow-sm'
+                    : 'bg-[#0E1322] border-[#222B48] text-[#8E95B8] hover:text-white'
+                }`}
+              >
+                16GB+ (14B–32B)
+              </button>
+            </div>
+
+            <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1 custom-scrollbar">
+              {AVAILABLE_MODELS.filter(m => selectedTierFilter === 'all' || m.vramTier === selectedTierFilter || m.vramTier === 'any').map(m => (
                 <div
                   key={m.id}
                   onClick={() => setSettings(prev => ({ ...prev, modelName: m.name }))}
@@ -421,15 +471,15 @@ export const KoboldSettingsModal: React.FC<KoboldSettingsModalProps> = ({
                         <Check className="w-3.5 h-3.5 text-cyan-400" />
                       )}
                       <span className={`text-[9px] px-1.5 py-0.2 rounded border font-bold ${
-                        m.recommendedTier === '4gb'
-                          ? 'bg-red-950/80 border-red-500/40 text-red-300'
-                          : m.recommendedTier === '6gb'
+                        m.vramTier === '4-6gb'
                           ? 'bg-amber-950/80 border-amber-500/40 text-amber-300'
-                          : m.recommendedTier === '16gb'
+                          : m.vramTier === '8-12gb'
+                          ? 'bg-cyan-950/80 border-cyan-500/40 text-cyan-300'
+                          : m.vramTier === '16gb+'
                           ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
                           : 'bg-[#151B2E] border-[#242E4C] text-[#8E95B8]'
                       }`}>
-                        {m.recommendedTier === '4gb' ? '4GB MIN' : m.recommendedTier === '6gb' ? '6GB RIG' : m.recommendedTier === '16gb' ? '16GB PRO' : m.recommendedTier === '8gb' ? '8GB RIG' : 'ANY'}
+                        {m.vramTier === '4-6gb' ? '4-6GB TIER' : m.vramTier === '8-12gb' ? '8-12GB TIER' : m.vramTier === '16gb+' ? '16GB+ PRO' : 'ANY'}
                       </span>
                     </div>
                     <div className="text-[10px] text-[#6E7599] mt-0.5">{m.desc}</div>

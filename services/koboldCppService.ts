@@ -53,27 +53,38 @@ export const HUB_PRESETS: { id: AiEngineType; name: string; defaultUrl: string; 
   { id: 'simulated', name: 'Dojo Kernel (Embedded Offline)', defaultUrl: 'offline://dojo-kernel', desc: 'Zero local server required, 100% offline instant studio heuristics', port: 0 }
 ];
 
+export type VramTierCategory = '4-6gb' | '8-12gb' | '16gb+' | 'any';
+
 export interface ModelPresetOption {
   id: string;
   name: string;
   vram: string;
+  vramTier: VramTierCategory;
   recommendedTier: '4gb' | '6gb' | '8gb' | '16gb' | 'any';
   desc: string;
 }
 
 export const AVAILABLE_MODELS: ModelPresetOption[] = [
-  { id: 'gemma-2-2b-it', name: 'Google Gemma 2 2B IT (Ultralight GGUF)', vram: '1.6 GB', recommendedTier: '4gb', desc: '🚀 Google Gemma 2 2B: Instant speed on low-spec laptops, snappy mix critique and clean parameter checks' },
-  { id: 'ghost-mad-scientist-4b', name: 'GHOST Mad Scientist (Auto VRAM 3B–4B GGUF)', vram: '2.6 GB', recommendedTier: '6gb', desc: '🧪 Default Lab Persona: Eccentric studio mad scientist — recording troubleshooter, Faust DSP alchemist & Sonic Collider prompt writer' },
-  { id: 'llama-3.2-3b-slim', name: 'Llama 3.2 3B Instruct (GGUF Q4_K_S)', vram: '2.1 GB', recommendedTier: '4gb', desc: '🗣️ Affable & Conversational: Warm mad-scientist personality for 4GB–6GB VRAM laptops with snappy latency' },
-  { id: 'gemma-2-9b-it', name: 'Google Gemma 2 9B IT (High Precision)', vram: '5.8 GB', recommendedTier: '8gb', desc: '🎯 Google Gemma 2 9B: Deep sliding window reasoning, high-dimensional Faust DSP code & surgical harmonic analysis' },
-  { id: 'gemma-3-4b-it', name: 'Gemma 3 4B Instruct (GGUF Q4_K_M)', vram: '2.6 GB', recommendedTier: '6gb', desc: '🎭 Expressive & Quirky: Rich creative banter for Sonic Collider prompts + smart recording troubleshooting on 6GB cards' },
-  { id: 'qwen-2.5-3b-lowest', name: 'Qwen 2.5 3B (GGUF Q4_K_S)', vram: '1.9 GB', recommendedTier: '4gb', desc: '🪶 Minimum Footprint: Tight 4GB VRAM coding & structured Faust DSP syntax' },
-  { id: 'qwen-4b-abliterated', name: 'Qwen 3 / 2.5 4B Abliterated (Uncensored Q4_K_M)', vram: '2.6 GB', recommendedTier: '6gb', desc: '🔓 Raw DSP & Tube Circuits: Refusal directions neutralized for uninhibited analog clipping & saturation recipes' },
-  { id: 'ghost-llama-3.1-8b', name: 'Hermes 3 / Llama 3.1 8B (GGUF Q4_K_M)', vram: '4.8 GB', recommendedTier: '8gb', desc: '👻 Affable Genius (8GB+): Warm personality + sharp Faust DSP code and JSON formatting' },
-  { id: 'ghost-qwen-3-7b', name: 'Qwen 2.5 / 3 7B Architect (GGUF Q4_K_M)', vram: '3.8 GB', recommendedTier: '8gb', desc: '⚡ Precision DSP Architect: High-dimensional spectral math, Faust DSP toy compiler, surgical 8.5kHz de-sheen' },
-  { id: 'qwen-2.5-14b-q4', name: 'Pro 14B Studio Master (GGUF Q4_K_M)', vram: '8.4 GB', recommendedTier: '16gb', desc: 'Heavyweight reasoning, deep Faust DSP code generation & studio memory (16GB VRAM)' },
-  { id: 'llama-3.1-8b-q8', name: 'Llama 3.1 8B Q8_0 High-Def', vram: '8.5 GB', recommendedTier: '16gb', desc: 'Near-lossless neural audio precision and maximum personality nuance (16GB rig)' },
-  { id: 'acestep-1.5-audio', name: 'AceStep 1.5 Audio Diffusion GGUF', vram: '3.2 GB', recommendedTier: 'any', desc: 'Direct bar-synced audio loop and multi-track song bed generator' }
+  // === TIER 1: 4GB - 6GB VRAM (3B - 4B Models) ===
+  { id: 'gemma-2-2b-it', name: 'Google Gemma 2 2B IT (Ultralight GGUF)', vram: '1.6 GB', vramTier: '4-6gb', recommendedTier: '4gb', desc: '🚀 Google Gemma 2 2B: Instant speed on low-spec laptops, snappy mix critique and clean parameter checks' },
+  { id: 'ghost-mad-scientist-4b', name: 'GHOST Mad Scientist (Auto VRAM 3B–4B GGUF)', vram: '2.6 GB', vramTier: '4-6gb', recommendedTier: '6gb', desc: '🧪 Default Lab Persona: Eccentric studio mad scientist — recording troubleshooter, Faust DSP alchemist & Sonic Collider prompt writer' },
+  { id: 'llama-3.2-3b-slim', name: 'Llama 3.2 3B Instruct (GGUF Q4_K_S)', vram: '2.1 GB', vramTier: '4-6gb', recommendedTier: '4gb', desc: '🗣️ Affable & Conversational: Warm mad-scientist personality for 4GB–6GB VRAM laptops with snappy latency' },
+  { id: 'gemma-3-4b-it', name: 'Gemma 3 4B Instruct (GGUF Q4_K_M)', vram: '2.6 GB', vramTier: '4-6gb', recommendedTier: '6gb', desc: '🎭 Expressive & Quirky: Rich creative banter for Sonic Collider prompts + smart recording troubleshooting on 6GB cards' },
+  { id: 'qwen-2.5-3b-lowest', name: 'Qwen 2.5 3B (GGUF Q4_K_S)', vram: '1.9 GB', vramTier: '4-6gb', recommendedTier: '4gb', desc: '🪶 Minimum Footprint: Tight 4GB VRAM coding & structured Faust DSP syntax' },
+  { id: 'qwen-4b-abliterated', name: 'Qwen 2.5 4B Abliterated (Uncensored Q4_K_M)', vram: '2.6 GB', vramTier: '4-6gb', recommendedTier: '6gb', desc: '🔓 Raw DSP & Tube Circuits: Refusal directions neutralized for uninhibited analog clipping & saturation recipes' },
+
+  // === TIER 2: 8GB - 12GB VRAM (7B - 9B Models) ===
+  { id: 'ghost-hermes-3-8b', name: 'Nous Hermes 3 8B (Llama 3.1 GGUF Q4_K_M)', vram: '4.8 GB', vramTier: '8-12gb', recommendedTier: '8gb', desc: '👻 Steerable Genius: Nous Research flagship instruction follower with zero refusals, sharp Faust DSP code & exact JSON formatting' },
+  { id: 'gemma-2-9b-it', name: 'Google Gemma 2 9B IT (High Precision)', vram: '5.8 GB', vramTier: '8-12gb', recommendedTier: '8gb', desc: '🎯 Google Gemma 2 9B: Deep sliding window reasoning, high-dimensional Faust DSP code & surgical harmonic analysis' },
+  { id: 'ghost-qwen-2.5-7b', name: 'Qwen 2.5 7B Studio Master (GGUF Q4_K_M)', vram: '4.2 GB', vramTier: '8-12gb', recommendedTier: '8gb', desc: '⚡ Precision DSP Architect: High-dimensional spectral math, Faust DSP toy compiler, surgical 8.5kHz de-sheen' },
+  { id: 'ghost-llama-3.1-8b', name: 'Meta Llama 3.1 8B Analog Sage (GGUF Q4_K_M)', vram: '4.8 GB', vramTier: '8-12gb', recommendedTier: '8gb', desc: '📼 Analog Tape Master: Vintage transformer warmth, Lee Scratch Perry studio lore, and tape head saturation' },
+
+  // === TIER 3: 16GB+ VRAM (14B - 32B Models & Pro HD) ===
+  { id: 'qwen-2.5-14b-q4', name: 'Qwen 2.5 14B Pro Studio Master (GGUF Q4_K_M)', vram: '8.8 GB', vramTier: '16gb+', recommendedTier: '16gb', desc: 'Heavyweight reasoning, deep multi-track session memory & full Faust DSP physical modeling (16GB+ VRAM)' },
+  { id: 'llama-3.1-8b-q8', name: 'Meta Llama 3.1 8B Q8_0 High-Def', vram: '8.5 GB', vramTier: '16gb+', recommendedTier: '16gb', desc: 'Near-lossless neural audio precision and maximum personality nuance (16GB rig)' },
+  { id: 'qwen-2.5-32b-flagship', name: 'Qwen 2.5 32B Flagship Audio Orchestrator', vram: '18.2 GB', vramTier: '16gb+', recommendedTier: '16gb', desc: 'Crown jewel studio director: full multi-track orchestration, polyphonic harmony analysis & arrangement' },
+  { id: 'deepseek-coder-v2-16b', name: 'DeepSeek Coder V2 Lite 16B (DSP & C++)', vram: '9.6 GB', vramTier: '16gb+', recommendedTier: '16gb', desc: 'Expert level C++, Web Audio Wasm, and JUCE VST plugin architecture generator' },
+  { id: 'acestep-1.5-audio', name: 'AceStep 1.5 Audio Diffusion GGUF', vram: '3.2 GB', vramTier: 'any', recommendedTier: 'any', desc: 'Direct bar-synced audio loop and multi-track song bed generator' }
 ];
 
 export function getStoredKoboldSettings(): KoboldSettings {

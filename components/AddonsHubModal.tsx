@@ -21,7 +21,8 @@ import { playLaserBeamSound, playColliderInjectionSound } from '../lib/laserSoun
 interface AddonItem {
   id: string;
   name: string;
-  category: 'ghost' | 'acestep' | 'yue2' | 'sfz';
+  category: 'ghost' | 'acestep' | 'yue2' | 'sfz' | 'fx_racks';
+  vramTier?: '4-6gb' | '8-12gb' | '16gb+' | 'any';
   badge: string;
   vram: string;
   fileSize: string;
@@ -34,50 +35,26 @@ interface AddonItem {
 }
 
 export const ADDONS_CATALOG: AddonItem[] = [
-  // GHOST Models
-  {
-    id: 'ghost-hermes-3-8b',
-    name: 'Ghost Hermes 3 8B (Nous Research / 8GB VRAM)',
-    category: 'ghost',
-    badge: 'STEERABLE GENIUS',
-    vram: '4.8 GB VRAM',
-    fileSize: '4.9 GB',
-    description: 'Nous Research Hermes 3 built on Llama 3.1. Renowned for total instruction obedience, zero moralizing refusals, surgical DSP coding, and deeply nuanced studio personality.',
-    ollamaCommand: 'ollama run hermes3:8b',
-    huggingFaceUrl: 'https://huggingface.co/NousResearch/Hermes-3-Llama-3.1-8B-GGUF',
-    recommendedHardware: 'RTX 3060 12GB / RTX 4060 / Apple M 16GB',
-    tags: ['Nous Hermes 3', 'Zero Refusal', '8B GGUF']
-  },
+  // === GHOST Models: Tier 1 (4GB - 6GB VRAM) ===
   {
     id: 'ghost-gemma-2b',
-    name: 'Ghost Google Gemma 2 2B (Ultralight / 4GB VRAM)',
+    name: 'Ghost Google Gemma 2 2B (Ultralight / 4GB-6GB VRAM)',
     category: 'ghost',
+    vramTier: '4-6gb',
     badge: 'GOOGLE GEMMA',
     vram: '1.6 GB VRAM',
     fileSize: '1.6 GB',
-    description: 'Ultra-compact Google Gemma 2 architecture. Extremely fast response time, perfect for low-spec laptops, providing sharp EQ checks and clean studio advice.',
+    description: 'Ultra-compact Google Gemma 2 architecture. Extremely fast response time, perfect for 4GB–6GB laptops, providing sharp EQ checks and clean studio advice.',
     ollamaCommand: 'ollama run gemma2:2b',
     huggingFaceUrl: 'https://huggingface.co/google/gemma-2-2b-it-GGUF',
-    recommendedHardware: 'Any 4GB GPU / Integrated Graphics',
-    tags: ['Google Gemma 2', 'Ultralight', '2B IT']
-  },
-  {
-    id: 'ghost-gemma-9b',
-    name: 'Ghost Google Gemma 2 9B (High-Precision / 8GB-12GB VRAM)',
-    category: 'ghost',
-    badge: 'DEEP REASONING',
-    vram: '5.8 GB VRAM',
-    fileSize: '5.4 GB',
-    description: 'High-capability Google Gemma 2 model with sliding window attention. Excels at generating complex Faust DSP audio code and surgical mix balancing.',
-    ollamaCommand: 'ollama run gemma2:9b',
-    huggingFaceUrl: 'https://huggingface.co/google/gemma-2-9b-it-GGUF',
-    recommendedHardware: 'RTX 3060 12GB / RTX 4060 / 16GB Macs',
-    tags: ['Google Gemma 2', 'Sliding Window', '9B IT']
+    recommendedHardware: 'Any 4GB-6GB GPU / Integrated Graphics',
+    tags: ['Google Gemma 2', 'Ultralight', '2B IT', '4-6GB Tier']
   },
   {
     id: 'ghost-qwen-3b',
     name: 'Ghost Qwen 2.5 3B (Laptop / 4GB-6GB VRAM)',
     category: 'ghost',
+    vramTier: '4-6gb',
     badge: 'LIGHTWEIGHT',
     vram: '2.1 GB VRAM',
     fileSize: '1.9 GB',
@@ -85,12 +62,57 @@ export const ADDONS_CATALOG: AddonItem[] = [
     ollamaCommand: 'ollama run qwen2.5:3b',
     huggingFaceUrl: 'https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF',
     recommendedHardware: 'GTX 1650 / RTX 3050 / 8GB Macs',
-    tags: ['Offline GGUF', '4-bit Quant', 'Qwen 2.5']
+    tags: ['Offline GGUF', '4-bit Quant', 'Qwen 2.5', '4-6GB Tier']
+  },
+  {
+    id: 'ghost-llama-3.2-3b',
+    name: 'Ghost Llama 3.2 3B Instruct (Conversational / 4GB-6GB VRAM)',
+    category: 'ghost',
+    vramTier: '4-6gb',
+    badge: 'STUDIO BUDDY',
+    vram: '2.1 GB VRAM',
+    fileSize: '2.0 GB',
+    description: 'Affable and conversational studio partner. Answers production queries with warm encouragement and clean suggestions.',
+    ollamaCommand: 'ollama run llama3.2:3b',
+    huggingFaceUrl: 'https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF',
+    recommendedHardware: '4GB or 6GB Laptop GPU',
+    tags: ['Meta Llama 3.2', '3B Compact', '4-6GB Tier']
+  },
+
+  // === GHOST Models: Tier 2 (8GB - 12GB VRAM) ===
+  {
+    id: 'ghost-hermes-3-8b',
+    name: 'Ghost Hermes 3 8B (Nous Research / 8GB-12GB VRAM)',
+    category: 'ghost',
+    vramTier: '8-12gb',
+    badge: 'STEERABLE GENIUS',
+    vram: '4.8 GB VRAM',
+    fileSize: '4.9 GB',
+    description: 'Nous Research Hermes 3 built on Llama 3.1. Renowned for total instruction obedience, zero moralizing refusals, surgical DSP coding, and deeply nuanced studio personality.',
+    ollamaCommand: 'ollama run hermes3:8b',
+    huggingFaceUrl: 'https://huggingface.co/NousResearch/Hermes-3-Llama-3.1-8B-GGUF',
+    recommendedHardware: 'RTX 3060 12GB / RTX 4060 / Apple M 16GB',
+    tags: ['Nous Hermes 3', 'Zero Refusal', '8B GGUF', '8-12GB Tier']
+  },
+  {
+    id: 'ghost-gemma-9b',
+    name: 'Ghost Google Gemma 2 9B (High-Precision / 8GB-12GB VRAM)',
+    category: 'ghost',
+    vramTier: '8-12gb',
+    badge: 'DEEP REASONING',
+    vram: '5.8 GB VRAM',
+    fileSize: '5.4 GB',
+    description: 'High-capability Google Gemma 2 model with sliding window attention. Excels at generating complex Faust DSP audio code and surgical mix balancing.',
+    ollamaCommand: 'ollama run gemma2:9b',
+    huggingFaceUrl: 'https://huggingface.co/google/gemma-2-9b-it-GGUF',
+    recommendedHardware: 'RTX 3060 12GB / RTX 4060 / 16GB Macs',
+    tags: ['Google Gemma 2', 'Sliding Window', '9B IT', '8-12GB Tier']
   },
   {
     id: 'ghost-qwen-7b',
-    name: 'Ghost Qwen 2.5 7B Studio Master (Balanced / 8GB VRAM)',
+    name: 'Ghost Qwen 2.5 7B Studio Master (Balanced / 8GB-12GB VRAM)',
     category: 'ghost',
+    vramTier: '8-12gb',
     badge: 'RECOMMENDED',
     vram: '4.2 GB VRAM',
     fileSize: '4.7 GB',
@@ -98,12 +120,13 @@ export const ADDONS_CATALOG: AddonItem[] = [
     ollamaCommand: 'ollama run qwen2.5:7b',
     huggingFaceUrl: 'https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF',
     recommendedHardware: 'RTX 3060 12GB / RTX 4060 / Apple M-series 16GB',
-    tags: ['Studio Grade', 'DSP Code Generation', 'Qwen 2.5']
+    tags: ['Studio Grade', 'DSP Code Generation', 'Qwen 2.5', '8-12GB Tier']
   },
   {
     id: 'ghost-llama-8b',
-    name: 'Ghost Llama 3.1 8B Analog Sage (Analog Instinct / 8GB VRAM)',
+    name: 'Ghost Llama 3.1 8B Analog Sage (Analog Instinct / 8GB-12GB VRAM)',
     category: 'ghost',
+    vramTier: '8-12gb',
     badge: 'ANALOG INSTINCT',
     vram: '4.8 GB VRAM',
     fileSize: '4.9 GB',
@@ -111,12 +134,15 @@ export const ADDONS_CATALOG: AddonItem[] = [
     ollamaCommand: 'ollama run llama3.1:8b',
     huggingFaceUrl: 'https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF',
     recommendedHardware: 'RTX 3070 / RTX 4070 / 16GB VRAM',
-    tags: ['Analog Tape Lore', 'Meta Llama 3.1', 'GGUF Q4_K_M']
+    tags: ['Analog Tape Lore', 'Meta Llama 3.1', 'GGUF Q4_K_M', '8-12GB Tier']
   },
+
+  // === GHOST Models: Tier 3 (16GB+ VRAM) ===
   {
     id: 'ghost-qwen-14b',
     name: 'Ghost Qwen 2.5 14B Pro Studio (High-VRAM / 16GB+)',
     category: 'ghost',
+    vramTier: '16gb+',
     badge: 'PRO MASTER',
     vram: '8.8 GB VRAM',
     fileSize: '9.2 GB',
@@ -124,7 +150,21 @@ export const ADDONS_CATALOG: AddonItem[] = [
     ollamaCommand: 'ollama run qwen2.5:14b',
     huggingFaceUrl: 'https://huggingface.co/Qwen/Qwen2.5-14B-Instruct-GGUF',
     recommendedHardware: 'RTX 4070 Ti / 4080 / 3090 / Mac M Max 32GB',
-    tags: ['Extreme Precision', '14B Parameters', 'Q4_K_M']
+    tags: ['Extreme Precision', '14B Parameters', 'Q4_K_M', '16GB+ Tier']
+  },
+  {
+    id: 'ghost-qwen-32b',
+    name: 'Ghost Qwen 2.5 32B Studio Flagship (Titan VRAM / 24GB+)',
+    category: 'ghost',
+    vramTier: '16gb+',
+    badge: 'FLAGSHIP TITAN',
+    vram: '18.2 GB VRAM',
+    fileSize: '19.4 GB',
+    description: 'Flagship studio intelligence. Unrivaled multi-track orchestration, polyphonic harmonic counterpoint, and comprehensive song bed arrangement.',
+    ollamaCommand: 'ollama run qwen2.5:32b',
+    huggingFaceUrl: 'https://huggingface.co/Qwen/Qwen2.5-32B-Instruct-GGUF',
+    recommendedHardware: 'RTX 3090 / RTX 4090 (24GB) or Apple M 48GB+',
+    tags: ['32B Flagship', 'Full Studio Director', '16GB+ Tier']
   },
 
   // Ace-Step Models
@@ -227,6 +267,68 @@ export const ADDONS_CATALOG: AddonItem[] = [
     downloadUrl: 'https://github.com/lordgriefo/Strangelet-Lab/releases',
     recommendedHardware: 'Zero GPU required',
     tags: ['Drum Replacement', '808 Sub', '909 Punch']
+  },
+
+  // Open-Source Effects Racks & DSP Components
+  {
+    id: 'fx-tuna-js-suite',
+    name: 'Tuna.js Modular Web Audio Stompbox Suite',
+    category: 'fx_racks',
+    badge: '14 STOMPBOXES',
+    vram: '0 MB (Web Audio)',
+    fileSize: '120 KB',
+    description: '14 classic modular audio effects: Overdrive, Chorus, Phaser, Tremolo, WahWah, Bitcrusher, MoogFilter, Cabinet Sim, Compressor, Convolver, and PingPong Delay. Zero latency and built directly on native Web Audio.',
+    huggingFaceUrl: 'https://github.com/TheCodeDestroyer/tuna',
+    recommendedHardware: 'Zero GPU required (Runs in browser/Electron AudioWorklet)',
+    tags: ['Tuna.js', 'Native Web Audio', 'MIT License', 'Zero Latency']
+  },
+  {
+    id: 'fx-wam-chowdsp-suite',
+    name: 'WAM 2.0 Web Audio Modules & ChowDSP Plugins',
+    category: 'fx_racks',
+    badge: 'WASM PLUGINS',
+    vram: '0 MB (Wasm DSP)',
+    fileSize: '4.5 MB',
+    description: 'The modern W3C open WebAssembly standard for browser and desktop DAWs. Includes ChowTape analog tape modeler, ChowCentaur distortion, and Dexed Yamaha DX7 FM synth.',
+    huggingFaceUrl: 'https://webaudiomodules.org/',
+    recommendedHardware: 'Any modern CPU with WebAssembly support',
+    tags: ['WAM 2.0', 'ChowDSP', 'Dexed FM', 'WebAssembly']
+  },
+  {
+    id: 'fx-dattorro-freeverb',
+    name: 'Dattorro Plate & Freeverb Algorithmic Network',
+    category: 'fx_racks',
+    badge: 'ZERO-LATENCY VERB',
+    vram: '0 MB (Web Audio)',
+    fileSize: '45 KB',
+    description: 'Jon Dattorro’s 1997 classic plate reverb and Jezar’s Freeverb topology. Pure algorithmic all-pass diffusion loops that create rich, lush spatial reverb with zero RAM overhead.',
+    huggingFaceUrl: 'https://github.com/nick-thompson/freeverb',
+    recommendedHardware: 'Runs on any CPU / Web Audio thread',
+    tags: ['Freeverb', 'Dattorro Plate', 'Diffuser Matrix', 'Zero RAM']
+  },
+  {
+    id: 'fx-faust-toy-library',
+    name: 'Faust DSP 200+ Math-Pure Algorithm Pack',
+    category: 'fx_racks',
+    badge: 'JIT COMPILER',
+    vram: '0 MB (Wasm JIT)',
+    fileSize: '2.1 MB',
+    description: 'Over 200 physical modeling instruments, TB-303 squelch filters, vintage flangers, and nonlinear diode distortion algorithms compiled in real time directly to WebAudio Wasm.',
+    huggingFaceUrl: 'https://faust.grame.fr/',
+    recommendedHardware: 'Integrated into Strangelet Lab Faust Lab',
+    tags: ['Faust DSP', 'GRAME', 'Live JIT', 'WebAssembly']
+  },
+  {
+    id: 'fx-nam-guitarix',
+    name: 'Neural Amp Modeler (NAM) & Guitarix WebAudio',
+    category: 'fx_racks',
+    badge: 'NEURAL AMP SIM',
+    vram: '500 MB RAM',
+    fileSize: '15 MB',
+    description: 'WaveNet / LSTM neural network emulation of legendary tube amplifiers (Marshall JCM800, Fender Twin Reverb, Mesa Boogie Dual Rectifier) running in WebAssembly.',
+    huggingFaceUrl: 'https://github.com/sdatkinson/neural-amp-modeler',
+    recommendedHardware: 'Standard multi-core CPU',
+    tags: ['Neural DSP', 'Tube Amp Sim', 'Wasm NAM', 'Guitarix']
   }
 ];
 
@@ -241,7 +343,8 @@ export const AddonsHubModal: React.FC<AddonsHubModalProps> = ({
   onClose,
   onOpenResourceManager
 }) => {
-  const [activeCategory, setActiveCategory] = useState<'ghost' | 'acestep' | 'yue2' | 'sfz'>('ghost');
+  const [activeCategory, setActiveCategory] = useState<'ghost' | 'acestep' | 'yue2' | 'sfz' | 'fx_racks'>('ghost');
+  const [ghostTierFilter, setGhostTierFilter] = useState<'all' | '4-6gb' | '8-12gb' | '16gb+'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   if (!isOpen) return null;
@@ -253,7 +356,13 @@ export const AddonsHubModal: React.FC<AddonsHubModalProps> = ({
     setTimeout(() => setCopiedId(null), 2500);
   };
 
-  const filteredItems = ADDONS_CATALOG.filter(item => item.category === activeCategory);
+  const filteredItems = ADDONS_CATALOG.filter(item => {
+    if (item.category !== activeCategory) return false;
+    if (activeCategory === 'ghost' && ghostTierFilter !== 'all') {
+      return item.vramTier === ghostTierFilter || item.vramTier === 'any';
+    }
+    return true;
+  });
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 md:p-6 bg-black/85 backdrop-blur-md animate-fade-in font-mono select-none">
@@ -308,7 +417,8 @@ export const AddonsHubModal: React.FC<AddonsHubModalProps> = ({
         {/* Category Navigation Bar */}
         <div className="px-6 py-2.5 bg-[#0C101E] border-b border-[#1A2035] flex items-center gap-2 overflow-x-auto flex-shrink-0">
           {[
-            { id: 'ghost', label: '👻 GHOST AI Brains', desc: 'Local GGUF Models (3B–14B)', color: '#FFD700' },
+            { id: 'ghost', label: '👻 GHOST AI Brains', desc: 'Local GGUF Models (3B–32B)', color: '#FFD700' },
+            { id: 'fx_racks', label: '🎛️ Open DSP & FX Racks', desc: 'Tuna.js, WAM, Freeverb, ChowDSP', color: '#A855F7' },
             { id: 'acestep', label: '⚡ Ace-Step 1.5 Loops', desc: 'Diffusion & ComfyUI Nodes', color: '#EC4899' },
             { id: 'yue2', label: '🎶 YuE2 Full Song', desc: 'End-to-End Dual-Track Audio', color: '#06B6D4' },
             { id: 'sfz', label: '🎹 SFZ & Sample Packs', desc: 'Grand Piano, Rhodes, 808/909', color: '#10B981' }
@@ -339,15 +449,17 @@ export const AddonsHubModal: React.FC<AddonsHubModalProps> = ({
             <div className="space-y-1">
               <span className="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-2">
                 <Sparkles size={14} className="text-amber-400" />
-                {activeCategory === 'ghost' && 'Modular GHOST LLM Brains — Air-Gapped Audio Intelligence'}
+                {activeCategory === 'ghost' && 'Modular GHOST LLM Brains — Tiered VRAM Audio Intelligence'}
+                {activeCategory === 'fx_racks' && 'Open-Source Effects Racks & DSP Components — Zero Latency Web Audio'}
                 {activeCategory === 'acestep' && 'Ace-Step 1.5 Neural Audio Diffusion — Bar-Synced Loops'}
-                {activeCategory === 'yue2' && 'YuE Full Song Generation — Dual-Track Vocal & Instrumental AI'}
+                {activeCategory === 'yue2' && 'YuE2 Full Song Generation — Dual-Track Vocal & Instrumental AI'}
                 {activeCategory === 'sfz' && 'Zero-Latency Acoustic Instruments — SoundFonts & Drum Samples'}
               </span>
               <p className="text-[11px] text-[#8C98BC] leading-relaxed max-w-3xl">
-                {activeCategory === 'ghost' && 'GHOST runs directly on your machine through Kobold.cpp, Ollama, or LM Studio. Models are quant-optimized to fit 4GB, 6GB, 8GB, or 16GB VRAM budgets.'}
+                {activeCategory === 'ghost' && 'GHOST runs directly on your machine through Kobold.cpp, Ollama, or LM Studio. Models are quant-optimized into 3 clear tiers: 4-6GB (3B-4B), 8-12GB (7B-9B), and 16GB+ (14B-32B).'}
+                {activeCategory === 'fx_racks' && 'Embed Tuna.js stompboxes (Chorus, Phaser, Bitcrusher, Overdrive), WAM 2.0 WebAssembly modules (ChowDSP, Dexed FM), Dattorro plate reverb, and Faust physical models directly into Strangelet Lab.'}
                 {activeCategory === 'acestep' && 'Ace-Step 1.5 generates tempo-locked stems (drums, bass, leads) via diffusion. Connects directly to local ComfyUI on port 8188 for 1-click timeline imports.'}
-                {activeCategory === 'yue2' && 'YuE generates complete full-length songs with separate vocal and backing tracks. Use these weights for expansive lyric-to-song workflows.'}
+                {activeCategory === 'yue2' && 'YuE2 generates complete full-length songs with separate vocal and backing tracks. Use these weights for expansive lyric-to-song workflows.'}
                 {activeCategory === 'sfz' && 'High-fidelity sample packs for Basic Pitch MIDI replacement. Drop them in to instantly replace synthetic sounds with vintage acoustic gear.'}
               </p>
             </div>
@@ -375,6 +487,53 @@ export const AddonsHubModal: React.FC<AddonsHubModalProps> = ({
               </div>
             )}
           </div>
+
+          {/* VRAM Tier Sub-Filter Bar (for GHOST Models) */}
+          {activeCategory === 'ghost' && (
+            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-[#090D1C] border border-[#1A233C] text-[10px] font-mono flex-wrap">
+              <span className="text-[#64748B] font-bold uppercase text-[9px] mr-1">Filter by GPU VRAM:</span>
+              <button
+                onClick={() => setGhostTierFilter('all')}
+                className={`px-3 py-1 rounded-lg border transition-all cursor-pointer ${
+                  ghostTierFilter === 'all'
+                    ? 'bg-amber-400 text-black border-amber-300 font-bold shadow-sm'
+                    : 'bg-[#101626] border-[#222E4E] text-[#8E9BBE] hover:text-white'
+                }`}
+              >
+                All Models ({ADDONS_CATALOG.filter(i => i.category === 'ghost').length})
+              </button>
+              <button
+                onClick={() => setGhostTierFilter('4-6gb')}
+                className={`px-3 py-1 rounded-lg border transition-all cursor-pointer ${
+                  ghostTierFilter === '4-6gb'
+                    ? 'bg-amber-400 text-black border-amber-300 font-bold shadow-sm'
+                    : 'bg-[#101626] border-[#222E4E] text-[#8E9BBE] hover:text-white'
+                }`}
+              >
+                4GB–6GB Tier (3B–4B)
+              </button>
+              <button
+                onClick={() => setGhostTierFilter('8-12gb')}
+                className={`px-3 py-1 rounded-lg border transition-all cursor-pointer ${
+                  ghostTierFilter === '8-12gb'
+                    ? 'bg-cyan-400 text-black border-cyan-300 font-bold shadow-sm'
+                    : 'bg-[#101626] border-[#222E4E] text-[#8E9BBE] hover:text-white'
+                }`}
+              >
+                8GB–12GB Tier (7B–9B)
+              </button>
+              <button
+                onClick={() => setGhostTierFilter('16gb+')}
+                className={`px-3 py-1 rounded-lg border transition-all cursor-pointer ${
+                  ghostTierFilter === '16gb+'
+                    ? 'bg-emerald-400 text-black border-emerald-300 font-bold shadow-sm'
+                    : 'bg-[#101626] border-[#222E4E] text-[#8E9BBE] hover:text-white'
+                }`}
+              >
+                16GB+ Pro Tier (14B–32B)
+              </button>
+            </div>
+          )}
 
           {/* Cards List */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

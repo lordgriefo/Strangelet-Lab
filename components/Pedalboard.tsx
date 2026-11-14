@@ -89,6 +89,62 @@ const INITIAL_PEDALS: Stompbox[] = [
       param2: { name: 'SHAPE', value: 50, min: 0, max: 100, unit: '%' },
       param3: { name: 'PULSE', value: 75, min: 0, max: 100, unit: '%' }
     }
+  },
+  {
+    id: 'hadron-bitcrusher',
+    name: 'HADRON CRUSHER',
+    category: 'Drive',
+    color: '#8B5CF6',
+    ledColor: '#A78BFA',
+    enabled: false,
+    mix: 0.75,
+    params: {
+      param1: { name: 'BITS', value: 8, min: 4, max: 16, unit: 'bit' },
+      param2: { name: 'DOWNSAMPLE', value: 4, min: 1, max: 16, unit: 'x' },
+      param3: { name: 'GRIT', value: 60, min: 0, max: 100, unit: '%' }
+    }
+  },
+  {
+    id: 'moog-ladder-filter',
+    name: 'MOOG LADDER',
+    category: 'Modulation',
+    color: '#EA580C',
+    ledColor: '#FB923C',
+    enabled: false,
+    mix: 0.9,
+    params: {
+      param1: { name: 'CUTOFF', value: 1200, min: 40, max: 16000, unit: 'Hz' },
+      param2: { name: 'RESONANCE', value: 7.5, min: 0.5, max: 15, unit: 'Q' },
+      param3: { name: 'DRIVE', value: 35, min: 0, max: 100, unit: '%' }
+    }
+  },
+  {
+    id: 'pulsar-phaser',
+    name: 'PULSAR PHASER',
+    category: 'Modulation',
+    color: '#0D9488',
+    ledColor: '#2DD4BF',
+    enabled: false,
+    mix: 0.7,
+    params: {
+      param1: { name: 'RATE', value: 0.8, min: 0.1, max: 6.0, unit: 'Hz' },
+      param2: { name: 'DEPTH', value: 70, min: 0, max: 100, unit: '%' },
+      param3: { name: 'STAGES', value: 6, min: 2, max: 12, unit: '' }
+    }
+  },
+  {
+    id: 'vacuum-tube-cabinet',
+    name: '4x12 VINTAGE CAB',
+    category: 'Space',
+    color: '#65A30D',
+    ledColor: '#A3E635',
+    enabled: false,
+    mix: 0.85,
+    params: {
+      param1: { name: 'AIR / MIC', value: 4500, min: 1500, max: 10000, unit: 'Hz' },
+      param2: { name: 'THUMP', value: 110, min: 60, max: 250, unit: 'Hz' },
+      param3: { name: 'CONTOUR', value: 50, min: 0, max: 100, unit: '%' }
+    }
   }
 ];
 
