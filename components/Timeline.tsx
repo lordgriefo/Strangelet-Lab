@@ -1,10 +1,12 @@
-import React, { useState, useRef } from 'react';
-import { Track, Clip, TimelineMarker } from '../types';
+import React, { useState, useRef, useEffect } from 'react';
+import { Track, Clip, TimelineMarker, PluginAutomationLaneConfig } from '../types';
 import TimelineLane from './TimelineLane';
 import Toolbar, { ActiveTool } from './Toolbar';
 import { snapToGrid } from '../lib/audioUtils';
-import { Clock, Sliders, ChevronDown, Pin, Crosshair, Split, LayoutGrid, Magnet } from 'lucide-react';
-import SequencerGridOverlay, { ActivePaintingState } from './SequencerGridOverlay';
+import { playLaserBeamSound } from '../lib/laserSound';
+import { Clock, Sliders, ChevronDown, Pin, Split, LayoutGrid, Magnet } from 'lucide-react';
+import SequencerGridOverlay, { SequencerRulerSnapTooltip, getLaserPointerCursor, ActivePaintingState, ActiveDragSnapState } from './SequencerGridOverlay';
+import { useSnapGrid } from '../services/snapGridService';
 
 interface TimelineProps {
   tracks: Track[];
@@ -22,11 +24,18 @@ interface TimelineProps {
   activeLaserTool?: ActiveTool;
   onToolChange?: (tool: ActiveTool) => void;
   timelineMarkers?: TimelineMarker[];
-  onOpenBeatmapper?: () => void;
+  onOpenChronoMap?: () => void;
   onOpenBeamSplitter?: () => void;
   selectedTrackId?: string | null;
   onSelectTrack?: (id: string) => void;
   isAutoArmMode?: boolean;
+  isVstBrowserOpen?: boolean;
+  onToggleVstBrowser?: () => void;
+  containerClassName?: string;
+  selectedClipIds?: string[];
+  onToggleSelectClip?: (clipId: string, multi: boolean) => void;
+  beamModeEnabled?: boolean;
+  onToggleBeamMode?: () => void;
 }
 
 const Timeline: React.FC<TimelineProps> = ({ 
@@ -45,31 +54,127 @@ const Timeline: React.FC<TimelineProps> = ({
   activeLaserTool,
   onToolChange,
   timelineMarkers,
-  onOpenBeatmapper,
+  onOpenChronoMap,
   onOpenBeamSplitter,
   selectedTrackId,
   onSelectTrack,
-  isAutoArmMode = false
+  isAutoArmMode = false,
+  isVstBrowserOpen,
+  onToggleVstBrowser,
+  containerClassName = 'h-96 mb-4',
+  selectedClipIds = [],
+  onToggleSelectClip,
+  beamModeEnabled: propBeamModeEnabled,
+  onToggleBeamMode: propOnToggleBeamMode
 }) => {
   const [internalTool, setInternalTool] = useState<ActiveTool>('laser_audio');
   const activeTool = activeLaserTool || internalTool;
+  const lastNonEraserToolRef = useRef<ActiveTool>('laser_audio');
+  const [internalBeamModeEnabled, setInternalBeamModeEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('strangelet_beam_mode_enabled') !== 'false';
+    } catch {
+      return true;
+    }
+  });
+  const beamModeEnabled = propBeamModeEnabled ?? internalBeamModeEnabled;
+  const toggleBeamMode = () => {
+    if (propOnToggleBeamMode) {
+      propOnToggleBeamMode();
+      return;
+    }
+    setInternalBeamModeEnabled(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('strangelet_beam_mode_enabled', String(next));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+    playLaserBeamSound('laser_select');
+  };
+
+  useEffect(() => {
+    if (activeTool !== 'laser_erase' && activeTool !== 'erase') {
+      lastNonEraserToolRef.current = activeTool;
+    }
+  }, [activeTool]);
+
   const setActiveTool = (tool: ActiveTool) => {
     setInternalTool(tool);
     if (onToolChange) onToolChange(tool);
   };
 
-  const [timeSignature, setTimeSignature] = useState<string>('4/4');
+  // [E] flips Red Laser Incremental Eraser; [B] toggles Beam Mode (Right-Click Erase vs Studio Right-Click Menu)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.key === 'e' || e.key === 'E') {
+        e.preventDefault();
+        const isErasing = activeTool === 'laser_erase' || activeTool === 'erase';
+        const nextTool: ActiveTool = isErasing
+          ? (lastNonEraserToolRef.current || 'laser_audio')
+          : 'laser_erase';
+        setActiveTool(nextTool);
+        playLaserBeamSound(nextTool as any);
+        return;
+      }
+
+      if (e.key === 'b' || e.key === 'B') {
+        e.preventDefault();
+        toggleBeamMode();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeTool, propOnToggleBeamMode]);
+
+  const [timeSignature, setTimeSignature] = useState<string>(() => {
+    try {
+      return localStorage.getItem('strangelet_time_signature') || '4/4';
+    } catch {
+      return '4/4';
+    }
+  });
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('strangelet_time_signature', timeSignature);
+    } catch {
+      // ignore storage errors
+    }
+  }, [timeSignature]);
   const [showAllEnvelopes, setShowAllEnvelopes] = useState<boolean>(false);
-  const [laserPos, setLaserPos] = useState<{ x: number; y: number; visible: boolean }>({ x: 0, y: 0, visible: false });
   const [hoverTimeline, setHoverTimeline] = useState<{
     rawBar: number;
     mouseY: number;
     isHovering: boolean;
   }>({ rawBar: 0, mouseY: 0, isHovering: false });
   const [activePainting, setActivePainting] = useState<ActivePaintingState | null>(null);
-  const [showGridOverlay, setShowGridOverlay] = useState<boolean>(true);
+  const [activeDragSnap, setActiveDragSnap] = useState<ActiveDragSnapState | null>(null);
+  const {
+    enabled: snapEnabled,
+    division: snapDivision,
+    showGridLines: showGridOverlay,
+    toggleEnabled: toggleSnapEnabled,
+    setDivision: setSnapDivision,
+    toggleShowGridLines: toggleGridOverlay
+  } = useSnapGrid();
 
   const isPaintTool = activeTool === 'laser_audio' || activeTool === 'laser_midi' || activeTool === 'beam';
+  const isEraseTool = activeTool === 'laser_erase' || activeTool === 'erase';
+  const isGridTargetTool = isPaintTool || isEraseTool;
   const [defaultMarkers] = useState<{ position: number, label: string }[]>([
     { position: 0.125, label: 'Intro' },
     { position: 0.5, label: 'Drop / Chorus' },
@@ -91,7 +196,7 @@ const Timeline: React.FC<TimelineProps> = ({
         return { color: '#10B981', label: '532nm MIDI MATRIX', pulse: 'rgba(16,185,129,0.5)' };
       case 'laser_erase':
       case 'erase':
-        return { color: '#EF4444', label: '650nm INCINERATOR', pulse: 'rgba(239,68,68,0.5)' };
+        return { color: '#EF4444', label: '650nm RED ERASER', pulse: 'rgba(239,68,68,0.5)' };
       case 'laser_curve':
       case 'draw':
         return { color: '#FFD700', label: '589nm VEGAS NEON', pulse: 'rgba(255,215,0,0.5)' };
@@ -117,19 +222,28 @@ const Timeline: React.FC<TimelineProps> = ({
   const minutes = Math.floor(currentSeconds / 60);
   const seconds = (currentSeconds % 60).toFixed(2).padStart(5, '0');
 
-  // Toggle all envelopes
+  // Toggle all envelopes (including Faust/VST plugin parameter lanes)
   const handleToggleAllEnvelopes = () => {
     const nextState = !showAllEnvelopes;
     setShowAllEnvelopes(nextState);
     tracks.forEach(t => {
       const auto = t.automation;
       if (auto) {
+        let nextParams = auto.params;
+        if (auto.params) {
+          const updatedMap: Record<string, PluginAutomationLaneConfig> = {};
+          Object.entries(auto.params).forEach(([k, lane]) => {
+            updatedMap[k] = { ...lane, visible: nextState };
+          });
+          nextParams = updatedMap;
+        }
         updateTrack(t.id, {
           automation: {
             ...auto,
             isExpanded: nextState,
             volume: { ...auto.volume, visible: nextState },
-            pan: { ...auto.pan, visible: nextState }
+            pan: { ...auto.pan, visible: nextState },
+            params: nextParams
           }
         });
       }
@@ -197,14 +311,18 @@ const Timeline: React.FC<TimelineProps> = ({
   return (
     <div 
       ref={timelineContainerRef}
-      className="w-full h-96 bg-[#03060B] border border-[#1E293B] rounded-xl relative flex flex-col overflow-hidden shadow-2xl mb-4"
+      className={`w-full bg-[#03060B] border border-[#1E293B] rounded-xl relative flex flex-col overflow-hidden shadow-2xl ${containerClassName}`}
     >
       {/* Top Toolbar */}
       <Toolbar 
         activeTool={activeTool} 
-        setActiveTool={setActiveTool} 
+        setActiveTool={setActiveTool}
+        beamModeEnabled={beamModeEnabled}
+        onToggleBeamMode={toggleBeamMode}
         showAllEnvelopes={showAllEnvelopes}
         onToggleAllEnvelopes={handleToggleAllEnvelopes}
+        isVstBrowserOpen={isVstBrowserOpen}
+        onToggleVstBrowser={onToggleVstBrowser}
       />
       
       {/* Multitrack Measure & Beat Ruler */}
@@ -221,30 +339,51 @@ const Timeline: React.FC<TimelineProps> = ({
             </div>
           </div>
 
-            {/* Snap Selector, Grid Overlay Toggle & Chrono-Pin Launch */}
-            <div className="flex items-center gap-1.5">
-              <div className="flex items-center gap-1">
-                <span className="text-[9px] font-mono text-[#64748B]">SNAP:</span>
-                <select 
-                  value={snapValue === 'freeform' ? 'off' : snapValue} 
-                  onChange={(e) => setSnapValue(e.target.value)}
-                  className="bg-[#03060B] text-[#FF8C00] text-[10px] font-mono border border-[#1E293B] rounded px-1 py-0.5 outline-none cursor-pointer hover:border-[#FF8C00]"
-                >
-                  <option value="1/1">1 Bar</option>
-                  <option value="1/2">1/2 Bar</option>
-                  <option value="1/4">1/4 Beat</option>
-                  <option value="1/8">1/8 Grid</option>
-                  <option value="1/16">1/16 Grid</option>
-                  <option value="1/8T">1/8 Triplet</option>
-                  <option value="1/16T">1/16 Triplet</option>
-                  <option value="off">Off (Free)</option>
-                </select>
-              </div>
+            {/* Snap Toggle, Division Selector, Grid Overlay Toggle & Chrono-Pin Launch */}
+            <div className="flex items-center gap-1">
+              {/* Visual Snap-to-Grid ON/OFF Magnet Toggle */}
+              <button
+                type="button"
+                onClick={() => toggleSnapEnabled()}
+                className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-black flex items-center gap-1 transition-all cursor-pointer border ${
+                  snapEnabled
+                    ? 'bg-[#FF8C00]/20 border-[#FF8C00] text-[#FFD700] shadow-[0_0_8px_rgba(255,140,0,0.35)]'
+                    : 'bg-[#0E131F] border-[#334155] text-[#64748B] hover:text-white hover:border-[#475569]'
+                }`}
+                title={snapEnabled ? `Snap-to-Grid is ON (${snapDivision}) — click to switch to Freeform` : `Snap-to-Grid is OFF (Freeform) — click to re-enable ${snapDivision} snap`}
+              >
+                <Magnet size={10} className={snapEnabled ? 'text-[#FF8C00]' : 'text-[#64748B]'} />
+                <span>{snapEnabled ? 'SNAP' : 'FREE'}</span>
+              </button>
+
+              <select 
+                value={snapDivision} 
+                onChange={(e) => {
+                  setSnapDivision(e.target.value);
+                  setSnapValue(e.target.value);
+                }}
+                className={`bg-[#03060B] text-[10px] font-mono border rounded px-1 py-0.5 outline-none cursor-pointer transition-colors ${
+                  snapEnabled
+                    ? 'text-[#FF8C00] border-[#1E293B] hover:border-[#FF8C00]'
+                    : 'text-[#64748B] border-[#1E293B]/60 hover:border-[#475569]'
+                }`}
+                title="Grid subdivision (syncs with Mixer & MIDI Editor)"
+              >
+                <option value="1/1">1 Bar</option>
+                <option value="1/2">1/2</option>
+                <option value="1/4">1/4</option>
+                <option value="1/8">1/8</option>
+                <option value="1/16">1/16</option>
+                <option value="1/32">1/32</option>
+                <option value="1/8T">1/8 T</option>
+                <option value="1/16T">1/16 T</option>
+              </select>
 
               {/* Visual Grid Overlay Toggle Button */}
               <button
-                onClick={() => setShowGridOverlay(prev => !prev)}
-                className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold flex items-center gap-1 transition-all ${
+                type="button"
+                onClick={() => toggleGridOverlay()}
+                className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer ${
                   showGridOverlay
                     ? 'bg-[#00F0FF]/15 border border-[#00F0FF]/60 text-[#00F0FF] shadow-[0_0_8px_rgba(0,240,255,0.25)]'
                     : 'bg-[#0E131F] border border-[#1E293B] text-[#64748B] hover:text-[#94A3B8]'
@@ -255,14 +394,14 @@ const Timeline: React.FC<TimelineProps> = ({
                 <span className="hidden xl:inline">GRID</span>
               </button>
 
-              {onOpenBeatmapper && (
+              {onOpenChronoMap && (
                 <button
-                  onClick={onOpenBeatmapper}
+                  onClick={onOpenChronoMap}
                   className="px-1.5 py-0.5 rounded bg-[#00F0FF]/15 border border-[#00F0FF]/40 text-[#00F0FF] text-[9px] font-mono font-bold hover:bg-[#00F0FF] hover:text-black transition-all flex items-center gap-1 shadow-[0_0_8px_rgba(0,240,255,0.25)]"
-                  title="Open Chrono-Pin Tempo Mapper to map track tempo and align grid"
+                  title="Open ChronoMap & ChronoPins Tempo Engine to align track timing and grid"
                 >
                   <Pin size={10} className="text-[#FFD700] fill-current" />
-                  <span className="hidden sm:inline">CHRONO-PIN</span>
+                  <span className="hidden sm:inline">CHRONOMAP</span>
                 </button>
               )}
 
@@ -288,7 +427,7 @@ const Timeline: React.FC<TimelineProps> = ({
             {/* Ruler Snap Tick Highlight when Paint Tool is hovering and snapped to quantization */}
             {showGridOverlay && isPaintTool && snapValue !== 'off' && snapValue !== 'freeform' && hoverTimeline.isHovering && (
               <div
-                className="absolute top-0 bottom-0 pointer-events-none z-20 flex flex-col items-center transition-all duration-75"
+                className="absolute top-0 bottom-0 pointer-events-none z-20 flex flex-col items-center"
                 style={{
                   left: `${(snapToGrid(hoverTimeline.rawBar, snapValue) / 16) * 100}%`,
                   transform: 'translateX(-50%)'
@@ -380,6 +519,18 @@ const Timeline: React.FC<TimelineProps> = ({
             className="absolute top-0 -translate-x-1/2 w-3 h-3 bg-[#FF8C00] rotate-45 pointer-events-none z-30 shadow-[0_0_8px_#FF8C00]"
             style={{ left: `${playheadPosition * 100}%` }}
           />
+
+          {/* Snap Overlay Tooltip raised into the Ruler bar outside Track 1 */}
+          <SequencerRulerSnapTooltip
+            snapValue={snapValue}
+            totalBars={16}
+            activeTool={activeTool}
+            hoverBar={hoverTimeline.isHovering ? hoverTimeline.rawBar : null}
+            isHovering={hoverTimeline.isHovering}
+            activePainting={activePainting}
+            activeDragSnap={activeDragSnap}
+            showOverlay={showGridOverlay}
+          />
         </div>
       </div>
 
@@ -387,16 +538,17 @@ const Timeline: React.FC<TimelineProps> = ({
       <div 
         ref={tracksWorkspaceRef}
         className="flex-1 overflow-y-auto relative bg-[#04060A]"
+        style={{ cursor: getLaserPointerCursor(activeTool) }}
         onMouseMove={(e) => {
-          if (!tracksWorkspaceRef.current) return;
+          if (!isGridTargetTool || !showGridOverlay || !tracksWorkspaceRef.current) {
+            if (hoverTimeline.isHovering) {
+              setHoverTimeline(prev => ({ ...prev, isHovering: false }));
+            }
+            return;
+          }
           const rect = tracksWorkspaceRef.current.getBoundingClientRect();
           const x = e.clientX - rect.left;
           const y = e.clientY - rect.top;
-          setLaserPos({
-            x,
-            y,
-            visible: true
-          });
 
           // Track hover over the sequencer timeline area (excluding w-64 / 16rem track headers)
           const timelineWidth = Math.max(1, rect.width - 256);
@@ -408,13 +560,12 @@ const Timeline: React.FC<TimelineProps> = ({
               mouseY: y,
               isHovering: true
             });
-          } else {
+          } else if (hoverTimeline.isHovering) {
             setHoverTimeline(prev => ({ ...prev, isHovering: false }));
           }
         }}
         onMouseLeave={() => {
-          setLaserPos(prev => ({ ...prev, visible: false }));
-          setHoverTimeline(prev => ({ ...prev, isHovering: false }));
+          setHoverTimeline(prev => (prev.isHovering ? { ...prev, isHovering: false } : prev));
         }}
       >
         {/* Visual Quantization Grid Overlay on the Sequencer Timeline */}
@@ -430,6 +581,7 @@ const Timeline: React.FC<TimelineProps> = ({
             isHovering={hoverTimeline.isHovering}
             mouseY={hoverTimeline.mouseY}
             activePainting={activePainting}
+            activeDragSnap={activeDragSnap}
             tempo={tempo}
             showOverlay={showGridOverlay}
           />
@@ -442,7 +594,8 @@ const Timeline: React.FC<TimelineProps> = ({
             track={track} 
             trackIndex={idx}
             playheadPosition={playheadPosition} 
-            activeTool={activeTool} 
+            activeTool={activeTool}
+            beamModeEnabled={beamModeEnabled}
             updateTrack={updateTrack}
             timeSignature={timeSignature}
             snapValue={snapValue}
@@ -451,47 +604,14 @@ const Timeline: React.FC<TimelineProps> = ({
             allTracks={tracks}
             tempo={tempo}
             onPaintChange={setActivePainting}
+            onDragSnapChange={setActiveDragSnap}
             isSelected={track.id === selectedTrackId}
             onSelectTrack={onSelectTrack}
             isAutoArmMode={isAutoArmMode}
+            selectedClipIds={selectedClipIds}
+            onToggleSelectClip={onToggleSelectClip}
           />
         ))}
-
-        {/* Interactive Retro-Futuristic Laser Crosshair Reticle */}
-        {laserPos.visible && (
-          <div 
-            className="absolute pointer-events-none z-40"
-            style={{ 
-              left: `${laserPos.x}px`, 
-              top: `${laserPos.y}px`,
-              transform: 'translate(-50%, -50%)' 
-            }}
-          >
-            {/* Outer Pulsing Laser Ring */}
-            <div 
-              className="w-8 h-8 rounded-full border border-dashed animate-spin flex items-center justify-center opacity-80"
-              style={{ borderColor: laser.color, animationDuration: '6s' }}
-            >
-              {/* Inner Targeting Ring */}
-              <div 
-                className="w-4 h-4 rounded-full border"
-                style={{ borderColor: laser.color }}
-              />
-            </div>
-            {/* Core Laser Dot */}
-            <div 
-              className="w-1.5 h-1.5 rounded-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
-              style={{ backgroundColor: laser.color, boxShadow: `0 0 8px ${laser.color}` }}
-            />
-            {/* Laser Beam Label */}
-            <div 
-              className="absolute left-6 -top-2 px-1.5 py-0.5 rounded bg-[#060810]/95 border text-[8px] font-mono whitespace-nowrap shadow-lg select-none"
-              style={{ borderColor: laser.color, color: laser.color }}
-            >
-              {laser.label}
-            </div>
-          </div>
-        )}
 
         {/* Global Playhead Scrubber Line Across All Track Lanes */}
         <div 

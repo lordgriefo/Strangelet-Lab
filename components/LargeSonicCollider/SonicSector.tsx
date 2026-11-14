@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Play, 
   RotateCcw, 
@@ -23,7 +23,8 @@ import {
   Database,
   Search,
   Info,
-  Save
+  Save,
+  ArrowRight
 } from 'lucide-react';
 import { ColliderChip, PromptOutputResult, ArchiveItem } from '../../types';
 import { SONIC_COLLIDER_CHIPS } from '../../lib/sonicColliderData';
@@ -37,31 +38,51 @@ import {
 import { ColliderChamberCanvas } from './ColliderChamberCanvas';
 import { playColliderInjectionSound, playLaserBeamSound } from '../../lib/laserSound';
 import { collideSonicParticlesGemini } from '../../services/geminiService';
-import { SonicPreset, convertPresetToChamberChips } from '../../services/sonicData';
+import { SonicPreset, CURATED_SONIC_PRESETS, convertPresetToChamberChips } from '../../services/sonicData';
+import type { MatrixBeamRequest } from './LargeSonicCollider';
+import { getStoredKoboldSettings } from '../../services/koboldCppService';
+import { getGhostShortModelBadge } from '../../services/hardwareResourceManager';
 
 interface SonicSectorProps {
   onSaveToArchive: (item: ArchiveItem) => void;
   onOpenArchive: () => void;
-  activePreset?: SonicPreset | null;
+  beamRequest?: MatrixBeamRequest | null;
   onClearActivePreset?: () => void;
   collisionEnergy?: number;
   onSaveCollisionClick?: (chips: ColliderChip[], result: PromptOutputResult | null) => void;
   onOpenSavedCollisions?: () => void;
   externalChips?: ColliderChip[] | null;
+  onSendPromptToAceStep?: (promptText: string, bpm?: number) => void;
+  onSendPromptToYue2?: (promptText: string, bpm?: number) => void;
+  onOpenKoboldSettings?: () => void;
 }
 
 export const SonicSector: React.FC<SonicSectorProps> = ({ 
   onSaveToArchive, 
   onOpenArchive,
-  activePreset,
+  beamRequest,
   onClearActivePreset,
   collisionEnergy = 8.4,
   onSaveCollisionClick,
   onOpenSavedCollisions,
-  externalChips
+  externalChips,
+  onSendPromptToAceStep,
+  onSendPromptToYue2,
+  onOpenKoboldSettings
 }) => {
   // Triple Mutually-Exclusive Sidebars: 'beam_a' | 'beam_b' | 'db_yard' | null (only one open at a time!)
   const [activeSidebar, setActiveSidebar] = useState<'beam_a' | 'beam_b' | 'db_yard' | null>('beam_a');
+  const [ghostBadge, setGhostBadge] = useState<string>(() => getGhostShortModelBadge(getStoredKoboldSettings().modelName));
+
+  useEffect(() => {
+    const syncGhost = () => setGhostBadge(getGhostShortModelBadge(getStoredKoboldSettings().modelName));
+    window.addEventListener('strangelet-ai-settings-changed', syncGhost);
+    window.addEventListener('strangelet-resource-updated', syncGhost);
+    return () => {
+      window.removeEventListener('strangelet-ai-settings-changed', syncGhost);
+      window.removeEventListener('strangelet-resource-updated', syncGhost);
+    };
+  }, []);
 
 
   // Database Yard Category Selection
@@ -79,6 +100,8 @@ export const SonicSector: React.FC<SonicSectorProps> = ({
     SONIC_COLLIDER_CHIPS.find(c => c.id === 'prod-tape-flutter-wow')!
   ].filter(Boolean));
 
+  const resultRef = useRef<HTMLDivElement | null>(null);
+
   // Sync external chips restored from saved collisions
   useEffect(() => {
     if (externalChips && externalChips.length > 0) {
@@ -87,23 +110,62 @@ export const SonicSector: React.FC<SonicSectorProps> = ({
     }
   }, [externalChips]);
 
-  // Sync external preset when selected from LargeSonicCollider preset selector
+  // Handle explicit Matrix Beam requests from top bar (+ Beam into Collider / Replace)
   useEffect(() => {
-    if (activePreset && activePreset.mode === 'sonic') {
-      const newChips = convertPresetToChamberChips(activePreset);
-      setChamberChips(newChips);
-      if (activePreset.category && sonicSectorDB[activePreset.category]) {
-        setSelectedDbCategory(activePreset.category);
-      }
-      playColliderInjectionSound();
-    }
-  }, [activePreset]);
+    if (!beamRequest || beamRequest.preset.mode !== 'sonic') return;
+    const { preset, action } = beamRequest;
 
+    if (preset.category && sonicSectorDB[preset.category]) {
+      setSelectedDbCategory(preset.category);
+    }
+
+    const isCuratedPreset = CURATED_SONIC_PRESETS.some(c => c.id === preset.id);
+    let incomingChips: ColliderChip[];
+
+    if (isCuratedPreset) {
+      incomingChips = convertPresetToChamberChips(preset);
+    } else {
+      const cleanLabel = preset.name
+        .replace(/^\[(Stack|Template|Pack|FX|Vocal|SFX|Event|Texture|Effect|Warning|System):?\s*/i, '')
+        .replace(/\]$/, '');
+      const isBeamA = getCategoryGroup(preset.category) === 'beam_a';
+      incomingChips = [
+        {
+          id: `matrix-${sanitizeId(preset.category)}-${sanitizeId(preset.name)}`,
+          label: cleanLabel,
+          category: isBeamA ? 'genre' : 'production',
+          sidebarGroup: isBeamA ? 'beam_a' : 'beam_b',
+          color: getCategoryColor(preset.category),
+          description: preset.description,
+          energyWeight: 0.85,
+          tags: [preset.category.toLowerCase().replace(/[^a-z0-9]+/g, '-'), 'matrix-beam']
+        }
+      ];
+    }
+
+    if (action === 'replace') {
+      setChamberChips(incomingChips);
+    } else {
+      setChamberChips(prev => {
+        const next = [...prev];
+        incomingChips.forEach(chip => {
+          const normLabel = chip.label.toLowerCase().trim();
+          const alreadyExists = next.some(
+            existing => existing.id === chip.id || existing.label.toLowerCase().trim() === normLabel
+          );
+          if (!alreadyExists) {
+            next.push(chip);
+          }
+        });
+        return next;
+      });
+    }
+  }, [beamRequest]);
 
   // Particle beam states for light show
   const [isAccelerating, setIsAccelerating] = useState<boolean>(false);
   const [isColliding, setIsColliding] = useState<boolean>(false);
-  const [promptFormat, setPromptFormat] = useState<'suno' | 'udio' | 'universal'>('suno');
+  const [promptFormat, setPromptFormat] = useState<'acestep' | 'yue2' | 'suno' | 'udio' | 'universal'>('acestep');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
 
   // Synthesized Prompt Output Result
@@ -204,6 +266,9 @@ export const SonicSector: React.FC<SonicSectorProps> = ({
     try {
       const result = await collideSonicParticlesGemini(chamberChips, promptFormat);
       setLastResult(result);
+      setTimeout(() => {
+        resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 150);
     } catch (err) {
       console.error('Collision error:', err);
     } finally {
@@ -267,79 +332,89 @@ export const SonicSector: React.FC<SonicSectorProps> = ({
   });
 
   return (
-    <div className="flex flex-col h-full gap-4">
-      {/* Top Controls Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-xl bg-[#141622] border border-[#23263B]">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
-            <Zap className="w-5 h-5" />
+    <div className="flex flex-col h-full gap-2.5">
+      {/* Compact Top Controls Bar: Inline Steps + Ghost Engine Badge + Sidebar Drawers */}
+      <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-[#141622] border border-[#23263B]">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <div className="flex items-center gap-1.5 text-[11px] text-[#A4ACC8]">
+            <Info className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
+            <span>
+              <strong className="text-white">1.</strong> Matrix Pick + <strong className="text-cyan-300">+ Beam</strong>
+              <span className="mx-1.5 text-[#495175]">→</span>
+              <strong className="text-white">2.</strong> Mix <strong className="text-amber-300">%</strong>
+              <span className="mx-1.5 text-[#495175]">→</span>
+              <strong className="text-white">3.</strong> <strong className="text-cyan-300">Collide</strong> → Ace-Step / YuE 2 / Suno
+            </span>
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold tracking-wide text-white uppercase">Sonic Sector // Hadron Sound Collider</h2>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950/60 text-cyan-400 border border-cyan-800/50">v4.2 PROMPT LAB</span>
-            </div>
-            <p className="text-xs text-[#8E92B0]">Smash genres, eras, and production nuances into high-energy AI music generator prompts.</p>
-          </div>
+
+          <button
+            type="button"
+            onClick={onOpenKoboldSettings}
+            className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950/50 hover:bg-amber-900/60 text-amber-300 border border-amber-500/40 flex items-center gap-1 transition-colors"
+            title="Prompts are synthesized by Ghost in the Machine — the lab's Mad Scientist (auto-scaled to your VRAM: 3B–4B compact up to 14B Pro). Click to configure AI Hub."
+          >
+            <Zap className="w-3 h-3 text-amber-400" />
+            <span>GHOST PROMPT AI: {ghostBadge}</span>
+          </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {/* Sidebar A Toggle Button */}
           <button
             onClick={() => toggleSidebar('beam_a')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 border transition-all ${
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center gap-1.5 border transition-all ${
               activeSidebar === 'beam_a'
-                ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
                 : 'bg-[#1A1D2D] text-[#8E92B0] border-[#2A2E45] hover:text-white'
             }`}
           >
-            <Compass className="w-3.5 h-3.5 text-amber-400" />
-            <span>Beam A: Genres & Eras</span>
-            {activeSidebar === 'beam_a' ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            <Compass className="w-3 h-3 text-amber-400" />
+            <span>Beam A: Genres</span>
+            {activeSidebar === 'beam_a' ? <ChevronLeft className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           </button>
 
           {/* Sidebar B Toggle Button */}
           <button
             onClick={() => toggleSidebar('beam_b')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 border transition-all ${
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center gap-1.5 border transition-all ${
               activeSidebar === 'beam_b'
-                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-[0_0_12px_rgba(6,182,212,0.25)]'
+                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-[0_0_10px_rgba(6,182,212,0.2)]'
                 : 'bg-[#1A1D2D] text-[#8E92B0] border-[#2A2E45] hover:text-white'
             }`}
           >
-            <SlidersHorizontal className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Beam B: Gear & Nuances</span>
-            {activeSidebar === 'beam_b' ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            <SlidersHorizontal className="w-3 h-3 text-cyan-400" />
+            <span>Beam B: Gear</span>
+            {activeSidebar === 'beam_b' ? <ChevronLeft className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           </button>
 
           {/* Database Yard Toggle Button */}
           <button
             onClick={() => toggleSidebar('db_yard')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 border transition-all ${
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center gap-1.5 border transition-all ${
               activeSidebar === 'db_yard'
-                ? 'bg-purple-500/20 text-purple-300 border-purple-500/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
+                ? 'bg-purple-500/20 text-purple-300 border-purple-500/50 shadow-[0_0_10px_rgba(168,85,247,0.2)]'
                 : 'bg-[#1A1D2D] text-[#8E92B0] border-[#2A2E45] hover:text-white'
             }`}
           >
-            <Database className="w-3.5 h-3.5 text-purple-400" />
+            <Database className="w-3 h-3 text-purple-400" />
             <span>Sonic Yard DB</span>
-            {activeSidebar === 'db_yard' ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            {activeSidebar === 'db_yard' ? <ChevronLeft className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           </button>
 
           {/* Randomize Preset */}
           <button
             onClick={randomizeSuperposition}
             title="Randomize Quantum Superposition"
-            className="px-2.5 py-1.5 rounded-lg bg-[#1A1D2D] text-[#8E92B0] hover:text-amber-300 border border-[#2A2E45] text-xs font-medium flex items-center gap-1.5 transition-colors"
+            className="px-2 py-1 rounded-lg bg-[#1A1D2D] text-[#8E92B0] hover:text-amber-300 border border-[#2A2E45] text-[11px] font-medium flex items-center gap-1 transition-colors"
           >
-            <Wand2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Superposition</span>
+            <Wand2 className="w-3 h-3" />
+            <span className="hidden lg:inline">Superposition</span>
           </button>
         </div>
       </div>
 
       {/* Main Collision Center Layout with Dynamic Single-Sidebar Drawer */}
-      <div className="flex-1 flex gap-4 min-h-0 relative overflow-hidden">
+      <div className="flex-1 flex gap-3 min-h-0 relative overflow-hidden">
         {/* ACTIVE SIDEBAR DRAWER (Mutually exclusive: Only one open at a time!) */}
         {activeSidebar && (
           <aside className="w-80 flex-shrink-0 flex flex-col bg-[#12141F] border border-[#23273D] rounded-xl overflow-hidden shadow-2xl transition-all duration-300 z-10">
@@ -598,14 +673,14 @@ export const SonicSector: React.FC<SonicSectorProps> = ({
         )}
 
         {/* CENTRAL COLLISION CHAMBER & OUTPUT HUB */}
-        <main className="flex-1 flex flex-col gap-4 min-w-0 overflow-y-auto">
-          {/* Upper Section: The LHC Particle Collider Canvas & Injection Trigger */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-            {/* Visual Canvas Area (7 cols on lg) */}
+        <main className="flex-1 flex flex-col gap-3 min-w-0 overflow-y-auto pr-0.5">
+          {/* Upper Section: Full-Height LHC Particle Collider Lightshow & Injection Synthesizer */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 flex-shrink-0">
+            {/* Visual Canvas Area (7 cols on lg) - full circular lightshow above the fold */}
             <div 
               onDragOver={handleDragOver}
               onDrop={handleDrop}
-              className="lg:col-span-7 h-[310px] relative rounded-xl border border-[#242840] overflow-hidden"
+              className="lg:col-span-7 h-[330px] xl:h-[380px] relative rounded-xl border border-[#242840] overflow-hidden"
             >
               <ColliderChamberCanvas 
                 isAccelerating={isAccelerating} 
@@ -618,18 +693,18 @@ export const SonicSector: React.FC<SonicSectorProps> = ({
               {chamberChips.length === 0 && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-black/60 pointer-events-none">
                   <AtomIcon className="w-12 h-12 text-cyan-400 mb-2 animate-pulse" />
-                  <p className="text-sm font-semibold text-white">Chamber Empty // Load Sonic Particles</p>
-                  <p className="text-xs text-[#8E92B0] max-w-xs mt-1">
-                    Open Beam A or Beam B in the sidebars to drag styles, instruments, and production nuances into the chamber.
+                  <p className="text-sm font-semibold text-white">Chamber Empty // Beam Sonic Ingredients</p>
+                  <p className="text-xs text-[#8E92B0] max-w-sm mt-1">
+                    Pick a Category + Style in the top Matrix bar and click <strong>+ Beam into Collider</strong>, or open Beam A / B / Sonic Yard DB on the left to add genres, instruments, and gear.
                   </p>
                 </div>
               )}
             </div>
 
-            {/* Injection Control Panel (5 cols on lg) */}
-            <div className="lg:col-span-5 flex flex-col justify-between p-4 rounded-xl bg-[#141724] border border-[#242840]">
-              <div>
-                <div className="flex items-center justify-between mb-3">
+            {/* Injection Control Panel (5 cols on lg) - Locked to canvas height so lightshow stays unclipped */}
+            <div className="lg:col-span-5 lg:h-[330px] xl:h-[380px] flex flex-col min-h-0 p-3.5 rounded-xl bg-[#141724] border border-[#242840]">
+              <div className="flex-shrink-0">
+                <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <Radio className="w-4 h-4 text-cyan-400" />
                     <span className="text-xs font-mono tracking-wider text-white uppercase">Collision Synthesizer</span>
@@ -640,61 +715,100 @@ export const SonicSector: React.FC<SonicSectorProps> = ({
                 </div>
 
                 {/* Target AI Engine Selector */}
-                <div className="space-y-1.5 mb-3">
-                  <label className="text-[11px] font-mono text-[#8E92B0] flex items-center justify-between">
-                    <span>TARGET AI MUSIC FORMAT</span>
-                    <span className="text-cyan-400">{promptFormat.toUpperCase()}</span>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-mono text-[#8E92B0] flex items-center justify-between">
+                    <span>TARGET AI MUSIC GENERATOR</span>
+                    <span className="text-cyan-400">
+                      {promptFormat === 'acestep' ? 'ACE-STEP 1.5' : promptFormat === 'yue2' ? 'YUE 2' : promptFormat.toUpperCase()}
+                    </span>
                   </label>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {(['suno', 'udio', 'universal'] as const).map(fmt => (
+                  <div className="grid grid-cols-5 gap-1">
+                    {([
+                      { id: 'acestep', label: 'Ace-Step' },
+                      { id: 'yue2', label: 'YuE 2' },
+                      { id: 'suno', label: 'Suno' },
+                      { id: 'udio', label: 'Udio' },
+                      { id: 'universal', label: 'Universal' }
+                    ] as const).map(fmt => (
                       <button
-                        key={fmt}
-                        onClick={() => setPromptFormat(fmt)}
-                        className={`py-1.5 px-2 rounded-lg text-xs font-mono font-medium border transition-all ${
-                          promptFormat === fmt
+                        key={fmt.id}
+                        onClick={() => setPromptFormat(fmt.id)}
+                        className={`py-1 px-1.5 rounded-lg text-[11px] font-mono font-medium border transition-all truncate ${
+                          promptFormat === fmt.id
                             ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-[0_0_10px_rgba(6,182,212,0.2)]'
                             : 'bg-[#181C2C] text-[#6A7090] border-[#282D46] hover:text-white'
                         }`}
+                        title={`Format collision prompt for ${fmt.label}`}
                       >
-                        {fmt.toUpperCase()}
+                        {fmt.label}
                       </button>
                     ))}
                   </div>
                 </div>
+              </div>
 
-                {/* Summary of Injected Atoms */}
-                <div className="p-2.5 rounded-lg bg-[#0E101A] border border-[#1F2338] mb-3">
-                  <div className="flex items-center justify-between text-[11px] font-mono text-[#7B82A6] mb-1.5">
-                    <span>CHAMBER LOAD</span>
-                    <span className="text-white">{chamberChips.length} Particles</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto">
-                    {chamberChips.map(c => (
-                      <span
-                        key={c.id}
-                        className="text-[10px] font-medium px-2 py-0.5 rounded-full flex items-center gap-1 border"
-                        style={{
-                          backgroundColor: `${c.color}15`,
-                          borderColor: `${c.color}40`,
-                          color: c.color
-                        }}
-                      >
-                        {c.label}
-                      </span>
-                    ))}
-                    {chamberChips.length === 0 && (
-                      <span className="text-[11px] text-[#515777] italic">No particles currently injected.</span>
-                    )}
-                  </div>
+              {/* Scrollable Loaded Collision Queue (Shows every Matrix/Sidebar particle ready to collide) */}
+              <div className="flex-1 min-h-0 flex flex-col my-2 p-2 rounded-lg bg-[#0E101A] border border-[#1F2338]">
+                <div className="flex-shrink-0 flex items-center justify-between text-[10px] font-mono pb-1.5 mb-1.5 border-b border-[#1A1F33]">
+                  <span className="text-[#8E95B8] uppercase tracking-wider">
+                    Ready to Collide <strong className="text-white">({chamberChips.length})</strong>
+                  </span>
+                  <span className="text-amber-300 font-semibold truncate max-w-[155px]" title="Active Ghost in the Machine local model profile">
+                    Ghost: {ghostBadge}
+                  </span>
                 </div>
+
+                {chamberChips.length === 0 ? (
+                  <div className="flex-1 flex items-center justify-center text-center px-2 text-[11px] text-[#64748b] border border-dashed border-[#1E243B] rounded">
+                    Chamber empty — pick a Category &amp; Style above and click <strong className="text-cyan-300 mx-1">+ Beam</strong>.
+                  </div>
+                ) : (
+                  <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-1">
+                    {chamberChips.map(chip => {
+                      const weightPct = Math.round((chip.energyWeight || 0.8) * 100);
+                      return (
+                        <div
+                          key={chip.id}
+                          className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-[#151827] border border-[#242942] hover:border-cyan-500/40 transition-colors group"
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span
+                              className="w-2 h-2 rounded-full flex-shrink-0 shadow-[0_0_6px_currentColor]"
+                              style={{ backgroundColor: chip.color, color: chip.color }}
+                            />
+                            <span className="text-[11px] font-medium text-white truncate" title={chip.label}>
+                              {chip.label}
+                            </span>
+                            <span className="text-[9px] font-mono uppercase px-1 py-0.2 rounded bg-[#1E2338] text-[#7D85A8] flex-shrink-0">
+                              {chip.category}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            <span className="text-[10px] font-mono text-amber-300 font-semibold">
+                              {weightPct}%
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => removeChip(chip.id)}
+                              className="text-[#646A8C] hover:text-red-400 p-0.5 rounded transition-colors"
+                              title={`Remove ${chip.label} from collider`}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Action Buttons */}
-              <div className="space-y-2 pt-2 border-t border-[#1F2338]">
+              <div className="flex-shrink-0 space-y-1.5 pt-2 border-t border-[#1F2338]">
                 <button
                   onClick={handleInjectBeam}
                   disabled={chamberChips.length === 0 || isAccelerating || isGenerating}
-                  className={`w-full py-3 px-4 rounded-xl font-semibold text-xs tracking-wider uppercase flex items-center justify-center gap-2.5 transition-all shadow-lg ${
+                  className={`w-full py-2.5 px-4 rounded-xl font-semibold text-xs tracking-wider uppercase flex items-center justify-center gap-2.5 transition-all shadow-lg ${
                     chamberChips.length === 0
                       ? 'bg-[#1E2235] text-[#555B7A] cursor-not-allowed'
                       : isAccelerating || isGenerating
@@ -704,7 +818,11 @@ export const SonicSector: React.FC<SonicSectorProps> = ({
                 >
                   <Zap className={`w-4 h-4 ${isAccelerating ? 'animate-bounce' : ''}`} />
                   <span>
-                    {isAccelerating ? 'ACCELERATING HADRON BEAM...' : isGenerating ? 'SYNTHESIZING PROMPT...' : 'INJECT BEAM // TRIGGER COLLISION'}
+                    {isAccelerating
+                      ? 'ACCELERATING HADRON BEAM...'
+                      : isGenerating
+                      ? 'SYNTHESIZING PROMPT...'
+                      : `COLLIDE ${chamberChips.length} PARTICLE${chamberChips.length === 1 ? '' : 'S'} // CREATE PROMPT`}
                   </span>
                 </button>
 
@@ -807,9 +925,9 @@ export const SonicSector: React.FC<SonicSectorProps> = ({
             )}
           </div>
 
-          {/* Lower Section: Synthesized Suno/Udio AI Prompt Console Output */}
+          {/* Lower Section: Synthesized AI Music Generator Prompt Console Output */}
           {lastResult && (
-            <div className="p-4 rounded-xl bg-gradient-to-b from-[#151928] to-[#10131F] border border-cyan-500/40 shadow-[0_0_25px_rgba(6,182,212,0.15)] space-y-4">
+            <div ref={resultRef} className="p-4 rounded-xl bg-gradient-to-b from-[#151928] to-[#10131F] border border-cyan-500/40 shadow-[0_0_25px_rgba(6,182,212,0.15)] space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#232942] pb-3">
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-lg bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300">
@@ -817,11 +935,13 @@ export const SonicSector: React.FC<SonicSectorProps> = ({
                   </div>
                   <div>
                     <h3 className="text-sm font-bold text-white tracking-wide">{lastResult.title}</h3>
-                    <p className="text-xs text-[#8E92B0] font-mono">Synthesized for {promptFormat.toUpperCase()} // ~{lastResult.tempoBpm || 116} BPM</p>
+                    <p className="text-xs text-[#8E92B0] font-mono">
+                      Synthesized for {promptFormat === 'acestep' ? 'ACE-STEP 1.5' : promptFormat === 'yue2' ? 'YUE 2' : promptFormat.toUpperCase()} // ~{lastResult.tempoBpm || 116} BPM
+                    </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => copyToClipboard(lastResult.promptText)}
                     className="px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-mono font-medium flex items-center gap-1.5 transition-all"
@@ -829,6 +949,28 @@ export const SonicSector: React.FC<SonicSectorProps> = ({
                     {copiedPrompt ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                     <span>{copiedPrompt ? 'COPIED!' : 'COPY PROMPT'}</span>
                   </button>
+
+                  {onSendPromptToAceStep && (
+                    <button
+                      onClick={() => onSendPromptToAceStep(lastResult.promptText, lastResult.tempoBpm)}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-mono font-bold flex items-center gap-1.5 transition-all"
+                      title="Open Ace-Step 1.5 Loop Designer pre-filled with this collided prompt"
+                    >
+                      <span>Send to Ace-Step 1.5</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
+                  {onSendPromptToYue2 && (
+                    <button
+                      onClick={() => onSendPromptToYue2(lastResult.promptText, lastResult.tempoBpm)}
+                      className="px-3 py-1.5 rounded-lg bg-purple-500/15 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-xs font-mono font-bold flex items-center gap-1.5 transition-all"
+                      title="Open YuE 2 AI Song Foundation Generator pre-filled with this collided prompt"
+                    >
+                      <span>Send to YuE 2</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
 
                   {onSaveCollisionClick && (
                     <button
@@ -859,7 +1001,7 @@ export const SonicSector: React.FC<SonicSectorProps> = ({
               <div className="space-y-1.5">
                 <label className="text-[11px] font-mono text-[#8E92B0] tracking-wider uppercase flex items-center gap-1.5">
                   <Zap className="w-3 h-3 text-cyan-400" />
-                  <span>Prompt String (Paste directly into {promptFormat.toUpperCase()})</span>
+                  <span>Generated Prompt (Copy or Send to Ace-Step 1.5 / YuE 2 / Suno / Udio)</span>
                 </label>
                 <div className="p-3 rounded-lg bg-[#0A0C14] border border-[#242A42] text-xs font-mono text-cyan-100 leading-relaxed select-all">
                   {lastResult.promptText}

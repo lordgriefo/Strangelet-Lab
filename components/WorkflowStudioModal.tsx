@@ -87,8 +87,8 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
                 <h2 className="text-base font-bold text-white tracking-wide">
                   Strangelet Lab — Guided Workflows & Templates
                 </h2>
-                <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-800">
-                  DUO CO-OP ASSISTED
+                <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-amber-950/70 text-amber-300 border border-amber-700/60">
+                  GHOST MAD SCIENTIST ASSISTED
                 </span>
               </div>
               <p className="text-xs text-[#7E8B9B]">
@@ -300,14 +300,24 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
                           </button>
                         </div>
 
-                        {/* Ghost & Quinn Co-Op Advice Callout */}
-                        <div className="mt-3 pt-3 border-t border-[#1C253E] grid grid-cols-1 md:grid-cols-2 gap-2 text-[10px]">
-                          <div className="p-2 rounded-lg bg-orange-950/20 border border-orange-500/25 text-orange-200">
+                        {/* Ghost Mad Scientist Advice Callout */}
+                        <div className="mt-3 pt-3 border-t border-[#1C253E] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[10px]">
+                          <div className="flex-1 p-2.5 rounded-lg bg-amber-950/20 border border-amber-500/25 text-amber-200 leading-relaxed">
                             {step.ghostTip}
                           </div>
-                          <div className="p-2 rounded-lg bg-cyan-950/20 border border-cyan-500/25 text-cyan-200">
-                            {step.quinnTip}
-                          </div>
+                          {onOpenGhostTerminal && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onOpenGhostTerminal();
+                                onClose();
+                              }}
+                              className="flex-shrink-0 px-3 py-2 rounded-lg bg-[#14182B] hover:bg-[#1E2540] border border-amber-500/40 text-amber-300 font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              <Bot size={13} />
+                              <span>Ask Ghost</span>
+                            </button>
+                          )}
                         </div>
                       </div>
                     );

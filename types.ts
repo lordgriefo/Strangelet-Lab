@@ -17,7 +17,8 @@ export enum View {
   MIDI_EDITOR = 'MIDI_EDITOR',
   PROJECT_STATS = 'PROJECT_STATS',
   VOICE_CLONER = 'VOICE_CLONER',
-  SPECTRAL_ANALYSIS = 'SPECTRAL_ANALYSIS'
+  SPECTRAL_ANALYSIS = 'SPECTRAL_ANALYSIS',
+  TEMPLATE_GALLERY = 'TEMPLATE_GALLERY'
 }
 
 export interface LoopRange {
@@ -46,12 +47,23 @@ export interface Clip {
   durationBars: number;
   fadeInBars?: number;
   fadeOutBars?: number;
+  loopCrossfadeMs?: number;
+  loopCrossfadeCurve?: 'equal_power' | 'linear' | 's_curve';
+  color?: string;
   isMidi?: boolean;
   isRecorded?: boolean;
   audioUrl?: string;
   waveformSnippet?: number[];
   midiNotes?: MidiNoteEvent[];
   instrument?: string;
+  // Non-Destructive Time Stretch (pitch-locked speed scaling)
+  originalDurationBars?: number;
+  timeStretchRatio?: number; // Playback speed multiplier: 1.0 = original, 0.5 = 2x longer (slower), 2.0 = 0.5x shorter (faster)
+  timeStretchEnabled?: boolean;
+  preservePitch?: boolean;
+  // Clip-level ChronoPins (per-measure anchors & tempo-drift latching)
+  chronoPins?: ChronoPin[];
+  chronoLatchEnabled?: boolean;
 }
 
 export type LaserToolType = 'laser_audio' | 'laser_midi' | 'laser_erase' | 'laser_curve' | 'laser_select';
@@ -83,10 +95,26 @@ export interface AutomationLaneConfig {
   points: AutomationPoint[];
 }
 
+export interface PluginAutomationLaneConfig extends AutomationLaneConfig {
+  id: string; // Deterministic lane key, e.g. "faust:faust-acid-filter:cutoff"
+  pluginId: string;
+  pluginName: string;
+  pluginSource: 'faust' | 'vst_wrapper' | 'classic_vst' | 'vsti';
+  instanceId?: string;
+  paramId: string;
+  paramName: string;
+  min: number;
+  max: number;
+  defaultValue: number;
+  unit?: string;
+  color?: string;
+}
+
 export interface TrackAutomation {
   volume: AutomationLaneConfig;
   pan: AutomationLaneConfig;
-  activeParameter?: 'volume' | 'pan';
+  params?: Record<string, PluginAutomationLaneConfig>;
+  activeParameter?: string; // 'volume' | 'pan' | plugin lane id
   isExpanded?: boolean;
 }
 
@@ -311,9 +339,10 @@ export interface ChronoPin {
   isDownbeat?: boolean;
   isLocked?: boolean;
   transientEnergy?: number;
+  targetTimeSeconds?: number;
 }
 
-export interface BeatmapResult {
+export interface ChronoMapResult {
   fileName: string;
   detectedBpm: number;
   userBpm: number;
@@ -391,8 +420,8 @@ export interface ProjectBinClip {
   keyShortcut?: string;
 }
 
-// KOBOLDCPP, OLLAMA, LM STUDIO & STRANGELET GURU (GHOST IN THE MACHINE) TYPES
-export type AiEngineType = 'koboldcpp' | 'ollama' | 'lmstudio' | 'gemini' | 'simulated';
+// KOBOLDCPP, OLLAMA, LM STUDIO, CUSTOM OPENAI-COMPATIBLE & STRANGELET GURU (GHOST IN THE MACHINE) TYPES
+export type AiEngineType = 'koboldcpp' | 'ollama' | 'lmstudio' | 'openai_compatible' | 'simulated';
 
 export type GhostPersona = 'ghost' | 'quinn' | 'duo_team' | 'strangelet_guru' | 'llama' | 'qwen_abliterated';
 
@@ -406,8 +435,9 @@ export interface DojoScroll {
 }
 
 export interface KoboldSettings {
-  endpointUrl: string; // e.g. "http://localhost:5001" (Kobold), "http://localhost:11434" (Ollama), "http://localhost:1234" (LM Studio)
-  modelName: string; // e.g. "Ghost Qwen 4B (Abliterated / Uncensored)", "Llama 3.1 8B", "Qwen 2.5 7B"
+  endpointUrl: string; // e.g. "http://localhost:5001" (Kobold), "http://localhost:11434" (Ollama), "http://localhost:1234" (LM Studio), "http://localhost:8000" (OpenAI-compatible)
+  modelName: string; // e.g. "GHOST Qwen 4B (Abliterated / Uncensored)", "qwen2.5:7b", "llama3.1:8b"
+  customApiKey?: string; // Optional bearer key entered manually by user for custom OpenAI-compatible servers (stored only in localStorage)
   temperature: number; // 0.1 to 1.5
   topP: number;
   maxTokens: number;
@@ -489,6 +519,7 @@ export interface GhostMessage {
   persona?: GhostPersona;
   text: string;
   timestamp: number;
+  engineSource?: AiEngineType | 'offline_dojo';
   actionProposal?: {
     type: 'apply_mix_step' | 'tune_collision_energy' | 'inject_particles' | 'navigate_view' | 'open_acestep_loop_designer' | 'open_faust_dsp_toy' | 'open_faust_dsp_lab' | 'open_basic_pitch' | 'open_gold_path_mastering' | 'open_software_dojo' | 'open_workflow_studio' | 'open_sfz_library' | 'open_lora_library' | 'open_vibe_check';
     payload: any;
@@ -539,7 +570,7 @@ export interface GuidedWorkflowStep {
   actionButtonLabel: string;
   recommendedPreset?: string;
   ghostTip: string;
-  quinnTip: string;
+  quinnTip?: string;
 }
 
 export interface GuidedWorkflow {
@@ -590,6 +621,8 @@ export interface AceStepGenerationConfig {
   guidanceScale: number; // 1.0 to 12.0
   seed?: number;
   useTapeWarmth?: boolean;
+  useComfyUi?: boolean;
+  comfyEndpointUrl?: string;
 }
 
 export interface AceStepLoopResult {
@@ -606,6 +639,9 @@ export interface AceStepLoopResult {
   waveformSnippet: number[];
   color: string;
   createdAt: number;
+  engineSource?: 'comfyui' | 'algorithmic_synth';
+  comfyPromptId?: string;
+  usedFallback?: boolean;
 }
 
 export interface AceStepSongBedConfig {
@@ -653,6 +689,13 @@ export interface FaustDspParam {
   unit?: string;
 }
 
+export type FaustIdeaTag =
+  | 'Time & Warble'
+  | 'Grit & Crunch'
+  | 'Space & Dimension'
+  | 'Physical Modeling'
+  | 'Sci-Fi Glitch';
+
 export interface FaustDspToy {
   id: string;
   name: string;
@@ -664,6 +707,9 @@ export interface FaustDspToy {
   color?: string;
   targetTrackId?: string;
   icon?: string;
+  ideaTag?: FaustIdeaTag;
+  archetype?: string;
+  howItWorks?: string;
 }
 
 // SPOTIFY BASIC PITCH NEURAL AUDIO-TO-MIDI TYPES

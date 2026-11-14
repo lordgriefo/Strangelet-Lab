@@ -2,14 +2,16 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, HardwareStats, Track, ProjectSession, ProjectBinClip } from '../types';
 import { THEME } from '../constants';
 import HardwareMonitor from './HardwareMonitor';
-import { LayoutGrid, Layers, Mic, Music, Settings2, Sparkles, Terminal, Download, ChevronDown, Scissors, Drum, FolderPlus, Plus, Atom, Split, PanelLeftClose, PanelLeftOpen, Play, Volume2, VolumeX, Zap, Cpu, Code2, Keyboard, BookOpen, HelpCircle, Workflow, Bot, SlidersHorizontal, ArrowRightLeft, BarChart3, Activity, Bell, BellOff, ShieldCheck, Radio } from 'lucide-react';
+import { LayoutGrid, Layers, Mic, Music, Settings2, Sparkles, Terminal, Download, ChevronDown, Scissors, Drum, FolderPlus, Plus, Atom, Split, PanelLeftClose, PanelLeftOpen, Play, Volume2, VolumeX, Zap, Cpu, Code2, Keyboard, BookOpen, HelpCircle, Workflow, Bot, SlidersHorizontal, ArrowRightLeft, BarChart3, Activity, Bell, BellOff, ShieldCheck, Radio, Sliders, FolderKanban } from 'lucide-react';
 import ImportArea from './ImportArea';
 import { INITIAL_TRACKS } from '../constants';
 import { UndoRedoControls } from './UndoRedoControls';
 import { AutoSaveIndicator } from './AutoSaveIndicator';
-import { offlineAudioRenderer } from '../services/offlineAudioRenderer';
 import { isUiSoundMuted, toggleUiSoundMuted, subscribeUiSoundMute, playLaserBeamSound } from '../lib/laserSound';
 import { DawMenuBar } from './DawMenuBar';
+import { midiLearnService } from '../services/midiLearnService';
+import { getStoredKoboldSettings } from '../services/koboldCppService';
+import { getGhostShortModelBadge } from '../services/hardwareResourceManager';
 
 interface ExportMenuProps {
     tracks?: Track[];
@@ -34,6 +36,7 @@ const ExportMenu: React.FC<ExportMenuProps> = ({ tracks = [] }) => {
         if (type === 'wav') {
             setIsExporting(true);
             try {
+                const { offlineAudioRenderer } = await import('../services/offlineAudioRenderer');
                 const res = await offlineAudioRenderer.renderBatchStemsZip(tracks, {
                     sampleRate: 44100,
                     bitDepth: 16,
@@ -178,10 +181,11 @@ interface LayoutProps {
   onOpenBatchStemExport?: () => void;
   onAddTrack?: (type: 'audio' | 'midi') => void;
   onImportAudio?: () => void;
+  onImportAudioFile?: (file: File) => void;
   onClearAllMutes?: () => void;
   onClearAllSolos?: () => void;
   onArmAllTracks?: () => void;
-  onOpenBeatmapper?: () => void;
+  onOpenChronoMap?: () => void;
   onOpenBeamSplitter?: () => void;
   tempo?: number;
   isAutoArmMode?: boolean;
@@ -189,6 +193,8 @@ interface LayoutProps {
   onOpenCollabWorkspace?: () => void;
   collabSessionCode?: string | null;
   collabMemberCount?: number;
+  onOpenYue2Generator?: () => void;
+  onOpenVstWrapperHost?: (pluginId?: string) => void;
 }
 
 const Layout: React.FC<LayoutProps> = ({ 
@@ -233,28 +239,52 @@ const Layout: React.FC<LayoutProps> = ({
   onOpenBatchStemExport,
   onAddTrack,
   onImportAudio,
+  onImportAudioFile,
   onClearAllMutes,
   onClearAllSolos,
   onArmAllTracks,
-  onOpenBeatmapper,
+  onOpenChronoMap,
   onOpenBeamSplitter,
   tempo = 120,
   isAutoArmMode,
   onToggleAutoArm,
   onOpenCollabWorkspace,
   collabSessionCode,
-  collabMemberCount
+  collabMemberCount,
+  onOpenYue2Generator,
+  onOpenVstWrapperHost
 }) => {
   const [internalSidebarCollapsed, setInternalSidebarCollapsed] = useState<boolean>(false);
   const effectiveSidebarCollapsed = propSidebarCollapsed !== undefined ? propSidebarCollapsed : internalSidebarCollapsed;
   const handleToggleSidebar = onToggleSidebar || (() => setInternalSidebarCollapsed(prev => !prev));
 
   const [uiSoundMuted, setUiSoundMutedState] = useState<boolean>(() => isUiSoundMuted());
+  const [globalMidiLearnActive, setGlobalMidiLearnActive] = useState<boolean>(() => midiLearnService.getLearnModeActive());
+  const [midiMappingCount, setMidiMappingCount] = useState<number>(() => midiLearnService.getAllMappings().length);
+  const [ghostModelBadge, setGhostModelBadge] = useState<string>(() => getGhostShortModelBadge(getStoredKoboldSettings().modelName));
 
   useEffect(() => {
-    return subscribeUiSoundMute((muted) => {
+    const unsubMute = subscribeUiSoundMute((muted) => {
       setUiSoundMutedState(muted);
     });
+    const unsubLearn = midiLearnService.subscribeLearnMode((active) => {
+      setGlobalMidiLearnActive(active);
+    });
+    const unsubMap = midiLearnService.subscribeChange((list) => {
+      setMidiMappingCount(list.length);
+    });
+    const syncGhostBadge = () => {
+      setGhostModelBadge(getGhostShortModelBadge(getStoredKoboldSettings().modelName));
+    };
+    window.addEventListener('strangelet-ai-settings-changed', syncGhostBadge);
+    window.addEventListener('strangelet-resource-updated', syncGhostBadge);
+    return () => {
+      unsubMute();
+      unsubLearn();
+      unsubMap();
+      window.removeEventListener('strangelet-ai-settings-changed', syncGhostBadge);
+      window.removeEventListener('strangelet-resource-updated', syncGhostBadge);
+    };
   }, []);
 
   const [isGuruDockedInSidebar, setIsGuruDockedInSidebar] = useState<boolean>(() => {
@@ -446,7 +476,7 @@ const Layout: React.FC<LayoutProps> = ({
                   playLaserBeamSound('laser_select');
                 }}
                 className="w-full p-2.5 rounded-xl border bg-gradient-to-r from-[#1A1206] via-[#24180A] to-[#140F05] border-amber-500/50 hover:border-amber-400 text-left transition-all group shadow-[0_0_15px_rgba(245,158,11,0.2)] hover:shadow-[0_0_20px_rgba(245,158,11,0.4)] cursor-pointer"
-                title="Consult Strangelet Guru: Resident Audio Ninja Sensei, Faust DSP & Production Advisor (Shortcut: Alt+G)"
+                title="Consult Ghost in the Machine: Resident Mad Scientist, Recording Troubleshooter & Faust DSP Mentor (Shortcut: Alt+G)"
               >
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500/30 to-yellow-600/30 border border-amber-400/60 flex items-center justify-center text-amber-300 shrink-0 shadow-[0_0_10px_rgba(245,158,11,0.3)] group-hover:scale-105 transition-transform">
@@ -455,7 +485,7 @@ const Layout: React.FC<LayoutProps> = ({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-bold font-mono text-amber-300 tracking-wider flex items-center gap-1 truncate">
-                        <span>STRANGELET GURU</span>
+                        <span>GHOST IN THE MACHINE</span>
                       </span>
                       <span className={`text-[8px] font-bold px-1.5 py-0.2 rounded font-mono shrink-0 border ${
                         isGuruDockedInSidebar
@@ -467,7 +497,7 @@ const Layout: React.FC<LayoutProps> = ({
                     </div>
                     <div className="text-[9px] text-[#C4B58E] truncate mt-0.5 font-mono flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                      <span>Audio Sensei & Advisor</span>
+                      <span>Mad Scientist • Lab AI</span>
                     </div>
                   </div>
                 </div>
@@ -487,7 +517,17 @@ const Layout: React.FC<LayoutProps> = ({
             </div>
           )}
 
-          <ImportArea onImport={(file) => console.log('Importing file:', file.name)} />
+          <ImportArea
+            onImport={(file) => {
+              if (onImportAudioFile) {
+                onImportAudioFile(file);
+              } else {
+                onImportAudio?.();
+              }
+            }}
+            onOpenLoops={onOpenAceStepDesigner}
+            onOpenLiveInput={onOpenLiveRecorder}
+          />
 
           <div className="flex items-center justify-between px-2 pt-2 mb-2">
             <span className="text-[10px] font-mono text-[#555] uppercase tracking-wider">
@@ -676,6 +716,7 @@ const Layout: React.FC<LayoutProps> = ({
           <div className="text-[10px] font-mono text-[#444] uppercase mb-2 px-2 pt-4">Workflow</div>
           <NavItem view={View.INSTRUMENT_GENERATOR} label="INSTRUMENT BUILDER" icon={Layers} />
           <NavItem view={View.MIXER} label="MIXER & TIMELINE" icon={Settings2} />
+          <NavItem view={View.TEMPLATE_GALLERY} label="TEMPLATE GALLERY" icon={FolderKanban} />
           <NavItem view={View.PROJECT_STATS} label="PROJECT STATISTICS" icon={BarChart3} />
           <NavItem view={View.SPECTRAL_ANALYSIS} label="SPECTRAL ANALYZER" icon={Activity} />
           <NavItem view={View.BEAM_SPLITTER} label="BEAM SPLITTER (PRISM)" icon={Split} />
@@ -777,7 +818,7 @@ const Layout: React.FC<LayoutProps> = ({
                   lynchianMode={lynchianMode}
                   onToggleLynchianMode={onToggleLynchianMode}
                   onOpenLiveRecorder={onOpenLiveRecorder}
-                  onOpenBeatmapper={onOpenBeatmapper}
+                  onOpenChronoMap={onOpenChronoMap}
                   onOpenBeamSplitter={onOpenBeamSplitter}
                   onOpenBasicPitch={onOpenBasicPitch}
                   onOpenGhostBuddy={onOpenGhostBuddy}
@@ -801,6 +842,8 @@ const Layout: React.FC<LayoutProps> = ({
                   onOpenCollabWorkspace={onOpenCollabWorkspace}
                   collabSessionCode={collabSessionCode}
                   collabMemberCount={collabMemberCount}
+                  onOpenYue2Generator={onOpenYue2Generator}
+                  onOpenVstWrapperHost={onOpenVstWrapperHost}
                 />
 
                 {/* Global Undo & Redo History Controls */}
@@ -913,13 +956,70 @@ const Layout: React.FC<LayoutProps> = ({
                     playLaserBeamSound('laser_select');
                   }}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs font-mono transition-all cursor-pointer bg-gradient-to-r from-red-950/60 via-orange-950/40 to-amber-950/50 border-red-500/50 hover:border-amber-400 text-amber-300 hover:text-white shadow-[0_0_12px_rgba(239,68,68,0.25)] active:scale-95"
-                  title="Ghost in the Machine (Qwen 4B Abliterated & Uncensored) is active today. Click to focus/toggle terminal (Alt+G)"
+                  title={`Ghost in the Machine (${getStoredKoboldSettings().modelName}) is active and scaled to your VRAM profile. Click to focus/toggle terminal (Alt+G)`}
                 >
                   <Zap size={13} className="text-orange-400 animate-pulse" />
-                  <span className="font-bold text-[11px] tracking-tight">👻 GHOST: QWEN 4B</span>
-                  <span className="text-[8px] px-1 py-0.2 rounded bg-red-950 text-red-300 border border-red-600/50 font-bold hidden sm:inline">
-                    ABLITERATED
+                  <span className="font-bold text-[11px] tracking-tight">👻 GHOST: {ghostModelBadge}</span>
+                  <span className="text-[8px] px-1 py-0.2 rounded bg-amber-950 text-amber-200 border border-amber-600/50 font-bold hidden sm:inline">
+                    LAB AI
                   </span>
+                </button>
+              )}
+
+              {/* YuE 2.0 Foundation Model Generator Quick Launcher */}
+              {onOpenYue2Generator && (
+                <button
+                  onClick={() => {
+                    onOpenYue2Generator();
+                    playLaserBeamSound('laser_select');
+                  }}
+                  className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs font-mono transition-all cursor-pointer bg-gradient-to-r from-purple-950/60 via-indigo-950/40 to-cyan-950/50 border-purple-500/50 hover:border-cyan-400 text-purple-200 hover:text-white shadow-[0_0_10px_rgba(168,85,247,0.2)] active:scale-95"
+                  title="YuE 2.0 AI Generator: Dual-Track Song Foundation Model with full lyrics-to-song and multi-stem export"
+                >
+                  <Sparkles size={13} className="text-cyan-400 animate-pulse" />
+                  <span className="font-bold text-[11px] tracking-tight">YUE 2.0</span>
+                  <span className="text-[8px] px-1 py-0.2 rounded bg-purple-900/60 text-purple-300 border border-purple-500/40 font-bold">
+                    AI
+                  </span>
+                </button>
+              )}
+
+              {/* Global UI-Wide MIDI Learn Mode Toggle */}
+              <button
+                data-midi-learn-ignore="true"
+                onClick={() => midiLearnService.toggleLearnMode()}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs font-mono transition-all cursor-pointer active:scale-95 ${
+                  globalMidiLearnActive
+                    ? 'bg-amber-400 text-black border-amber-300 shadow-[0_0_16px_#F59E0B] animate-pulse'
+                    : midiMappingCount > 0
+                      ? 'bg-amber-950/40 border-amber-500/60 text-amber-300 hover:bg-amber-900/50'
+                      : 'bg-[#121624] border-[#2B3550] text-[#9EB0D8] hover:text-amber-300 hover:border-amber-400/70'
+                }`}
+                title="Toggle Global MIDI Learn Mode: Click any knob, fader, or button anywhere in Strangelet Lab and touch a hardware MIDI CC control to map it"
+              >
+                <Sliders size={13} className={globalMidiLearnActive ? 'text-black' : 'text-amber-400'} />
+                <span className="font-bold text-[11px] tracking-tight">MIDI LEARN</span>
+                {midiMappingCount > 0 && (
+                  <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                    globalMidiLearnActive ? 'bg-black text-amber-300' : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  }`}>
+                    {midiMappingCount}
+                  </span>
+                )}
+              </button>
+
+              {/* VST Wrapper Host Quick Launcher */}
+              {onOpenVstWrapperHost && (
+                <button
+                  onClick={() => {
+                    onOpenVstWrapperHost();
+                    playLaserBeamSound('laser_select');
+                  }}
+                  className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs font-mono transition-all cursor-pointer bg-[#181822] hover:bg-[#20202E] border-[#3A3855] hover:border-[#FFD700]/70 text-[#C9C8E0] hover:text-[#FFD700] active:scale-95"
+                  title="Simulated VST Wrapper Layer: Non-native plugin host with physical chassis faceplates and 8-stage DSP routing"
+                >
+                  <SlidersHorizontal size={13} className="text-[#FFD700]" />
+                  <span className="font-bold text-[11px] tracking-tight">VST RACK</span>
                 </button>
               )}
 

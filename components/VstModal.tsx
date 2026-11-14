@@ -1,15 +1,23 @@
 import React from 'react';
-import { X, Sparkles, Terminal, Code2 } from 'lucide-react';
+import { X, Sparkles, Terminal, Code2, Sliders, ShieldCheck } from 'lucide-react';
 import { FAUST_DSP_PRESET_TOYS } from '../services/faustDspService';
+import { BUILTIN_VST_MANIFESTS } from '../services/vstWrapperService';
 
 interface VstModalProps {
   isOpen: boolean;
   onClose: () => void;
   onApply: (vst: string) => void;
   onOpenFaustDspLab?: () => void;
+  onOpenVstWrapperHost?: (pluginId?: string) => void;
 }
 
-const VstModal: React.FC<VstModalProps> = ({ isOpen, onClose, onApply, onOpenFaustDspLab }) => {
+const VstModal: React.FC<VstModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  onApply, 
+  onOpenFaustDspLab,
+  onOpenVstWrapperHost 
+}) => {
   if (!isOpen) return null;
 
   const classicVsts = ['Reverb', 'Delay', 'Distortion', 'Compressor', 'Tape Saturator'];
@@ -24,6 +32,58 @@ const VstModal: React.FC<VstModalProps> = ({ isOpen, onClose, onApply, onOpenFau
           <button onClick={onClose} className="text-[#888] hover:text-white p-1 rounded hover:bg-[#1A2035]">
             <X size={18} />
           </button>
+        </div>
+
+        {/* VST3 / CLAP / AU Wrapper Host Layer Section */}
+        <div className="mb-4">
+          <div className="text-[10px] uppercase font-bold text-amber-400 mb-2 flex items-center justify-between">
+            <span className="flex items-center gap-1.5">
+              <Sliders size={12} className="text-amber-400" />
+              <span>Simulated VST3 / CLAP / AU Plugins</span>
+            </span>
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-600/50">DSP WRAPPER</span>
+          </div>
+          <div className="grid gap-1.5">
+            {BUILTIN_VST_MANIFESTS.slice(0, 3).map(plug => (
+              <button 
+                key={plug.id}
+                onClick={() => { 
+                  onApply(`[${plug.format}] ${plug.name}`); 
+                  onClose(); 
+                  if (onOpenVstWrapperHost) onOpenVstWrapperHost(plug.id);
+                }}
+                className="p-2.5 rounded-xl border border-amber-900/40 hover:border-amber-400 bg-[#140E0A] hover:bg-[#20150E] text-left transition-all flex items-center justify-between group cursor-pointer"
+              >
+                <div>
+                  <div className="text-xs font-bold text-white group-hover:text-amber-300 transition-colors flex items-center gap-1.5">
+                    <span>{plug.name}</span>
+                    <span className="text-[8px] font-mono px-1 rounded bg-amber-950 text-amber-300 border border-amber-600/40">
+                      {plug.format}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-[#888] line-clamp-1 mt-0.5">
+                    {plug.description}
+                  </div>
+                </div>
+                <span className="text-[9px] font-mono text-amber-400 font-bold ml-2 shrink-0">
+                  OPEN RACK &rarr;
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {onOpenVstWrapperHost && (
+            <button
+              onClick={() => {
+                onClose();
+                onOpenVstWrapperHost();
+              }}
+              className="w-full mt-2 py-1.5 rounded-lg bg-amber-950/40 border border-amber-500/50 hover:bg-amber-900/60 text-amber-300 font-bold text-[11px] transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-[0_0_12px_rgba(245,158,11,0.2)]"
+            >
+              <Sliders size={12} />
+              <span>Launch Full VST Wrapper Host & Parameter Matrix</span>
+            </button>
+          )}
         </div>
 
         {/* Sample-Based VSTi Instruments Section */}

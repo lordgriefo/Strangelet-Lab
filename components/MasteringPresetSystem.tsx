@@ -220,16 +220,21 @@ export const MasteringPresetSystem: React.FC<MasteringPresetSystemProps> = ({
     showToast(`Saved Mastering Preset "${newPreset.name}"!`);
   };
 
-  // Delete User Preset
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+  // Delete User Preset (In-App Two-Step Confirmation)
   const handleDeletePreset = (id: string, name: string) => {
-    if (window.confirm(`Are you sure you want to delete user preset "${name}"?`)) {
-      const updated = deleteUserMasteringPreset(id);
-      setPresets(updated);
-      const fallback = updated[0] || FACTORY_MASTERING_PRESETS[0];
-      handleSelectPreset(fallback.id);
-      playLaserBeamSound('laser_erase');
-      showToast(`Deleted preset "${name}".`);
+    if (pendingDeleteId !== id) {
+      setPendingDeleteId(id);
+      return;
     }
+    setPendingDeleteId(null);
+    const updated = deleteUserMasteringPreset(id);
+    setPresets(updated);
+    const fallback = updated[0] || FACTORY_MASTERING_PRESETS[0];
+    handleSelectPreset(fallback.id);
+    playLaserBeamSound('laser_erase');
+    showToast(`Deleted preset "${name}".`);
   };
 
   // Export JSON
@@ -429,14 +434,33 @@ export const MasteringPresetSystem: React.FC<MasteringPresetSystemProps> = ({
 
           {/* Delete User Preset */}
           {activePreset.category === 'User' && (
-            <button
-              onClick={() => handleDeletePreset(activePreset.id, activePreset.name)}
-              className="px-2.5 py-1.5 rounded-xl bg-red-950/50 hover:bg-red-900/70 text-red-400 border border-red-800 text-xs font-mono flex items-center gap-1 transition-all cursor-pointer"
-              title="Delete user preset"
-            >
-              <Trash2 size={13} />
-              <span className="hidden sm:inline">Delete</span>
-            </button>
+            pendingDeleteId === activePreset.id ? (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => handleDeletePreset(activePreset.id, activePreset.name)}
+                  className="px-2.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white border border-red-400 text-xs font-mono font-bold flex items-center gap-1 transition-all cursor-pointer"
+                  title={`Confirm delete "${activePreset.name}"`}
+                >
+                  <Trash2 size={13} />
+                  <span>Confirm Delete</span>
+                </button>
+                <button
+                  onClick={() => setPendingDeleteId(null)}
+                  className="px-2 py-1.5 rounded-xl bg-[#12182E] hover:bg-[#1A2242] text-[#9AA5C4] hover:text-white border border-[#232F52] text-xs font-mono cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => handleDeletePreset(activePreset.id, activePreset.name)}
+                className="px-2.5 py-1.5 rounded-xl bg-red-950/50 hover:bg-red-900/70 text-red-400 border border-red-800 text-xs font-mono flex items-center gap-1 transition-all cursor-pointer"
+                title="Delete user preset"
+              >
+                <Trash2 size={13} />
+                <span className="hidden sm:inline">Delete</span>
+              </button>
+            )
           )}
 
           {/* Reset Flat */}

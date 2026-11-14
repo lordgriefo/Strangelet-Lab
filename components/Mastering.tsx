@@ -45,12 +45,11 @@ import {
 } from '../lib/goldPathPresets';
 import { masterAudioBus } from '../lib/masterBus';
 import { playLaserBeamSound, playColliderInjectionSound } from '../lib/laserSound';
+import { ReferenceMatcheringDeck } from './ReferenceMatcheringDeck';
 
 export const Mastering: React.FC = () => {
   const [masteringMode, setMasteringMode] = useState<'mastering_presets' | 'spectral_analyzer' | 'suno_desheen' | 'pipeline' | 'batch_processing'>('mastering_presets');
   const [spectralViewMode, setSpectralViewMode] = useState<'gold_path' | 'full_spectrum'>('gold_path');
-  const [referenceFile, setReferenceFile] = useState<File | null>(null);
-  const [isEnhancing, setIsEnhancing] = useState(false);
   const [isBypassed, setIsBypassed] = useState<boolean>(masterAudioBus.isMasteringBypassed());
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -126,16 +125,21 @@ export const Mastering: React.FC = () => {
     showToast(`Saved new Gold Path preset: "${newPreset.name}"!`);
   };
 
-  // Delete User Preset
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+  // Delete User Preset (In-App Two-Step Confirmation)
   const handleDeletePreset = (id: string, name: string) => {
-    if (window.confirm(`Are you sure you want to delete user preset "${name}"?`)) {
-      const updated = deleteUserGoldPathPreset(id);
-      setGoldPathPresets(updated);
-      const fallback = updated[0] || FACTORY_GOLD_PATH_PRESETS[0];
-      handleQuickLoadPreset(fallback.id);
-      playLaserBeamSound('laser_erase');
-      showToast(`Deleted preset "${name}".`);
+    if (pendingDeleteId !== id) {
+      setPendingDeleteId(id);
+      return;
     }
+    setPendingDeleteId(null);
+    const updated = deleteUserGoldPathPreset(id);
+    setGoldPathPresets(updated);
+    const fallback = updated[0] || FACTORY_GOLD_PATH_PRESETS[0];
+    handleQuickLoadPreset(fallback.id);
+    playLaserBeamSound('laser_erase');
+    showToast(`Deleted preset "${name}".`);
   };
 
   // Export Active Preset as JSON file
@@ -275,14 +279,15 @@ export const Mastering: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [abSlot, bReferenceMode, bReferencePresetId, activeGoldPreset, goldPathPresets]);
 
+  // Clean up reference audition if user leaves the Mastering view
+  useEffect(() => {
+    return () => {
+      masterAudioBus.stopReferenceAudition();
+    };
+  }, []);
+
   const toggleSetting = (key: keyof typeof settings) => {
     setSettings(prev => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  const handleReferenceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setReferenceFile(e.target.files[0]);
-    }
   };
 
   return (
@@ -608,14 +613,33 @@ export const Mastering: React.FC = () => {
             />
 
             {activeGoldPreset.category === 'User' && (
-              <button
-                onClick={() => handleDeletePreset(activeGoldPreset.id, activeGoldPreset.name)}
-                className="px-2 py-1 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-red-300 border border-red-500/30 flex items-center gap-1 text-[11px] font-medium transition-all"
-                title="Delete this user preset"
-              >
-                <Trash2 size={12} />
-                <span className="hidden sm:inline">Delete</span>
-              </button>
+              pendingDeleteId === activeGoldPreset.id ? (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleDeletePreset(activeGoldPreset.id, activeGoldPreset.name)}
+                    className="px-2 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white border border-red-400 flex items-center gap-1 text-[11px] font-bold transition-all"
+                    title={`Confirm delete "${activeGoldPreset.name}"`}
+                  >
+                    <Trash2 size={12} />
+                    <span>Confirm</span>
+                  </button>
+                  <button
+                    onClick={() => setPendingDeleteId(null)}
+                    className="px-2 py-1 rounded-lg bg-[#141C31] text-[#A0AEC0] hover:text-white border border-[#232F52] text-[11px]"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => handleDeletePreset(activeGoldPreset.id, activeGoldPreset.name)}
+                  className="px-2 py-1 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-red-300 border border-red-500/30 flex items-center gap-1 text-[11px] font-medium transition-all"
+                  title="Delete this user preset"
+                >
+                  <Trash2 size={12} />
+                  <span className="hidden sm:inline">Delete</span>
+                </button>
+              )
             )}
           </div>
         </div>
@@ -629,6 +653,11 @@ export const Mastering: React.FC = () => {
           </button>
         )}
       </div>
+
+      {/* Permanent Reference Audio Track (Matchering) Deck on Main Mastering Console */}
+      {masteringMode !== 'pipeline' && (
+        <ReferenceMatcheringDeck onToast={showToast} />
+      )}
 
       {/* Mode 0: Dedicated Mastering Preset System (EQ Curves, Compressor Settings, Saturation Levels) */}
       {masteringMode === 'mastering_presets' && (

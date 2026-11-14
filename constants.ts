@@ -28,6 +28,7 @@ export const INITIAL_TRACKS: Track[] = [
     isMono: true, 
     vstBypassed: false, 
     bus: 'Vocal Master Bus',
+    vsts: ['[VST3] Strangelet Warm Tube 12AX7', 'Faust: Deep Cavern Shimmer Reverb'],
     clips: [
       { id: 'c1', name: 'Lead_Hook_Take02.wav', startBar: 0, durationBars: 8 },
       { id: 'c2', name: 'Harmony_Stack.wav', startBar: 8, durationBars: 6 }
@@ -71,6 +72,7 @@ export const INITIAL_TRACKS: Track[] = [
     isMono: false, 
     vstBypassed: true, 
     bus: 'Drum Group Bus',
+    vsts: ['[AU] Precision Mastering Limiter'],
     clips: [
       { id: 'c3', name: 'Acid_Beat_124bpm.wav', startBar: 0, durationBars: 8 },
       { id: 'c4', name: 'Acid_Beat_Breakdown.wav', startBar: 8, durationBars: 8 }
@@ -112,6 +114,7 @@ export const INITIAL_TRACKS: Track[] = [
     isMono: true, 
     vstBypassed: false, 
     bus: 'Stereo Master',
+    vsts: ['Faust: TB-303 Diode Acid Filter Toy'],
     clips: [
       { id: 'c5', name: 'TB303_AcidLine_Fm.wav', startBar: 2, durationBars: 12 }
     ],
@@ -139,8 +142,32 @@ export const INITIAL_TRACKS: Track[] = [
           { id: 'p3-2', time: 1, value: 0 }
         ]
       },
-      activeParameter: 'volume',
-      isExpanded: false
+      params: {
+        'faust:faust-acid-filter:cutoff': {
+          id: 'faust:faust-acid-filter:cutoff',
+          pluginId: 'faust-acid-filter',
+          pluginName: 'TB-303 Diode Acid Filter Toy',
+          pluginSource: 'faust',
+          paramId: 'cutoff',
+          paramName: 'Cutoff',
+          min: 40,
+          max: 8000,
+          defaultValue: 1100,
+          unit: 'Hz',
+          color: '#EC4899',
+          enabled: true,
+          visible: true,
+          points: [
+            { id: 'ac-1', time: 0, value: 420, curve: 0.35 },
+            { id: 'ac-2', time: 0.25, value: 3200, curve: -0.25 },
+            { id: 'ac-3', time: 0.5, value: 6400, curve: 0.3 },
+            { id: 'ac-4', time: 0.75, value: 1850, curve: -0.2 },
+            { id: 'ac-5', time: 1, value: 520 }
+          ]
+        }
+      },
+      activeParameter: 'faust:faust-acid-filter:cutoff',
+      isExpanded: true
     }
   },
   { 
@@ -156,6 +183,7 @@ export const INITIAL_TRACKS: Track[] = [
     isMono: false, 
     vstBypassed: false, 
     bus: 'Stereo Master',
+    vsts: ['Faust: VHS 1985 Chorus & Pitch Drift'],
     clips: [
       { id: 'c6', name: 'Ambient_Atmosphere_01.wav', startBar: 0, durationBars: 16 }
     ],

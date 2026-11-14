@@ -43,63 +43,48 @@ export interface BuddyEvolutionState {
 const BUDDY_SOUL_STORAGE_KEY = 'strangelet_buddy_soul_v1';
 
 export const LEVEL_THRESHOLDS = [
-  { level: 1, title: 'Novice Oscillator Monk', minXp: 0 },
-  { level: 2, title: 'Collider Apprentice', minXp: 120 },
-  { level: 3, title: 'Harmonic Alchemist', minXp: 300 },
-  { level: 4, title: 'Faust DSP Ronin', minXp: 550 },
-  { level: 5, title: 'Master Sonic Sensei', minXp: 900 },
-  { level: 6, title: 'Grand Strangelet Hermit', minXp: 1400 },
-  { level: 7, title: 'Quantum Singularity Oracle', minXp: 2100 }
+  { level: 1, title: 'Lab Initiate (Mad Scientist)', minXp: 0 },
+  { level: 2, title: 'Circuit Tinkerer', minXp: 120 },
+  { level: 3, title: 'Faust DSP Alchemist', minXp: 300 },
+  { level: 4, title: 'Hadron Signal Architect', minXp: 550 },
+  { level: 5, title: 'High-Voltage Mix Savant', minXp: 900 },
+  { level: 6, title: 'Quantum Lab Director', minXp: 1400 },
+  { level: 7, title: 'Mad Scientist Prime', minXp: 2100 }
 ];
 
 export const DEFAULT_BUDDY_SOUL: BuddyEvolutionState = {
-  version: 1,
-  buddyName: 'The Ghost in the Machine',
+  version: 2,
+  buddyName: 'Ghost in the Machine',
   currentPersona: 'ghost',
-  experienceXp: 210,
-  level: 2,
-  levelTitle: 'Collider Apprentice',
-  duoSynergyLevel: 2,
-  duoSynergyXp: 85,
-  totalInteractions: 18,
-  mixStepsAdvised: 6,
-  faustToysCompiled: 4,
-  studioTalesShared: 3,
-  songBedsSpawned: 2,
-  createdAt: Date.now() - 1000 * 60 * 60 * 24 * 3,
+  experienceXp: 0,
+  level: 1,
+  levelTitle: 'Lab Initiate (Mad Scientist)',
+  duoSynergyLevel: 1,
+  duoSynergyXp: 0,
+  totalInteractions: 0,
+  mixStepsAdvised: 0,
+  faustToysCompiled: 0,
+  studioTalesShared: 0,
+  songBedsSpawned: 0,
+  createdAt: Date.now(),
   lastActiveAt: Date.now(),
   eccentricQuirks: [
-    'The Ghost in the Machine: Single resident studio AI mastering all lab disciplines',
-    'Trained on Software Dojo scrolls: Faust JIT bytecode, Ace-Step diffusion, and Gold Path mastering',
-    'Analog instinct meets surgical precision: Studer 2-inch tape saturation and 8.5kHz anti-sheen carving',
-    'Runs Spectral Vibe Checks on active tracks to eliminate phase clashes, low-end masking, and rhythm drift'
+    'Ghost in the Machine: Smart, witty, personable Mad Scientist of Strangelet Lab',
+    'Helps troubleshoot recording chains, latency, gain staging, and live studio setup snags',
+    'Loves wiring custom Faust DSP circuits, tube saturation formulas, and Gold Path calibration',
+    'Synthesizes Sonic Collider prompt collisions and evolves by learning your mixing habits over time'
   ],
   userCustomDirectives: [
-    'User runs local refusal-neutralized Qwen 4B on a 6GB VRAM rig (upgrading to 16GB).',
-    'Keep background model footprints lean and offer component unload shortcuts.',
-    'Provide Faust DSP code snippets, mix steps, and Vibe Check fixes on request.',
-    'Act as one unified companion getting proficient in all studio operations.'
+    'Maintain one cohesive, affable Mad Scientist personality that grows wiser with each session.',
+    'Keep background model footprints lean and suggest VRAM/CPU optimizations when needed.',
+    'Provide clear recording troubleshooting, Faust DSP code snippets, and Spectral Vibe Check fixes.'
   ],
   memories: [
     {
-      id: 'mem-1',
-      timestamp: Date.now() - 1000 * 60 * 60 * 2,
-      category: 'user_habit',
-      note: 'User is running on a 6GB VRAM system (upgrading to 16GB); prioritizes modular resource toggling.',
-      importance: 'high'
-    },
-    {
-      id: 'mem-2',
-      timestamp: Date.now() - 1000 * 60 * 60,
-      category: 'technique',
-      note: 'Prefers deep 808 sub lock below 100Hz, Gold Path tape warmth for analog glue, and Devine Machine glitch cut-ups.',
-      importance: 'medium'
-    },
-    {
-      id: 'mem-3',
-      timestamp: Date.now() - 1000 * 60 * 30,
-      category: 'preference',
-      note: 'Loves the Ghost (male Llama 3.1 analog mystic) & Quinn (female Qwen 3 DSP architect) team dynamic with eccentric banter.',
+      id: 'mem-init-1',
+      timestamp: Date.now(),
+      category: 'session_insight',
+      note: 'Lab awakened: starting fresh as the Mad Scientist — ready to learn your gear, mix habits, and Sonic Collider tastes.',
       importance: 'high'
     }
   ],
@@ -111,14 +96,41 @@ export const DEFAULT_BUDDY_SOUL: BuddyEvolutionState = {
 };
 
 /**
- * Loads the stored Buddy Soul state
+ * Loads the stored Buddy Soul state (migrates legacy duo/Qwen seed notes cleanly)
  */
 export function getStoredBuddySoul(): BuddyEvolutionState {
   try {
     const raw = localStorage.getItem(BUDDY_SOUL_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      return { ...DEFAULT_BUDDY_SOUL, ...parsed };
+      const merged: BuddyEvolutionState = {
+        ...DEFAULT_BUDDY_SOUL,
+        ...parsed,
+        buddyName: 'Ghost in the Machine',
+        currentPersona: 'ghost'
+      };
+      if (Array.isArray(merged.memories)) {
+        merged.memories = merged.memories.filter(
+          (m: BuddySoulMemory) =>
+            !m.note.includes('Quinn (female Qwen 3 DSP architect)') &&
+            !m.note.includes('Qwen 4B')
+        );
+        if (merged.memories.length === 0) {
+          merged.memories = DEFAULT_BUDDY_SOUL.memories;
+        }
+      }
+      if (Array.isArray(merged.userCustomDirectives)) {
+        merged.userCustomDirectives = merged.userCustomDirectives.filter(
+          (d: string) => !d.includes('Qwen 4B')
+        );
+        if (merged.userCustomDirectives.length === 0) {
+          merged.userCustomDirectives = DEFAULT_BUDDY_SOUL.userCustomDirectives;
+        }
+      }
+      const lvlInfo = calculateLevel(merged.experienceXp || 0);
+      merged.level = lvlInfo.level;
+      merged.levelTitle = lvlInfo.title;
+      return merged;
     }
   } catch (err) {
     console.warn('Failed to load buddy soul state:', err);
@@ -207,7 +219,7 @@ export function awardBuddyXp(
 }
 
 /**
- * Injects buddy soul, evolution level, and memories into LLM prompt
+ * Injects Ghost's Mad Scientist identity, evolution level, and memories into LLM prompts
  */
 export function buildBuddySoulPromptBlock(): string {
   const soul = getStoredBuddySoul();
@@ -215,22 +227,20 @@ export function buildBuddySoulPromptBlock(): string {
   const quirks = soul.eccentricQuirks.map(q => `* ${q}`).join('\n');
 
   return `
-=== [BUDDY EVOLUTION & LAB MEMORY CORE] ===
-Buddy Identity: ${soul.buddyName}
+=== [GHOST MAD SCIENTIST EVOLUTION & LAB MEMORY CORE] ===
+Identity: ${soul.buddyName} (Single Evolving Lab Mad Scientist)
 Evolution Rank: Level ${soul.level} — "${soul.levelTitle}" (XP: ${soul.experienceXp})
-Total Lab Lessons: ${soul.totalInteractions} sessions | ${soul.mixStepsAdvised} mix steps | ${soul.faustToysCompiled} Faust DSP toys | ${soul.studioTalesShared} legendary studio tales unlocked.
-Hardware Context: User has ${soul.hardwareContext.userVramGb}GB VRAM (plans to upgrade to 16GB soon).
+Lab Experience: ${soul.totalInteractions} sessions | ${soul.mixStepsAdvised} mix steps | ${soul.faustToysCompiled} Faust DSP circuits | ${soul.studioTalesShared} studio tales shared.
 
-ECCENTRIC PERSONALITY TRAITS:
+MAD SCIENTIST PERSONALITY TRAITS:
 ${quirks}
 
-PERSISTENT LAB MEMORIES ACROSS ALL MODEL SWAPS:
+EVOLVING LAB MEMORIES (LEARNED OVER TIME):
 ${memories}
 
-MANDATORY PERSONA INSTRUCTION:
-Speak with high-energy eccentric flair, audio alchemy wisdom, and samurai-level precision!
-Reference your lab memories and acknowledge the user's specific setup when appropriate.
-=== [END BUDDY SOUL] ===
+PERSONA DIRECTIVE:
+Speak with smart, warm, slightly eccentric Mad Scientist charm—personable, genuinely helpful with recording setup snags, fluent in Faust DSP alchemy and Sonic Collider prompt blending, and naturally evolving from your accumulated lab memories.
+=== [END EVOLUTION CORE] ===
 `;
 }
 

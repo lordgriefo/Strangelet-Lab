@@ -1,4 +1,4 @@
-// Strangelet Lab - 60-Second Background Project Auto-Save Engine
+// Strangelet Lab - Configurable Background Project Auto-Save Engine
 // Stores active arrangement, tracks, tempo, session configuration, and clip positions into localStorage
 // Prevents work loss during long mixing and sound design sessions
 
@@ -7,6 +7,22 @@ import { Track, ProjectSession } from '../types';
 export const AUTOSAVE_STORAGE_KEY = 'strangelet_project_autosave_v1';
 export const AUTOSAVE_SETTINGS_KEY = 'strangelet_autosave_preferences_v1';
 export const DEFAULT_AUTOSAVE_INTERVAL_SEC = 60;
+export const MIN_AUTOSAVE_INTERVAL_SEC = 10;
+export const MAX_AUTOSAVE_INTERVAL_SEC = 1800; // 30 minutes
+export const AUTOSAVE_INTERVAL_PRESETS = [15, 30, 60, 120, 300, 600] as const;
+
+export function formatAutoSaveInterval(seconds: number): string {
+  const safe = Math.max(MIN_AUTOSAVE_INTERVAL_SEC, Math.round(seconds));
+  if (safe < 60) return `${safe}s`;
+  const mins = Math.floor(safe / 60);
+  const rem = safe % 60;
+  return rem === 0 ? `${mins}m` : `${mins}m ${rem}s`;
+}
+
+export interface AutoSaveSettings {
+  enabled: boolean;
+  intervalSeconds: number;
+}
 
 export interface AutoSavePayload {
   version: number;
@@ -17,6 +33,7 @@ export interface AutoSavePayload {
   tempo: number;
   trackCount: number;
   totalClipCount: number;
+  source?: 'auto' | 'manual';
 }
 
 export interface AutoSaveMetadata {
@@ -31,10 +48,12 @@ export interface AutoSaveMetadata {
 }
 
 type AutoSaveListener = (payload: AutoSavePayload) => void;
+type AutoSaveSettingsListener = (settings: AutoSaveSettings) => void;
 
 class ProjectAutoSaveService {
   private lastSavedTime: number | null = null;
   private listeners: Set<AutoSaveListener> = new Set();
+  private settingsListeners: Set<AutoSaveSettingsListener> = new Set();
   private isAutoSaveEnabled: boolean = true;
   private intervalSeconds: number = DEFAULT_AUTOSAVE_INTERVAL_SEC;
 
@@ -46,17 +65,40 @@ class ProjectAutoSaveService {
     }
   }
 
+  private clampInterval(seconds: number): number {
+    if (!Number.isFinite(seconds)) return DEFAULT_AUTOSAVE_INTERVAL_SEC;
+    return Math.min(MAX_AUTOSAVE_INTERVAL_SEC, Math.max(MIN_AUTOSAVE_INTERVAL_SEC, Math.round(seconds)));
+  }
+
   private initSettings() {
     try {
       const raw = localStorage.getItem(AUTOSAVE_SETTINGS_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (typeof parsed.enabled === 'boolean') this.isAutoSaveEnabled = parsed.enabled;
-        if (typeof parsed.intervalSeconds === 'number') this.intervalSeconds = parsed.intervalSeconds;
+        if (typeof parsed.intervalSeconds === 'number') {
+          this.intervalSeconds = this.clampInterval(parsed.intervalSeconds);
+        }
       }
     } catch (e) {
       console.warn('Failed to parse autosave preferences:', e);
     }
+  }
+
+  private persistAndNotifySettings() {
+    const snapshot = this.getSettings();
+    try {
+      localStorage.setItem(AUTOSAVE_SETTINGS_KEY, JSON.stringify(snapshot));
+    } catch (e) {
+      console.warn('Failed to save autosave preferences:', e);
+    }
+    this.settingsListeners.forEach(cb => {
+      try {
+        cb(snapshot);
+      } catch (err) {
+        console.warn('Autosave settings listener error:', err);
+      }
+    });
   }
 
   public subscribe(listener: AutoSaveListener): () => void {
@@ -66,20 +108,36 @@ class ProjectAutoSaveService {
     };
   }
 
+  public subscribeSettings(listener: AutoSaveSettingsListener): () => void {
+    this.settingsListeners.add(listener);
+    return () => {
+      this.settingsListeners.delete(listener);
+    };
+  }
+
+  public getSettings(): AutoSaveSettings {
+    return {
+      enabled: this.isAutoSaveEnabled,
+      intervalSeconds: this.intervalSeconds
+    };
+  }
+
   public isEnabled(): boolean {
     return this.isAutoSaveEnabled;
   }
 
   public setEnabled(enabled: boolean): void {
     this.isAutoSaveEnabled = enabled;
-    try {
-      localStorage.setItem(
-        AUTOSAVE_SETTINGS_KEY,
-        JSON.stringify({ enabled: this.isAutoSaveEnabled, intervalSeconds: this.intervalSeconds })
-      );
-    } catch (e) {
-      console.warn('Failed to save autosave preferences:', e);
-    }
+    this.persistAndNotifySettings();
+  }
+
+  public getIntervalSeconds(): number {
+    return this.intervalSeconds;
+  }
+
+  public setIntervalSeconds(seconds: number): void {
+    this.intervalSeconds = this.clampInterval(seconds);
+    this.persistAndNotifySettings();
   }
 
   public getLastSavedTimestamp(): number | null {
@@ -89,8 +147,14 @@ class ProjectAutoSaveService {
   /**
    * Serializes current state to localStorage
    */
-  public save(session: ProjectSession, tracks: Track[], tempo: number): boolean {
-    if (!this.isAutoSaveEnabled) return false;
+  public save(
+    session: ProjectSession,
+    tracks: Track[],
+    tempo: number,
+    options?: { force?: boolean; source?: 'auto' | 'manual' }
+  ): boolean {
+    const force = options?.force ?? false;
+    if (!force && !this.isAutoSaveEnabled) return false;
 
     try {
       const totalClipCount = tracks.reduce((acc, t) => acc + (t.clips?.length || 0), 0);
@@ -108,7 +172,8 @@ class ProjectAutoSaveService {
         tracks,
         tempo,
         trackCount: tracks.length,
-        totalClipCount
+        totalClipCount,
+        source: options?.source ?? (force ? 'manual' : 'auto')
       };
 
       localStorage.setItem(AUTOSAVE_STORAGE_KEY, JSON.stringify(payload));

@@ -4,11 +4,16 @@ import { Track } from '../types';
 class AudioService {
   private audioContext: AudioContext | null = null;
   private trackBuffers: Map<string, AudioBuffer> = new Map();
+  private originalTrackBuffers: Map<string, AudioBuffer> = new Map();
   private trackSources: Map<string, AudioBufferSourceNode> = new Map();
   private masterGain: GainNode | null = null;
 
   constructor() {
     // Lazily initialized on demand to avoid browser autoplay / permissions errors on load
+  }
+
+  public ensureContext(): AudioContext | null {
+    return this.getAudioContext();
   }
 
   private getAudioContext(): AudioContext | null {
@@ -35,17 +40,29 @@ class AudioService {
       const arrayBuffer = await file.arrayBuffer();
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
       this.trackBuffers.set(trackId, audioBuffer);
+      this.originalTrackBuffers.set(trackId, audioBuffer);
     } catch (e) {
       console.warn('Failed to decode audio:', e);
     }
   }
 
-  setTrackAudioBuffer(trackId: string, buffer: AudioBuffer): void {
+  setTrackAudioBuffer(trackId: string, buffer: AudioBuffer, preserveOriginal: boolean = false): void {
     this.trackBuffers.set(trackId, buffer);
+    if (!preserveOriginal || !this.originalTrackBuffers.has(trackId)) {
+      this.originalTrackBuffers.set(trackId, buffer);
+    }
   }
 
   getTrackAudioBuffer(trackId: string): AudioBuffer | undefined {
     return this.trackBuffers.get(trackId);
+  }
+
+  getOriginalTrackAudioBuffer(trackId: string): AudioBuffer | undefined {
+    return this.originalTrackBuffers.get(trackId) || this.trackBuffers.get(trackId);
+  }
+
+  getAllTrackBuffers(): AudioBuffer[] {
+    return Array.from(this.trackBuffers.values());
   }
 
   playTrack(trackId: string, startTime: number = 0) {

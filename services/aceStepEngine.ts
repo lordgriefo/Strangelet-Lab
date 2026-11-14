@@ -110,12 +110,546 @@ export const ACESTEP_LOOP_PRESETS: {
   }
 ];
 
+export const DEFAULT_COMFYUI_ENDPOINT = 'http://127.0.0.1:8188';
+const COMFY_STORAGE_KEY = 'strangelet_acestep_comfyui_config_v1';
+
+export interface AceStepComfyConfig {
+  enabled: boolean;
+  endpointUrl: string;
+  checkpointName: string;
+  pollIntervalMs: number;
+  timeoutMs: number;
+}
+
+export interface AceStepComfyConnectionStatus {
+  online: boolean;
+  endpointUrl: string;
+  deviceName?: string;
+  vramFreeMb?: number;
+  comfyVersion?: string;
+  queueRemaining?: number;
+  checkedAt: number;
+  error?: string;
+}
+
+export interface AceStepComfyProgress {
+  phase:
+    | 'connecting'
+    | 'queued'
+    | 'sampling'
+    | 'downloading'
+    | 'decoding'
+    | 'fallback_synth'
+    | 'complete';
+  message: string;
+  progressPercent: number;
+  promptId?: string;
+  usedFallback?: boolean;
+  backend: 'comfyui' | 'algorithmic_synth';
+}
+
+export interface AceStepGenerateOptions {
+  comfyConfig?: Partial<AceStepComfyConfig>;
+  onProgress?: (progress: AceStepComfyProgress) => void;
+  signal?: AbortSignal;
+}
+
+interface ComfyHistoryAudioFile {
+  filename: string;
+  subfolder?: string;
+  type?: string;
+}
+
+export function normalizeComfyEndpoint(url?: string): string {
+  const raw = (url || DEFAULT_COMFYUI_ENDPOINT).trim();
+  if (!raw) return DEFAULT_COMFYUI_ENDPOINT;
+  return raw.replace(/\/+$/, '');
+}
+
+export function getComfyUiConfig(): AceStepComfyConfig {
+  try {
+    const raw = localStorage.getItem(COMFY_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        enabled: Boolean(parsed.enabled),
+        endpointUrl: normalizeComfyEndpoint(parsed.endpointUrl),
+        checkpointName: parsed.checkpointName || 'acestep_v1.5_q8_0.gguf',
+        pollIntervalMs: Number(parsed.pollIntervalMs) || 800,
+        timeoutMs: Number(parsed.timeoutMs) || 90000
+      };
+    }
+  } catch (e) {
+    console.warn('Failed to parse saved ComfyUI config:', e);
+  }
+  return {
+    enabled: false,
+    endpointUrl: DEFAULT_COMFYUI_ENDPOINT,
+    checkpointName: 'acestep_v1.5_q8_0.gguf',
+    pollIntervalMs: 800,
+    timeoutMs: 90000
+  };
+}
+
+export function saveComfyUiConfig(config: AceStepComfyConfig): AceStepComfyConfig {
+  const normalized: AceStepComfyConfig = {
+    enabled: Boolean(config.enabled),
+    endpointUrl: normalizeComfyEndpoint(config.endpointUrl),
+    checkpointName: config.checkpointName?.trim() || 'acestep_v1.5_q8_0.gguf',
+    pollIntervalMs: Math.max(300, Number(config.pollIntervalMs) || 800),
+    timeoutMs: Math.max(5000, Number(config.timeoutMs) || 90000)
+  };
+  try {
+    localStorage.setItem(COMFY_STORAGE_KEY, JSON.stringify(normalized));
+  } catch (e) {
+    console.warn('Failed to persist ComfyUI config:', e);
+  }
+  return normalized;
+}
+
 /**
- * Generates an audio loop using Ace-Step 1.5 GGUF neural diffusion synthesis.
- * Perfectly time-synced to the current project BPM and bar duration.
+ * Checks whether a local ComfyUI API server is reachable at the configured endpoint.
  */
-export async function generateAceStepLoop(
-  config: AceStepGenerationConfig
+export async function checkComfyUiConnection(
+  endpointUrl?: string
+): Promise<AceStepComfyConnectionStatus> {
+  const baseUrl = normalizeComfyEndpoint(endpointUrl);
+  const checkedAt = Date.now();
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(`${baseUrl}/system_stats`, {
+      method: 'GET',
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      return {
+        online: false,
+        endpointUrl: baseUrl,
+        checkedAt,
+        error: `HTTP ${res.status} from ComfyUI`
+      };
+    }
+
+    const stats = await res.json().catch(() => ({}));
+    const firstDevice = Array.isArray(stats?.devices) ? stats.devices[0] : undefined;
+    const vramFreeBytes = typeof firstDevice?.vram_free === 'number' ? firstDevice.vram_free : undefined;
+
+    let queueRemaining: number | undefined;
+    try {
+      const qCtrl = new AbortController();
+      const qTimer = setTimeout(() => qCtrl.abort(), 1500);
+      const qRes = await fetch(`${baseUrl}/queue`, { signal: qCtrl.signal });
+      clearTimeout(qTimer);
+      if (qRes.ok) {
+        const qData = await qRes.json();
+        const running = Array.isArray(qData?.queue_running) ? qData.queue_running.length : 0;
+        const pending = Array.isArray(qData?.queue_pending) ? qData.queue_pending.length : 0;
+        queueRemaining = running + pending;
+      }
+    } catch {
+      // Non-fatal queue check failure
+    }
+
+    return {
+      online: true,
+      endpointUrl: baseUrl,
+      deviceName: firstDevice?.name || 'Local Compute Device',
+      vramFreeMb: vramFreeBytes ? Math.round(vramFreeBytes / (1024 * 1024)) : undefined,
+      comfyVersion: stats?.system?.comfyui_version,
+      queueRemaining,
+      checkedAt
+    };
+  } catch (err: any) {
+    return {
+      online: false,
+      endpointUrl: baseUrl,
+      checkedAt,
+      error: err?.name === 'AbortError'
+        ? 'Connection timed out (ComfyUI offline)'
+        : (err?.message || 'ComfyUI unreachable')
+    };
+  }
+}
+
+/**
+ * Builds an ACE-Step 1.5 ComfyUI workflow graph payload for POST /prompt.
+ * Encodes prompt, BPM, duration bars, duration seconds, key/scale, and stem target.
+ */
+export function buildAceStepComfyWorkflow(
+  config: AceStepGenerationConfig,
+  durationSeconds: number,
+  checkpointName = 'acestep_v1.5_q8_0.gguf'
+): Record<string, any> {
+  const seed = config.seed ?? Math.floor(Math.random() * 2147483647);
+  const stemTagMap: Record<AceStepStemType, string> = {
+    full_loop: 'full arrangement, drums, bass, chords, melody, bar-synced loop',
+    drums: 'isolated drums, percussion loop, crisp transients, no bass, no melody',
+    bass: 'isolated bassline, sub 808, mono low-end groove, no drums, no vocals',
+    lead: 'isolated synth lead, melodic hook, arpeggio, no drums, no bass',
+    pad: 'isolated ambient pad, warm chords, atmospheric texture, no drums',
+    vocal_chop: 'isolated rhythmic vocal chops, formant phrases, no drums, no bass'
+  };
+
+  const formattedTags = [
+    stemTagMap[config.stemType] || config.stemType,
+    `${config.bpm} bpm`,
+    `${config.durationBars} bars`,
+    `${config.keyRoot} ${config.scale}`,
+    config.useTapeWarmth !== false ? 'analog tape saturation' : 'clean digital studio'
+  ].join(', ');
+
+  return {
+    '1': {
+      class_type: 'ACEStepCheckpointLoader',
+      inputs: {
+        ckpt_name: checkpointName
+      }
+    },
+    '2': {
+      class_type: 'ACEStepConditioning',
+      inputs: {
+        model: ['1', 0],
+        prompt: config.prompt,
+        tags: formattedTags,
+        bpm: config.bpm,
+        duration_bars: config.durationBars,
+        duration_seconds: durationSeconds,
+        stem_target: config.stemType,
+        key_root: config.keyRoot,
+        scale: config.scale
+      }
+    },
+    '3': {
+      class_type: 'ACEStepSampler',
+      inputs: {
+        model: ['1', 0],
+        positive: ['2', 0],
+        latent_audio: ['2', 1],
+        seed,
+        steps: config.diffusionSteps,
+        cfg: config.guidanceScale,
+        sampler_name: 'euler',
+        scheduler: 'normal',
+        denoise: 1.0
+      }
+    },
+    '4': {
+      class_type: 'ACEStepVAEDecodeAudio',
+      inputs: {
+        samples: ['3', 0],
+        vae: ['1', 2]
+      }
+    },
+    '5': {
+      class_type: 'SaveAudio',
+      inputs: {
+        audio: ['4', 0],
+        filename_prefix: `Strangelet_AceStep_${config.stemType}_${config.bpm}bpm_${config.durationBars}bar`
+      }
+    }
+  };
+}
+
+function extractAudioFileFromComfyOutputs(outputs: Record<string, any> | undefined): ComfyHistoryAudioFile | null {
+  if (!outputs || typeof outputs !== 'object') return null;
+
+  for (const nodeKey of Object.keys(outputs)) {
+    const nodeOut = outputs[nodeKey];
+    if (!nodeOut || typeof nodeOut !== 'object') continue;
+
+    const candidateLists = [nodeOut.audio, nodeOut.audios, nodeOut.files, nodeOut.gifs];
+    for (const list of candidateLists) {
+      if (!Array.isArray(list)) continue;
+      for (const item of list) {
+        if (item && typeof item.filename === 'string') {
+          const lower = item.filename.toLowerCase();
+          if (
+            list === nodeOut.audio ||
+            list === nodeOut.audios ||
+            /\.(wav|mp3|flac|ogg|aac|m4a|opus)$/.test(lower)
+          ) {
+            return {
+              filename: item.filename,
+              subfolder: item.subfolder || '',
+              type: item.type || 'output'
+            };
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function computeWaveformSnippet(channelData: Float32Array, bins = 64): number[] {
+  const snippet: number[] = [];
+  const total = channelData.length;
+  if (total === 0) return Array(bins).fill(0.1);
+  const step = Math.max(1, Math.floor(total / bins));
+
+  for (let i = 0; i < total && snippet.length < bins; i += step) {
+    let peak = 0;
+    const end = Math.min(total, i + step);
+    for (let j = i; j < end; j++) {
+      const v = Math.abs(channelData[j]);
+      if (v > peak) peak = v;
+    }
+    snippet.push(Number(Math.min(1, peak).toFixed(3)));
+  }
+  while (snippet.length < bins) {
+    snippet.push(0.08);
+  }
+  return snippet;
+}
+
+function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/**
+ * Posts a generation request to local ComfyUI (/prompt), polls /history/{prompt_id}
+ * until the audio output is ready, downloads the rendered audio from /view, and
+ * decodes it into a Web Audio AudioBuffer ready for Strangelet Lab's tracks.
+ */
+async function generateViaComfyUi(
+  config: AceStepGenerationConfig,
+  comfyConfig: AceStepComfyConfig,
+  onProgress?: (progress: AceStepComfyProgress) => void,
+  signal?: AbortSignal
+): Promise<AceStepLoopResult> {
+  const baseUrl = normalizeComfyEndpoint(comfyConfig.endpointUrl);
+  const secondsPerBar = (60 / Math.max(40, Math.min(220, config.bpm))) * 4;
+  const targetDurationSeconds = Number((secondsPerBar * config.durationBars).toFixed(3));
+  const clientId = `strangelet-lab-${Date.now()}`;
+
+  onProgress?.({
+    phase: 'connecting',
+    message: `Posting ${config.stemType.toUpperCase()} (${config.durationBars} bars @ ${config.bpm} BPM) to ${baseUrl}/prompt...`,
+    progressPercent: 10,
+    backend: 'comfyui'
+  });
+
+  const workflow = buildAceStepComfyWorkflow(
+    config,
+    targetDurationSeconds,
+    comfyConfig.checkpointName
+  );
+
+  // 1. POST to /prompt
+  const postController = new AbortController();
+  const postTimeout = setTimeout(() => postController.abort(), 5000);
+  if (signal) {
+    signal.addEventListener('abort', () => postController.abort(), { once: true });
+  }
+
+  let promptId = '';
+  try {
+    const promptRes = await fetch(`${baseUrl}/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: clientId,
+        prompt: workflow,
+        extra_data: {
+          strangelet_acestep: {
+            prompt: config.prompt,
+            bpm: config.bpm,
+            durationBars: config.durationBars,
+            durationSeconds: targetDurationSeconds,
+            stemTarget: config.stemType,
+            keyRoot: config.keyRoot,
+            scale: config.scale
+          }
+        }
+      }),
+      signal: postController.signal
+    });
+    clearTimeout(postTimeout);
+
+    if (!promptRes.ok) {
+      const errText = await promptRes.text().catch(() => '');
+      throw new Error(`ComfyUI /prompt returned ${promptRes.status}${errText ? `: ${errText.slice(0, 120)}` : ''}`);
+    }
+
+    const promptData = await promptRes.json();
+    if (!promptData?.prompt_id) {
+      throw new Error('ComfyUI /prompt response missing prompt_id');
+    }
+    promptId = String(promptData.prompt_id);
+  } catch (err) {
+    clearTimeout(postTimeout);
+    throw err;
+  }
+
+  onProgress?.({
+    phase: 'queued',
+    message: `Job queued on ComfyUI (ID: ${promptId.slice(0, 8)}). Polling /history...`,
+    progressPercent: 22,
+    promptId,
+    backend: 'comfyui'
+  });
+
+  // 2. Poll /history/{promptId}
+  const startedAt = Date.now();
+  const pollInterval = Math.max(300, comfyConfig.pollIntervalMs || 800);
+  const timeoutMs = Math.max(5000, comfyConfig.timeoutMs || 90000);
+  let audioFile: ComfyHistoryAudioFile | null = null;
+  let pollAttempt = 0;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+
+    pollAttempt += 1;
+    const elapsedRatio = Math.min(1, (Date.now() - startedAt) / Math.min(timeoutMs, 25000));
+    const estProgress = Math.min(82, Math.round(25 + elapsedRatio * 55));
+
+    try {
+      const histRes = await fetch(`${baseUrl}/history/${encodeURIComponent(promptId)}`, {
+        method: 'GET',
+        signal
+      });
+      if (histRes.ok) {
+        const histJson = await histRes.json();
+        const entry = histJson?.[promptId];
+
+        if (entry) {
+          if (entry.status?.status_str === 'error') {
+            throw new Error('ComfyUI reported workflow execution error');
+          }
+
+          const extracted = extractAudioFileFromComfyOutputs(entry.outputs);
+          if (extracted) {
+            audioFile = extracted;
+            break;
+          }
+
+          if (entry.status?.completed === true) {
+            throw new Error('ComfyUI finished prompt without an audio output file');
+          }
+        }
+      }
+    } catch (pollErr: any) {
+      if (pollErr?.name === 'AbortError') throw pollErr;
+      if (pollErr?.message?.includes('ComfyUI')) throw pollErr;
+    }
+
+    onProgress?.({
+      phase: 'sampling',
+      message: `Polling ComfyUI /history (${pollAttempt}) — rendering ${config.stemType} via ACE-Step 1.5...`,
+      progressPercent: estProgress,
+      promptId,
+      backend: 'comfyui'
+    });
+
+    await sleepWithAbort(pollInterval, signal);
+  }
+
+  if (!audioFile) {
+    throw new Error(`ComfyUI /history polling timed out after ${Math.round(timeoutMs / 1000)}s`);
+  }
+
+  // 3. Download rendered audio buffer from /view
+  onProgress?.({
+    phase: 'downloading',
+    message: `Downloading rendered audio "${audioFile.filename}" from ComfyUI...`,
+    progressPercent: 88,
+    promptId,
+    backend: 'comfyui'
+  });
+
+  const viewParams = new URLSearchParams({
+    filename: audioFile.filename,
+    subfolder: audioFile.subfolder || '',
+    type: audioFile.type || 'output'
+  });
+  const viewRes = await fetch(`${baseUrl}/view?${viewParams.toString()}`, {
+    method: 'GET',
+    signal
+  });
+  if (!viewRes.ok) {
+    throw new Error(`Failed to download ComfyUI audio (${viewRes.status})`);
+  }
+
+  const rawArrayBuffer = await viewRes.arrayBuffer();
+  const mimeType = viewRes.headers.get('content-type') || 'audio/wav';
+  const audioBlob = new Blob([rawArrayBuffer], { type: mimeType });
+
+  // 4. Decode directly into Web Audio AudioBuffer for Strangelet Lab tracks
+  onProgress?.({
+    phase: 'decoding',
+    message: 'Decoding ComfyUI audio buffer into Strangelet Lab tracks...',
+    progressPercent: 95,
+    promptId,
+    backend: 'comfyui'
+  });
+
+  const ctx = getAudioContext();
+  const decodedBuffer = await ctx.decodeAudioData(rawArrayBuffer.slice(0));
+  const durationSeconds = Number((decodedBuffer.duration || targetDurationSeconds).toFixed(3));
+  const waveformSnippet = computeWaveformSnippet(decodedBuffer.getChannelData(0), 64);
+
+  // Convert to clean WAV URL so downstream Mixer / Track players can loop reliably
+  const wavBlob = mimeType.includes('wav') ? audioBlob : audioBufferToWav(decodedBuffer);
+  const audioUrl = URL.createObjectURL(wavBlob);
+  const loopName = `ComfyUI_AceStep_${config.stemType.toUpperCase()}_${config.keyRoot}${config.scale}_${config.durationBars}bar_${config.bpm}bpm`;
+
+  onProgress?.({
+    phase: 'complete',
+    message: `ComfyUI rendered "${audioFile.filename}" (${durationSeconds}s) ready for tracks!`,
+    progressPercent: 100,
+    promptId,
+    usedFallback: false,
+    backend: 'comfyui'
+  });
+
+  return {
+    id: `acestep-comfy-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    name: loopName,
+    prompt: config.prompt,
+    stemType: config.stemType,
+    durationBars: config.durationBars,
+    durationSeconds,
+    bpm: config.bpm,
+    key: `${config.keyRoot} ${config.scale}`,
+    audioBuffer: decodedBuffer,
+    audioUrl,
+    waveformSnippet,
+    color: STEM_COLORS[config.stemType] || '#00F0FF',
+    createdAt: Date.now(),
+    engineSource: 'comfyui',
+    comfyPromptId: promptId,
+    usedFallback: false
+  };
+}
+
+/**
+ * Built-in zero-config algorithmic synthesizer (instant bar-synced DSP synthesis).
+ * Used directly when ComfyUI is toggled off, or as an instant seamless fallback
+ * whenever the local ComfyUI endpoint is offline or unreachable.
+ */
+export async function synthesizeAlgorithmicLoop(
+  config: AceStepGenerationConfig,
+  usedFallback = false
 ): Promise<AceStepLoopResult> {
   const ctx = getAudioContext();
   const sampleRate = ctx.sampleRate || 44100;
@@ -178,7 +712,6 @@ export async function generateAceStepLoop(
 
     // --- 2. BASSLINE SYNTHESIS ---
     if (config.stemType === 'bass' || config.stemType === 'full_loop') {
-      const barProgress = (t / (secondsPerBar * config.durationBars)) % 1;
       const noteIdx = Math.floor(currentBeat * 2) % intervals.length;
       const semitone = intervals[noteIdx];
       const bassFreq = (rootFreq / 2) * Math.pow(2, semitone / 12);
@@ -270,7 +803,7 @@ export async function generateAceStepLoop(
   // Headroom normalization to -3.0 dBFS (0.71 peak)
   const normGain = maxPeak > 0 ? (0.71 / maxPeak) : 0.7;
   const waveformSnippet: number[] = [];
-  const stepSize = Math.floor(totalSamples / 64);
+  const stepSize = Math.max(1, Math.floor(totalSamples / 64));
 
   for (let i = 0; i < totalSamples; i++) {
     left[i] = Math.max(-0.95, Math.min(0.95, left[i] * normGain));
@@ -300,8 +833,83 @@ export async function generateAceStepLoop(
     audioUrl,
     waveformSnippet,
     color: STEM_COLORS[config.stemType] || '#00F0FF',
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    engineSource: 'algorithmic_synth',
+    usedFallback
   };
+}
+
+/**
+ * Generates an audio loop using either the local ComfyUI ACE-Step 1.5 API endpoint
+ * (when enabled) or the built-in algorithmic synthesizer. Automatically falls back to
+ * the algorithmic synthesizer if ComfyUI is offline or unreachable.
+ */
+export async function generateAceStepLoop(
+  config: AceStepGenerationConfig,
+  options?: AceStepGenerateOptions
+): Promise<AceStepLoopResult> {
+  const savedConfig = getComfyUiConfig();
+  const effectiveComfy: AceStepComfyConfig = {
+    ...savedConfig,
+    ...options?.comfyConfig,
+    enabled: config.useComfyUi ?? options?.comfyConfig?.enabled ?? savedConfig.enabled,
+    endpointUrl: normalizeComfyEndpoint(
+      config.comfyEndpointUrl ?? options?.comfyConfig?.endpointUrl ?? savedConfig.endpointUrl
+    )
+  };
+
+  if (effectiveComfy.enabled) {
+    try {
+      return await generateViaComfyUi(
+        config,
+        effectiveComfy,
+        options?.onProgress,
+        options?.signal
+      );
+    } catch (err: any) {
+      if (err?.name === 'AbortError' && options?.signal?.aborted) {
+        throw err;
+      }
+      console.warn(
+        `ComfyUI ACE-Step endpoint (${effectiveComfy.endpointUrl}) unavailable — using built-in algorithmic synthesizer fallback:`,
+        err?.message || err
+      );
+      options?.onProgress?.({
+        phase: 'fallback_synth',
+        message: 'ComfyUI offline — using built-in algorithmic synthesizer fallback',
+        progressPercent: 75,
+        usedFallback: true,
+        backend: 'algorithmic_synth'
+      });
+
+      const fallbackResult = await synthesizeAlgorithmicLoop(config, true);
+      options?.onProgress?.({
+        phase: 'complete',
+        message: `Synthesized ${fallbackResult.name} via built-in algorithmic fallback`,
+        progressPercent: 100,
+        usedFallback: true,
+        backend: 'algorithmic_synth'
+      });
+      return fallbackResult;
+    }
+  }
+
+  options?.onProgress?.({
+    phase: 'sampling',
+    message: `Synthesizing ${config.stemType.toUpperCase()} (${config.durationBars} bars @ ${config.bpm} BPM) via built-in DSP...`,
+    progressPercent: 60,
+    backend: 'algorithmic_synth'
+  });
+
+  const synthResult = await synthesizeAlgorithmicLoop(config, false);
+  options?.onProgress?.({
+    phase: 'complete',
+    message: `Synthesized ${synthResult.name}`,
+    progressPercent: 100,
+    usedFallback: false,
+    backend: 'algorithmic_synth'
+  });
+  return synthResult;
 }
 
 /**
@@ -310,7 +918,8 @@ export async function generateAceStepLoop(
  * ready to import into the Mixer Console with an armed Guitar/Live Vocal track!
  */
 export async function generateAceStepSongBed(
-  config: AceStepSongBedConfig
+  config: AceStepSongBedConfig,
+  options?: AceStepGenerateOptions
 ): Promise<AceStepSongBedResult> {
   const stemsToGen = config.selectedStems.length > 0
     ? config.selectedStems
@@ -343,20 +952,34 @@ export async function generateAceStepSongBed(
     ];
   }
 
-  // Generate each stem synchronously to avoid audio context saturation
+  // Generate each stem sequentially to avoid audio context / local GPU saturation
   const generatedStems: AceStepLoopResult[] = [];
-  for (const stem of stemsToGen) {
-    const stemResult = await generateAceStepLoop({
-      prompt: `${config.prompt} (${stem} backing bed)`,
-      stemType: stem,
-      durationBars: config.totalBars,
-      bpm: config.bpm,
-      keyRoot: config.keyRoot,
-      scale: config.scale,
-      diffusionSteps: 24,
-      guidanceScale: 7.5,
-      useTapeWarmth: config.useTapeWarmth
-    });
+  for (let i = 0; i < stemsToGen.length; i++) {
+    const stem = stemsToGen[i];
+    const stemResult = await generateAceStepLoop(
+      {
+        prompt: `${config.prompt} (${stem} backing bed)`,
+        stemType: stem,
+        durationBars: config.totalBars,
+        bpm: config.bpm,
+        keyRoot: config.keyRoot,
+        scale: config.scale,
+        diffusionSteps: 24,
+        guidanceScale: 7.5,
+        useTapeWarmth: config.useTapeWarmth
+      },
+      {
+        ...options,
+        onProgress: (p) => {
+          const overall = Math.round(((i + p.progressPercent / 100) / stemsToGen.length) * 100);
+          options?.onProgress?.({
+            ...p,
+            progressPercent: overall,
+            message: `[Stem ${i + 1}/${stemsToGen.length}: ${stem.toUpperCase()}] ${p.message}`
+          });
+        }
+      }
+    );
 
     // Rename stem neatly for mixer console
     stemResult.name = `${config.songTitle || 'SongBed'}_${stem.toUpperCase()}`;

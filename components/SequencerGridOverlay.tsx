@@ -1,7 +1,43 @@
 import React from 'react';
 import { ActiveTool } from './Toolbar';
 import { snapToGrid } from '../lib/audioUtils';
-import { Zap, Magnet, Lock, Crosshair } from 'lucide-react';
+import { Zap, Magnet, Lock } from 'lucide-react';
+
+const LASER_CURSOR_CACHE = new Map<string, string>();
+
+export function getLaserPointerCursor(activeTool: ActiveTool): string {
+  if (activeTool === 'laser_select' || activeTool === 'select') {
+    return 'default';
+  }
+  const color =
+    activeTool === 'laser_midi'
+      ? '#10B981'
+      : activeTool === 'laser_erase' || activeTool === 'erase'
+        ? '#EF4444'
+        : activeTool === 'laser_curve' || activeTool === 'draw'
+          ? '#FFD700'
+          : '#00F0FF';
+
+  const cached = LASER_CURSOR_CACHE.get(color);
+  if (cached) return cached;
+
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">` +
+    `<circle cx="3" cy="3" r="2.8" fill="${color}" fill-opacity="0.45"/>` +
+    `<line x1="3" y1="3" x2="8.8" y2="8.8" stroke="${color}" stroke-width="2.4" stroke-linecap="round"/>` +
+    `<line x1="3" y1="3" x2="8.8" y2="8.8" stroke="#FFFFFF" stroke-width="0.9" stroke-linecap="round"/>` +
+    `<circle cx="3" cy="3" r="1.2" fill="#FFFFFF"/>` +
+    `<path d="M7.6 10.6 L10.6 7.6 L28.6 25.6 L25.6 28.6 Z" fill="#05070E" stroke="#05070E" stroke-width="1.8" stroke-linejoin="round"/>` +
+    `<path d="M7.6 10.6 L10.6 7.6 L12.6 9.6 L9.6 12.6 Z" fill="${color}"/>` +
+    `<path d="M9.6 12.6 L12.6 9.6 L26 23 L23 26 Z" fill="#CBD5E1"/>` +
+    `<circle cx="16.8" cy="16.8" r="1.4" fill="#0F172A" stroke="${color}" stroke-width="0.9"/>` +
+    `<path d="M23 26 L26 23 L28.4 25.4 L25.4 28.4 Z" fill="#334155"/>` +
+    `</svg>`;
+
+  const cursorValue = `url("data:image/svg+xml,${encodeURIComponent(svg)}") 3 3, crosshair`;
+  LASER_CURSOR_CACHE.set(color, cursorValue);
+  return cursorValue;
+}
 
 export function getSnapStepSize(snapValue: string): number {
   if (!snapValue || snapValue === 'off' || snapValue === 'freeform') return 0.25;
@@ -38,6 +74,20 @@ export interface ActivePaintingState {
   endBar: number;
   currentBar: number;
   durationBars: number;
+  isMicroBypass?: boolean;
+  mode?: 'paint' | 'erase';
+}
+
+export interface ActiveDragSnapState {
+  trackId: string;
+  clipName: string;
+  startBar: number;
+  endBar: number;
+  isSnapped: boolean;
+  mode?: 'move' | 'trim-start' | 'trim-end' | 'time-stretch';
+  stretchRatio?: number;
+  preservePitch?: boolean;
+  isMicroBypass?: boolean;
 }
 
 interface SequencerGridOverlayProps {
@@ -48,6 +98,7 @@ interface SequencerGridOverlayProps {
   isHovering: boolean;
   mouseY?: number;
   activePainting?: ActivePaintingState | null;
+  activeDragSnap?: ActiveDragSnapState | null;
   tempo?: number;
   showOverlay?: boolean;
 }
@@ -60,6 +111,7 @@ const SequencerGridOverlay: React.FC<SequencerGridOverlayProps> = ({
   isHovering,
   mouseY,
   activePainting,
+  activeDragSnap,
   tempo = 120,
   showOverlay = true
 }) => {
@@ -113,13 +165,21 @@ const SequencerGridOverlay: React.FC<SequencerGridOverlayProps> = ({
     }
   }
 
-  // Snapped target bar position when hovering
+  // Snapped target bar position when hovering (Paint) or incremental cell (Red Eraser)
   let snappedBar: number | null = null;
   let isSnapLocked = false;
   if (hoverBar !== null && isQuantizationActive) {
     snappedBar = Math.max(0, Math.min(totalBars, snapToGrid(hoverBar, snapValue)));
     isSnapLocked = true;
   }
+
+  const effEraseStep = Math.max(0.03125, isQuantizationActive ? stepSize : 0.25);
+  const eraseCellStart =
+    isEraseTool && hoverBar !== null
+      ? Math.max(0, Math.min(totalBars - effEraseStep, Math.floor((hoverBar + 1e-6) / effEraseStep) * effEraseStep))
+      : null;
+  const eraseCellEnd =
+    eraseCellStart !== null ? Math.min(totalBars, eraseCellStart + effEraseStep) : null;
 
   const snappedPercent = snappedBar !== null ? (snappedBar / totalBars) * 100 : null;
   const stepWidthPercent = (stepSize / totalBars) * 100;
@@ -188,61 +248,135 @@ const SequencerGridOverlay: React.FC<SequencerGridOverlayProps> = ({
           );
         })}
 
-        {/* 2. Active Paint Drag Quantization Highlighting */}
-        {activePainting && activePainting.isActive && activePainting.durationBars > 0 && (
+        {/* 2. Active Paint Drag or Beam Right-Click Erase Highlighting & Shooting Laser Strike Beam */}
+        {activePainting && activePainting.isActive && (() => {
+          const beamColor = activePainting.mode === 'erase' ? '#EF4444' : toolColor;
+          const beamPct = Math.max(0, Math.min(100, (activePainting.currentBar / totalBars) * 100));
+          return (
+            <g>
+              {/* Instant Laser Pointer Beam Shooting onto the Active Grid Line */}
+              <line
+                x1={`${beamPct}%`}
+                y1="0"
+                x2={`${beamPct}%`}
+                y2="100%"
+                stroke={beamColor}
+                strokeWidth="4"
+                opacity={0.35}
+              />
+              <line
+                x1={`${beamPct}%`}
+                y1="0"
+                x2={`${beamPct}%`}
+                y2="100%"
+                stroke={beamColor}
+                strokeWidth="2"
+                filter="url(#laser-glow)"
+                opacity={0.95}
+              />
+              <line
+                x1={`${beamPct}%`}
+                y1="0"
+                x2={`${beamPct}%`}
+                y2="100%"
+                stroke="#FFFFFF"
+                strokeWidth="0.9"
+                opacity={0.9}
+              />
+
+              {activePainting.durationBars > 0 && (
+                <>
+                  {/* Active Range Column Shimmer */}
+                  <rect
+                    x={`${(activePainting.startBar / totalBars) * 100}%`}
+                    y="0"
+                    width={`${(activePainting.durationBars / totalBars) * 100}%`}
+                    height="100%"
+                    fill={beamColor}
+                    fillOpacity={activePainting.mode === 'erase' ? 0.12 : 0.08}
+                  />
+
+                  {/* Quantized Steps inside Active Range */}
+                  {Array.from({ length: Math.ceil(activePainting.durationBars / stepSize) }).map((_, stepIdx) => {
+                    const tickBar = activePainting.startBar + stepIdx * stepSize;
+                    if (tickBar > activePainting.endBar) return null;
+                    const xPct = (tickBar / totalBars) * 100;
+                    return (
+                      <line
+                        key={`paint-tick-${stepIdx}`}
+                        x1={`${xPct}%`}
+                        y1="0"
+                        x2={`${xPct}%`}
+                        y2="100%"
+                        stroke={beamColor}
+                        strokeWidth="1"
+                        strokeDasharray="3,3"
+                        opacity={0.4}
+                      />
+                    );
+                  })}
+
+                  {/* Start Snap Line */}
+                  <line
+                    x1={`${(activePainting.startBar / totalBars) * 100}%`}
+                    y1="0"
+                    x2={`${(activePainting.startBar / totalBars) * 100}%`}
+                    y2="100%"
+                    stroke={beamColor}
+                    strokeWidth="2.5"
+                    filter="url(#laser-glow)"
+                    opacity={0.95}
+                  />
+
+                  {/* End Snap Line */}
+                  <line
+                    x1={`${(activePainting.endBar / totalBars) * 100}%`}
+                    y1="0"
+                    x2={`${(activePainting.endBar / totalBars) * 100}%`}
+                    y2="100%"
+                    stroke={beamColor}
+                    strokeWidth="2.5"
+                    filter="url(#laser-glow)"
+                    opacity={0.95}
+                  />
+                </>
+              )}
+            </g>
+          );
+        })()}
+
+        {/* 2.5 Active Clip Drag / Edge Pull-Back Magnetic Alignment Guides */}
+        {activeDragSnap && (
           <g>
-            {/* Painted Range Column Shimmer */}
             <rect
-              x={`${(activePainting.startBar / totalBars) * 100}%`}
+              x={`${(activeDragSnap.startBar / totalBars) * 100}%`}
               y="0"
-              width={`${(activePainting.durationBars / totalBars) * 100}%`}
+              width={`${((activeDragSnap.endBar - activeDragSnap.startBar) / totalBars) * 100}%`}
               height="100%"
-              fill={toolColor}
-              fillOpacity={0.08}
+              fill={activeDragSnap.isSnapped ? '#FF8C00' : '#38BDF8'}
+              fillOpacity={0.07}
             />
-
-            {/* Quantized Steps inside Painted Range */}
-            {Array.from({ length: Math.ceil(activePainting.durationBars / stepSize) }).map((_, stepIdx) => {
-              const tickBar = activePainting.startBar + stepIdx * stepSize;
-              if (tickBar > activePainting.endBar) return null;
-              const xPct = (tickBar / totalBars) * 100;
-              return (
-                <line
-                  key={`paint-tick-${stepIdx}`}
-                  x1={`${xPct}%`}
-                  y1="0"
-                  x2={`${xPct}%`}
-                  y2="100%"
-                  stroke={toolColor}
-                  strokeWidth="1"
-                  strokeDasharray="3,3"
-                  opacity={0.4}
-                />
-              );
-            })}
-
-            {/* Start Snap Line */}
             <line
-              x1={`${(activePainting.startBar / totalBars) * 100}%`}
+              x1={`${(activeDragSnap.startBar / totalBars) * 100}%`}
               y1="0"
-              x2={`${(activePainting.startBar / totalBars) * 100}%`}
+              x2={`${(activeDragSnap.startBar / totalBars) * 100}%`}
               y2="100%"
-              stroke={toolColor}
-              strokeWidth="2.5"
-              filter="url(#laser-glow)"
-              opacity={0.95}
+              stroke={activeDragSnap.isSnapped ? (activeDragSnap.mode === 'trim-end' ? '#FFD700' : '#FF8C00') : '#38BDF8'}
+              strokeWidth={activeDragSnap.mode === 'trim-end' ? '1.25' : '2.25'}
+              strokeDasharray={activeDragSnap.mode === 'trim-end' ? '3,3' : activeDragSnap.isSnapped ? undefined : '4,4'}
+              filter={activeDragSnap.mode === 'trim-end' ? undefined : 'url(#laser-glow)'}
+              opacity={activeDragSnap.mode === 'trim-end' ? 0.65 : 0.95}
             />
-
-            {/* End Snap Line */}
             <line
-              x1={`${(activePainting.endBar / totalBars) * 100}%`}
+              x1={`${(activeDragSnap.endBar / totalBars) * 100}%`}
               y1="0"
-              x2={`${(activePainting.endBar / totalBars) * 100}%`}
+              x2={`${(activeDragSnap.endBar / totalBars) * 100}%`}
               y2="100%"
-              stroke={toolColor}
-              strokeWidth="2.5"
-              filter="url(#laser-glow)"
-              opacity={0.95}
+              stroke={activeDragSnap.isSnapped ? (activeDragSnap.mode === 'trim-end' ? '#00F0FF' : '#FFD700') : '#38BDF8'}
+              strokeWidth={activeDragSnap.mode === 'trim-end' ? '2.5' : '1.25'}
+              strokeDasharray={activeDragSnap.mode === 'trim-end' ? (activeDragSnap.isSnapped ? undefined : '4,4') : '3,3'}
+              filter={activeDragSnap.mode === 'trim-end' ? 'url(#laser-glow)' : undefined}
+              opacity={activeDragSnap.mode === 'trim-end' ? 0.98 : 0.65}
             />
           </g>
         )}
@@ -284,84 +418,240 @@ const SequencerGridOverlay: React.FC<SequencerGridOverlayProps> = ({
             />
           </g>
         )}
+        {/* 3.5 Hover Snapped Incremental Erase Cell Target for the Red Laser Eraser */}
+        {isEraseTool && isHovering && !activePainting?.isActive && eraseCellStart !== null && eraseCellEnd !== null && (
+          <g>
+            <rect
+              x={`${(eraseCellStart / totalBars) * 100}%`}
+              y="0"
+              width={`${((eraseCellEnd - eraseCellStart) / totalBars) * 100}%`}
+              height="100%"
+              fill="#EF4444"
+              fillOpacity={0.14}
+            />
+            <line
+              x1={`${(eraseCellStart / totalBars) * 100}%`}
+              y1="0"
+              x2={`${(eraseCellStart / totalBars) * 100}%`}
+              y2="100%"
+              stroke="#EF4444"
+              strokeWidth="2"
+              filter="url(#laser-glow)"
+              opacity={0.95}
+            />
+            <line
+              x1={`${(eraseCellEnd / totalBars) * 100}%`}
+              y1="0"
+              x2={`${(eraseCellEnd / totalBars) * 100}%`}
+              y2="100%"
+              stroke="#EF4444"
+              strokeWidth="1.5"
+              strokeDasharray="3,3"
+              opacity={0.85}
+            />
+          </g>
+        )}
       </svg>
 
-      {/* 4. Interactive Magnetic Snap Lock Heads & HUD Badges */}
-      {isPaintTool && isHovering && snappedBar !== null && isSnapLocked && (
+      {/* 4. Reticle Snap Pip near Mouse Y (kept off top-of-track-1 area) */}
+      {((isPaintTool && isHovering && snappedPercent !== null && isSnapLocked) ||
+        (isEraseTool && isHovering && eraseCellStart !== null && !activePainting?.isActive)) &&
+        mouseY !== undefined && (
         <div
-          className="absolute top-0 flex flex-col items-center pointer-events-none z-30 transition-all duration-75"
+          className="absolute w-4 h-4 rounded-full border-2 flex items-center justify-center pointer-events-none z-20"
           style={{
-            left: `${snappedPercent}%`,
-            transform: 'translateX(-50%)'
-          }}
-        >
-          {/* Top Snap Magnet Pip */}
-          <div 
-            className="w-3 h-3 rounded-full flex items-center justify-center shadow-lg transform -translate-y-1 animate-pulse"
-            style={{
-              backgroundColor: toolColor,
-              boxShadow: `0 0 10px ${toolColor}`
-            }}
-          >
-            <Magnet size={8} className="text-black" />
-          </div>
-
-          {/* Floating Quantization Lock Badge */}
-          <div
-            className="mt-1 px-1.5 py-0.5 rounded text-[8px] font-mono font-bold flex items-center gap-1 shadow-2xl border backdrop-blur-md whitespace-nowrap"
-            style={{
-              backgroundColor: '#060A14EE',
-              borderColor: toolColor,
-              color: toolColor,
-              boxShadow: `0 0 10px ${toolGlow}`
-            }}
-          >
-            <Lock size={8} className="fill-current text-[#FFD700]" />
-            <span>SNAP {snapValue}</span>
-            <span className="text-white opacity-90">[{formatBarBeat(snappedBar)}]</span>
-          </div>
-
-          {/* Reticle Snap Pip near Mouse Y */}
-          {mouseY !== undefined && (
-            <div
-              className="absolute w-4 h-4 rounded-full border-2 flex items-center justify-center pointer-events-none"
-              style={{
-                top: `${mouseY}px`,
-                borderColor: toolColor,
-                transform: 'translateY(-50%)',
-                boxShadow: `0 0 8px ${toolColor}`
-              }}
-            >
-              <div 
-                className="w-1.5 h-1.5 rounded-full"
-                style={{ backgroundColor: toolColor }}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 5. Active Painting Quantization Feedback HUD */}
-      {activePainting && activePainting.isActive && activePainting.durationBars > 0 && (
-        <div
-          className="absolute top-1 z-30 pointer-events-none flex items-center gap-1.5 px-2 py-0.5 rounded bg-black/90 border text-[9px] font-mono font-bold shadow-2xl"
-          style={{
-            left: `${((activePainting.startBar + activePainting.durationBars / 2) / totalBars) * 100}%`,
-            transform: 'translateX(-50%)',
+            left: `${isEraseTool && eraseCellStart !== null ? (eraseCellStart / totalBars) * 100 : snappedPercent}%`,
+            top: `${mouseY}px`,
             borderColor: toolColor,
-            color: toolColor,
-            boxShadow: `0 0 14px ${toolGlow}`
+            transform: 'translate(-50%, -50%)',
+            boxShadow: `0 0 8px ${toolColor}`
           }}
         >
-          <Zap size={10} className="text-[#FFD700] animate-pulse" />
-          <span>PAINT SNAP: {activePainting.durationBars.toFixed(2)} BARS</span>
-          <span className="text-white opacity-70">
-            ({Math.max(1, Math.round(activePainting.durationBars / 2))} LOOPS • {snapValue} QUANTIZE)
-          </span>
+          <div
+            className="w-1.5 h-1.5 rounded-full"
+            style={{ backgroundColor: toolColor }}
+          />
         </div>
       )}
     </div>
   );
+};
+
+interface SequencerRulerSnapTooltipProps {
+  snapValue: string;
+  totalBars?: number;
+  activeTool: ActiveTool;
+  hoverBar: number | null;
+  isHovering: boolean;
+  activePainting?: ActivePaintingState | null;
+  activeDragSnap?: ActiveDragSnapState | null;
+  showOverlay?: boolean;
+}
+
+function getHorizontalClampTransform(pct: number): string {
+  if (pct < 8) return 'translateX(0%)';
+  if (pct > 92) return 'translateX(-100%)';
+  return 'translateX(-50%)';
+}
+
+export const SequencerRulerSnapTooltip: React.FC<SequencerRulerSnapTooltipProps> = ({
+  snapValue,
+  totalBars = 16,
+  activeTool,
+  hoverBar,
+  isHovering,
+  activePainting,
+  activeDragSnap,
+  showOverlay = true
+}) => {
+  const isPaintTool = activeTool === 'laser_audio' || activeTool === 'laser_midi' || activeTool === 'beam';
+  const isEraseTool = activeTool === 'laser_erase' || activeTool === 'erase';
+  const isCurveTool = activeTool === 'laser_curve' || activeTool === 'draw';
+  const isQuantizationActive = snapValue !== 'off' && snapValue !== 'freeform';
+
+  const toolColor = activeTool === 'laser_midi'
+    ? '#10B981'
+    : isEraseTool
+      ? '#EF4444'
+      : isCurveTool
+        ? '#FFD700'
+        : '#00F0FF';
+
+  const toolGlow = activeTool === 'laser_midi'
+    ? 'rgba(16, 185, 129, 0.55)'
+    : isEraseTool
+      ? 'rgba(239, 68, 68, 0.55)'
+      : isCurveTool
+        ? 'rgba(255, 215, 0, 0.55)'
+        : 'rgba(0, 240, 255, 0.55)';
+
+  // 1. Active painting / erasing HUD tooltip (positioned in the ruler above Track 1)
+  if (activePainting && activePainting.isActive && activePainting.durationBars > 0) {
+    const pct = Math.max(0, Math.min(100, (activePainting.currentBar / totalBars) * 100));
+    const snapLabel = activePainting.isMicroBypass ? 'MICRO (ALT)' : snapValue;
+    const isActiveErase = isEraseTool || activePainting.mode === 'erase';
+    const hudColor = isActiveErase ? '#EF4444' : toolColor;
+    const hudGlow = isActiveErase ? 'rgba(239, 68, 68, 0.55)' : toolGlow;
+    return (
+      <div
+        className="absolute bottom-0.5 z-40 pointer-events-none flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#050811]/95 border text-[9px] font-mono font-bold leading-tight shadow-xl whitespace-nowrap"
+        style={{
+          left: `${pct}%`,
+          transform: getHorizontalClampTransform(pct),
+          borderColor: hudColor,
+          color: hudColor,
+          boxShadow: `0 0 12px ${hudGlow}`
+        }}
+      >
+        <Zap size={9} className="text-[#FFD700] shrink-0" />
+        <span>{isActiveErase ? 'ERASE' : 'PAINT'}: {activePainting.durationBars.toFixed(2)}b</span>
+        <span className="text-white/90">
+          [{formatBarBeat(activePainting.startBar)}–{formatBarBeat(activePainting.endBar)}]
+        </span>
+        <span className="text-white/65">· {snapLabel}</span>
+      </div>
+    );
+  }
+
+  // 2. Active clip drag / edge trim / non-destructive time-stretch snap badge (positioned in ruler above Track 1)
+  if (activeDragSnap) {
+    const isTrimEnd = activeDragSnap.mode === 'trim-end';
+    const isTrimStart = activeDragSnap.mode === 'trim-start';
+    const isTimeStretch = activeDragSnap.mode === 'time-stretch';
+    const anchorBar = isTrimEnd || isTimeStretch ? activeDragSnap.endBar : activeDragSnap.startBar;
+    const pct = Math.max(0, Math.min(100, (anchorBar / totalBars) * 100));
+    const snapModeLabel = activeDragSnap.isMicroBypass
+      ? 'MICRO (ALT)'
+      : activeDragSnap.isSnapped
+        ? `SNAP ${snapValue}`
+        : 'FREEFORM';
+    const actionLabel = isTimeStretch
+      ? `TIME STRETCH ${(activeDragSnap.stretchRatio ?? 1).toFixed(2)}x${activeDragSnap.preservePitch !== false ? ' · PITCH LOCK' : ''}`
+      : isTrimEnd
+        ? 'TRIM END'
+        : isTrimStart
+          ? 'TRIM START'
+          : snapModeLabel;
+    const clipLen = Math.max(0, activeDragSnap.endBar - activeDragSnap.startBar);
+
+    return (
+      <div
+        className="absolute bottom-0.5 z-40 pointer-events-none flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#050811]/95 border text-[9px] font-mono font-bold leading-tight shadow-xl whitespace-nowrap"
+        style={{
+          left: `${pct}%`,
+          transform: getHorizontalClampTransform(pct),
+          borderColor: isTimeStretch ? '#10B981' : isTrimEnd || isTrimStart ? '#00F0FF' : activeDragSnap.isSnapped ? '#FF8C00' : '#38BDF8',
+          color: isTimeStretch ? '#34D399' : isTrimEnd || isTrimStart ? '#67E8F9' : activeDragSnap.isSnapped ? '#FFD700' : '#7DD3FC',
+          boxShadow: isTimeStretch
+            ? '0 0 12px rgba(16,185,129,0.5)'
+            : isTrimEnd || isTrimStart
+              ? '0 0 12px rgba(0,240,255,0.45)'
+              : activeDragSnap.isSnapped
+                ? '0 0 10px rgba(255,140,0,0.45)'
+                : '0 0 10px rgba(56,189,248,0.35)'
+        }}
+      >
+        <Magnet size={9} className="shrink-0" />
+        <span>{actionLabel}</span>
+        <span className="text-white">[{formatBarBeat(anchorBar)}]</span>
+        {(isTrimEnd || isTrimStart || isTimeStretch) && (
+          <span className="text-amber-300">
+            LEN {clipLen.toFixed(2)}b · {snapModeLabel}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  // 3. Hover incremental erase target tooltip (Red Laser)
+  if (showOverlay && isEraseTool && isHovering && hoverBar !== null) {
+    const effStep = Math.max(0.03125, isQuantizationActive ? getSnapStepSize(snapValue) : 0.25);
+    const cellStart = Math.max(0, Math.min(totalBars - effStep, Math.floor((hoverBar + 1e-6) / effStep) * effStep));
+    const cellEnd = Math.min(totalBars, cellStart + effStep);
+    const pct = (cellStart / totalBars) * 100;
+    return (
+      <div
+        className="absolute bottom-0.5 z-40 pointer-events-none flex items-center gap-1 px-2 py-0.5 rounded bg-[#14070B]/95 border text-[9px] font-mono font-bold leading-tight shadow-xl whitespace-nowrap"
+        style={{
+          left: `${pct}%`,
+          transform: getHorizontalClampTransform(pct),
+          borderColor: '#EF4444',
+          color: '#FCA5A5',
+          boxShadow: '0 0 10px rgba(239, 68, 68, 0.55)'
+        }}
+      >
+        <Lock size={8} className="fill-current text-[#EF4444] shrink-0" />
+        <span>ERASE {isQuantizationActive ? snapValue : '1/4'}</span>
+        <span className="text-white/90">
+          [{formatBarBeat(cellStart)}–{formatBarBeat(cellEnd)}]
+        </span>
+      </div>
+    );
+  }
+
+  // 4. Hover quantization lock tooltip for Paint tools (positioned in the ruler above Track 1)
+  if (showOverlay && isPaintTool && isHovering && hoverBar !== null && isQuantizationActive) {
+    const snappedBar = Math.max(0, Math.min(totalBars, snapToGrid(hoverBar, snapValue)));
+    const pct = (snappedBar / totalBars) * 100;
+    return (
+      <div
+        className="absolute bottom-0.5 z-40 pointer-events-none flex items-center gap-1 px-2 py-0.5 rounded bg-[#050811]/95 border text-[9px] font-mono font-bold leading-tight shadow-xl whitespace-nowrap"
+        style={{
+          left: `${pct}%`,
+          transform: getHorizontalClampTransform(pct),
+          borderColor: toolColor,
+          color: toolColor,
+          boxShadow: `0 0 10px ${toolGlow}`
+        }}
+      >
+        <Lock size={8} className="fill-current text-[#FFD700] shrink-0" />
+        <span>SNAP {snapValue}</span>
+        <span className="text-white/90">[{formatBarBeat(snappedBar)}]</span>
+      </div>
+    );
+  }
+
+  return null;
 };
 
 export default SequencerGridOverlay;

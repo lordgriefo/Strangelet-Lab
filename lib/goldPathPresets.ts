@@ -281,6 +281,7 @@ export const FACTORY_GOLD_PATH_PRESETS: GoldPathPreset[] = [
 
 export const STORAGE_KEY_GOLD_PATH_PRESETS = 'strangelet_gold_path_presets';
 export const STORAGE_KEY_ACTIVE_PRESET_ID = 'strangelet_gold_path_active_preset_id';
+export const STORAGE_KEY_MATCHERING_ENABLED = 'strangelet_gold_path_matchering_enabled';
 
 /**
  * Loads all Gold Path presets (Factory + User presets from LocalStorage)
@@ -435,6 +436,20 @@ export function importGoldPathPresetJson(jsonString: string): GoldPathPreset {
  * Synchronizes Gold Path chain parameters with the live Master Parametric EQ filters in masterAudioBus
  */
 export function syncGoldPathToMasterBus(preset: GoldPathPreset) {
+  try {
+    if (typeof window !== 'undefined') {
+      if (preset.id) {
+        localStorage.setItem(STORAGE_KEY_ACTIVE_PRESET_ID, preset.id);
+      }
+      localStorage.setItem(
+        STORAGE_KEY_MATCHERING_ENABLED,
+        String(Boolean(preset.stages?.matchering))
+      );
+    }
+  } catch {
+    // ignore storage errors
+  }
+
   try {
     const currentBands = masterAudioBus.getBands();
     const updatedBands = currentBands.map(band => {

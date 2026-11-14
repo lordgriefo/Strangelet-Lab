@@ -6,7 +6,16 @@
  * Faust JIT, Model cache) so users can switch components ON/OFF to free memory.
  */
 
-export type HardwareTierId = 'tier_6gb' | 'tier_8gb' | 'tier_16gb' | 'tier_24gb';
+export type HardwareTierId = 'tier_4gb' | 'tier_6gb' | 'tier_8gb' | 'tier_16gb' | 'tier_24gb';
+
+export interface RecommendedGhostModel {
+  id: string;
+  name: string;
+  shortLabel: string;
+  ollamaTag: string;
+  vramGb: number;
+  vramBudgetMb: number;
+}
 
 export interface HardwareTierProfile {
   id: HardwareTierId;
@@ -15,6 +24,7 @@ export interface HardwareTierProfile {
   description: string;
   targetHardware: string;
   recommendedLlmQuant: string;
+  recommendedGhostModel: RecommendedGhostModel;
   maxResidentModels: number;
   defaultStemEngine: 'mobile_onnx' | 'htdemucs_fp16';
   autoOffloadIdleSeconds: number;
@@ -22,13 +32,41 @@ export interface HardwareTierProfile {
 }
 
 export const HARDWARE_TIERS: Record<HardwareTierId, HardwareTierProfile> = {
+  tier_4gb: {
+    id: 'tier_4gb',
+    name: '4GB VRAM (Minimum / Ultralight)',
+    totalVramGb: 4.0,
+    description: 'Lowest VRAM footprint for 4GB GPUs running compact 3B local models (Llama 3B, Qwen 3B, Gemma, or Ministral 3B).',
+    targetHardware: '4GB GPU / Minimum Tier',
+    recommendedLlmQuant: '3B Ultralight Q4_K_S (1.9GB)',
+    recommendedGhostModel: {
+      id: 'ghost-mad-scientist-3b',
+      name: 'GHOST Mad Scientist Mini (3B GGUF Q4_K_S)',
+      shortLabel: '3B MINI',
+      ollamaTag: 'llama3.2:3b',
+      vramGb: 1.9,
+      vramBudgetMb: 1900
+    },
+    maxResidentModels: 1,
+    defaultStemEngine: 'mobile_onnx',
+    autoOffloadIdleSeconds: 15,
+    color: '#EF4444' // red
+  },
   tier_6gb: {
     id: 'tier_6gb',
     name: '6GB VRAM (Tight / Laptop Mode)',
     totalVramGb: 6.0,
-    description: 'Designed for RTX 2060, RTX 3060 6GB Laptop, GTX 1660 Ti, and 8GB unified Macs.',
+    description: 'Designed for RTX 2060, RTX 3060 6GB Laptop, GTX 1660 Ti, and 8GB unified Macs running 3B–4B models.',
     targetHardware: 'NVIDIA RTX 3060 6GB / Mobile GPU',
-    recommendedLlmQuant: 'Q4_K_S (2.1GB - 3.4GB)',
+    recommendedLlmQuant: '3B–4B Compact Q4_K_M (2.1GB - 2.6GB)',
+    recommendedGhostModel: {
+      id: 'ghost-mad-scientist-4b',
+      name: 'GHOST Mad Scientist (Auto VRAM 3B–4B GGUF)',
+      shortLabel: '3B/4B LAB',
+      ollamaTag: 'llama3.2:3b',
+      vramGb: 2.6,
+      vramBudgetMb: 2600
+    },
     maxResidentModels: 1,
     defaultStemEngine: 'mobile_onnx',
     autoOffloadIdleSeconds: 30,
@@ -38,9 +76,17 @@ export const HARDWARE_TIERS: Record<HardwareTierId, HardwareTierProfile> = {
     id: 'tier_8gb',
     name: '8GB VRAM (Balanced Desktop)',
     totalVramGb: 8.0,
-    description: 'For RTX 3070, RTX 4060, RX 6600, Apple M1/M2/M3 16GB shared.',
+    description: 'For RTX 3070, RTX 4060, RX 6600, Apple M1/M2/M3 16GB shared running 7B–8B studio models.',
     targetHardware: 'NVIDIA RTX 3070 / 4060 8GB',
-    recommendedLlmQuant: 'Q4_K_M (3.8GB - 4.5GB)',
+    recommendedLlmQuant: '7B–8B Studio Q4_K_M (3.8GB - 4.8GB)',
+    recommendedGhostModel: {
+      id: 'ghost-studio-8b',
+      name: 'GHOST Studio Alchemist (7B/8B GGUF Q4_K_M)',
+      shortLabel: '7B/8B LAB',
+      ollamaTag: 'llama3.1:8b',
+      vramGb: 4.2,
+      vramBudgetMb: 4200
+    },
     maxResidentModels: 1,
     defaultStemEngine: 'mobile_onnx',
     autoOffloadIdleSeconds: 60,
@@ -52,7 +98,15 @@ export const HARDWARE_TIERS: Record<HardwareTierId, HardwareTierProfile> = {
     totalVramGb: 16.0,
     description: 'For RTX 4070 Ti, RTX 4080 16GB, AMD RX 7800 XT, or Apple M Pro 24GB+.',
     targetHardware: 'NVIDIA RTX 4070 Ti / 4080 (16GB Upgraded)',
-    recommendedLlmQuant: 'Q8 / FP16 (4.8GB - 9.5GB)',
+    recommendedLlmQuant: '14B Q4_K_M / 8B Q8 (8.4GB)',
+    recommendedGhostModel: {
+      id: 'ghost-pro-14b',
+      name: 'GHOST Pro 14B Master (Pro Studio GGUF Q4_K_M)',
+      shortLabel: '14B PRO',
+      ollamaTag: 'llama3.1:8b',
+      vramGb: 8.4,
+      vramBudgetMb: 8400
+    },
     maxResidentModels: 3,
     defaultStemEngine: 'htdemucs_fp16',
     autoOffloadIdleSeconds: 0, // never offload
@@ -64,13 +118,46 @@ export const HARDWARE_TIERS: Record<HardwareTierId, HardwareTierProfile> = {
     totalVramGb: 24.0,
     description: 'For RTX 3090, RTX 4090, Apple M Max/Ultra 36GB-128GB.',
     targetHardware: 'NVIDIA RTX 3090 / 4090 (24GB)',
-    recommendedLlmQuant: 'Full FP16 Unquantized (14GB+)',
+    recommendedLlmQuant: '8B Q8_0 / Full FP16 (8.5GB - 14GB+)',
+    recommendedGhostModel: {
+      id: 'llama-3.1-8b-q8',
+      name: 'GHOST Titan Master (High-Def Q8_0)',
+      shortLabel: 'TITAN Q8',
+      ollamaTag: 'llama3.1:8b',
+      vramGb: 8.5,
+      vramBudgetMb: 8500
+    },
     maxResidentModels: 5,
     defaultStemEngine: 'htdemucs_fp16',
     autoOffloadIdleSeconds: 0,
     color: '#8B5CF6' // purple
   }
 };
+
+export function getRecommendedGhostModelForTier(tierId: HardwareTierId): RecommendedGhostModel {
+  return (HARDWARE_TIERS[tierId] || HARDWARE_TIERS.tier_6gb).recommendedGhostModel;
+}
+
+export function getGhostShortModelBadge(modelName: string): string {
+  const lower = (modelName || '').toLowerCase();
+  if (lower.includes('mad scientist mini') || (lower.includes('3b mini'))) return '3B MINI';
+  if (lower.includes('mad scientist')) return '3B/4B LAB';
+  if (lower.includes('studio alchemist')) return '7B/8B LAB';
+  if (lower.includes('titan master')) return 'TITAN Q8';
+  if (lower.includes('pro 14b master')) return '14B PRO';
+  if (lower.includes('llama') && lower.includes('3b')) return 'LLAMA 3B';
+  if (lower.includes('llama') && lower.includes('q8')) return 'LLAMA 8B Q8';
+  if (lower.includes('llama') && lower.includes('8b')) return 'LLAMA 8B';
+  if (lower.includes('gemma')) return 'GEMMA';
+  if (lower.includes('mistral') || lower.includes('ministral')) return 'MISTRAL';
+  if (lower.includes('qwen') && lower.includes('14b')) return 'QWEN 14B';
+  if (lower.includes('qwen') && lower.includes('4b')) return 'QWEN 4B';
+  if (lower.includes('qwen') && lower.includes('3b')) return 'QWEN 3B';
+  if (lower.includes('qwen') && lower.includes('7b')) return 'QWEN 7B';
+  if (lower.includes('llama')) return 'LLAMA';
+  const clean = (modelName || 'MAD SCIENTIST').replace(/^ghost\s*/i, '').split('(')[0].trim();
+  return (clean || 'MAD SCIENTIST').slice(0, 14).toUpperCase();
+}
 
 export type ComponentPowerState = 'active' | 'standby' | 'unloaded';
 
@@ -195,6 +282,9 @@ export function getStoredResourceState(): ResourceManagerState {
 export function saveStoredResourceState(state: ResourceManagerState): void {
   try {
     localStorage.setItem(RESOURCE_STORAGE_KEY, JSON.stringify(state));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('strangelet-resource-updated'));
+    }
   } catch (err) {
     console.warn('Failed to save resource manager state:', err);
   }
@@ -310,13 +400,29 @@ export function setComponentPowerState(
  */
 export function setHardwareTier(tierId: HardwareTierId): ResourceManagerState {
   const current = getStoredResourceState();
+  const recGhost = getRecommendedGhostModelForTier(tierId);
   const updated: ResourceManagerState = {
     ...current,
-    activeTier: tierId
+    activeTier: tierId,
+    components: {
+      ...current.components,
+      local_llm_hub: {
+        ...current.components.local_llm_hub,
+        vramActiveGb: recGhost.vramGb,
+        notes: `VRAM-matched: ${recGhost.shortLabel} (${recGhost.vramGb} GB)`
+      }
+    }
   };
 
   // Adjust default component states based on tier capacity
-  if (tierId === 'tier_6gb') {
+  if (tierId === 'tier_4gb') {
+    updated.components = {
+      ...updated.components,
+      acestep_diffusion: { ...updated.components.acestep_diffusion, powerState: 'unloaded' },
+      stem_demucs: { ...updated.components.stem_demucs, powerState: 'unloaded' },
+      basic_pitch_neural: { ...updated.components.basic_pitch_neural, powerState: 'unloaded' }
+    };
+  } else if (tierId === 'tier_6gb') {
     // In 6GB mode, put heavy models on standby/unloaded by default
     updated.components = {
       ...updated.components,
@@ -324,8 +430,15 @@ export function setHardwareTier(tierId: HardwareTierId): ResourceManagerState {
       stem_demucs: { ...updated.components.stem_demucs, powerState: 'unloaded' },
       basic_pitch_neural: { ...updated.components.basic_pitch_neural, powerState: 'standby' }
     };
+  } else if (tierId === 'tier_8gb') {
+    updated.components = {
+      ...updated.components,
+      acestep_diffusion: { ...updated.components.acestep_diffusion, powerState: 'standby' },
+      stem_demucs: { ...updated.components.stem_demucs, powerState: 'standby' },
+      basic_pitch_neural: { ...updated.components.basic_pitch_neural, powerState: 'standby' }
+    };
   } else if (tierId === 'tier_16gb' || tierId === 'tier_24gb') {
-    // In 16GB mode, keep things warm and active
+    // In 16GB/24GB mode, keep things warm and active
     updated.components = {
       ...updated.components,
       acestep_diffusion: { ...updated.components.acestep_diffusion, powerState: 'active' },

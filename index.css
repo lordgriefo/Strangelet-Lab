@@ -1,3 +1,4 @@
+@import "tailwindcss";
 /* Strangelet Lab Master Stylesheet */
 @layer base {
   html, body {

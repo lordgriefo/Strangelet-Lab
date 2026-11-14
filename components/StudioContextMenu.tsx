@@ -40,8 +40,10 @@ import {
   FolderPlus,
   RotateCcw,
   FolderArchive,
-  Download
+  Download,
+  ArrowLeftRight
 } from 'lucide-react';
+import { audioService } from '../services/audioService';
 
 export interface ContextMenuTarget {
   x: number;
@@ -90,6 +92,8 @@ export interface StudioContextMenuProps {
   isUiSoundMuted: boolean;
   onToggleLynchianMode: () => void;
   lynchianMode: boolean;
+  beamModeEnabled?: boolean;
+  onToggleBeamMode?: () => void;
 }
 
 interface MenuItem {
@@ -139,7 +143,9 @@ export const StudioContextMenu: React.FC<StudioContextMenuProps> = ({
   onToggleUiSound,
   isUiSoundMuted,
   onToggleLynchianMode,
-  lynchianMode
+  lynchianMode,
+  beamModeEnabled,
+  onToggleBeamMode
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<'all' | 'context' | 'views' | 'project' | 'ai' | 'tools'>('all');
@@ -183,6 +189,126 @@ export const StudioContextMenu: React.FC<StudioContextMenuProps> = ({
           }
         });
 
+        list.push({
+          id: 'clip-send-audio-editor',
+          category: 'context',
+          label: 'Send to Audio Waveform Editor',
+          sublabel: `Trim, normalize & edit "${targetClip.name}"`,
+          icon: Scissors,
+          iconColor: 'text-cyan-400',
+          action: () => {
+            onEditClip(targetClip);
+            onSelectView(View.AUDIO_EDITOR);
+          }
+        });
+
+        list.push({
+          id: 'clip-send-midi-editor',
+          category: 'context',
+          label: 'Send to MIDI Piano Roll',
+          sublabel: `Edit notes & velocity for "${targetClip.name}"`,
+          icon: Music,
+          iconColor: 'text-purple-400',
+          action: () => {
+            onEditClip(targetClip);
+            onSelectView(View.MIDI_EDITOR);
+          }
+        });
+
+        list.push({
+          id: 'clip-send-spectral',
+          category: 'context',
+          label: 'Send to Spectral Analysis',
+          sublabel: 'Inspect FFT spectrum & phase correlation',
+          icon: BarChart3,
+          iconColor: 'text-[#00F0FF]',
+          action: () => {
+            onEditClip(targetClip);
+            onSelectView(View.SPECTRAL_ANALYSIS);
+          }
+        });
+
+        list.push({
+          id: 'clip-send-drum-trigger',
+          category: 'context',
+          label: 'Send to Drum Trigger / Replacer',
+          sublabel: 'Detect transients & layer SFZ drum samples',
+          icon: Disc,
+          iconColor: 'text-orange-400',
+          action: () => {
+            onEditClip(targetClip);
+            onSelectView(View.DRUM_TRIGGER);
+          }
+        });
+
+        list.push({
+          id: 'clip-send-beam-splitter',
+          category: 'context',
+          label: 'Send to Beam Splitter (Stems)',
+          sublabel: 'Separate vocals, drums, bass & instruments',
+          icon: Split,
+          iconColor: 'text-indigo-400',
+          action: () => {
+            onEditClip(targetClip);
+            onSelectView(View.BEAM_SPLITTER);
+          }
+        });
+
+        if (onUpdateTrack && !targetClip.isMidi && targetTrack.type === 'audio') {
+          const isStretchOn = Boolean(targetClip.timeStretchEnabled);
+          list.push({
+            id: 'clip-toggle-time-stretch',
+            category: 'context',
+            label: isStretchOn
+              ? 'Disable Right-Edge Time Stretch'
+              : 'Enable Right-Edge Time Stretch (Pitch-Locked)',
+            sublabel: isStretchOn
+              ? 'Switch right-edge drag back to Trim/Loop mode'
+              : 'Drag right edge on timeline to change speed while keeping pitch',
+            icon: ArrowLeftRight,
+            iconColor: isStretchOn ? 'text-emerald-400' : 'text-[#00F0FF]',
+            action: () => {
+              onUpdateTrack(targetTrack.id, {
+                clips: targetTrack.clips.map(c =>
+                  c.id === targetClip.id
+                    ? {
+                        ...c,
+                        timeStretchEnabled: !isStretchOn,
+                        originalDurationBars: c.originalDurationBars ?? c.durationBars,
+                        preservePitch: c.preservePitch ?? true
+                      }
+                    : c
+                )
+              });
+            }
+          });
+
+          if (targetClip.timeStretchRatio && Math.abs(targetClip.timeStretchRatio - 1) > 0.005) {
+            list.push({
+              id: 'clip-reset-time-stretch',
+              category: 'context',
+              label: `Reset Time Stretch (${targetClip.timeStretchRatio.toFixed(2)}x → 1.00x)`,
+              sublabel: 'Restore original unstretched duration & audio buffer',
+              icon: RotateCcw,
+              iconColor: 'text-amber-300',
+              action: () => {
+                const origDur = targetClip.originalDurationBars ?? targetClip.durationBars;
+                const origBuf = audioService.getOriginalTrackAudioBuffer(targetTrack.id);
+                if (origBuf) {
+                  audioService.setTrackAudioBuffer(targetTrack.id, origBuf, true);
+                }
+                onUpdateTrack(targetTrack.id, {
+                  clips: targetTrack.clips.map(c =>
+                    c.id === targetClip.id
+                      ? { ...c, durationBars: origDur, timeStretchRatio: 1 }
+                      : c
+                  )
+                });
+              }
+            });
+          }
+        }
+
         if (onDuplicateClip) {
           list.push({
             id: 'clip-duplicate',
@@ -221,6 +347,58 @@ export const StudioContextMenu: React.FC<StudioContextMenuProps> = ({
             action: () => onDeleteClip(targetTrack.id, targetClip.id)
           });
         }
+      } else {
+        // Quick Send actions when right-clicking a track lane directly
+        list.push({
+          id: 'track-send-editor',
+          category: 'context',
+          label:
+            targetTrack.type === 'midi'
+              ? `Open Track "${targetTrack.name}" in MIDI Editor`
+              : `Open Track "${targetTrack.name}" in Audio Editor`,
+          sublabel:
+            targetTrack.clips.length > 0
+              ? `Loads "${targetTrack.clips[0].name}" into editor`
+              : 'Switch to dedicated editor workspace',
+          icon: targetTrack.type === 'midi' ? Music : Scissors,
+          iconColor: targetTrack.type === 'midi' ? 'text-purple-400' : 'text-cyan-400',
+          action: () => {
+            if (targetTrack.clips[0]) {
+              onEditClip(targetTrack.clips[0]);
+            }
+            onSelectView(targetTrack.type === 'midi' ? View.MIDI_EDITOR : View.AUDIO_EDITOR);
+          }
+        });
+
+        list.push({
+          id: 'track-send-spectral',
+          category: 'context',
+          label: `Send "${targetTrack.name}" to Spectral Analysis`,
+          sublabel: 'Open FFT & stereo phase analyzer focused on this track',
+          icon: BarChart3,
+          iconColor: 'text-[#00F0FF]',
+          action: () => {
+            if (targetTrack.clips[0]) {
+              onEditClip(targetTrack.clips[0]);
+            }
+            onSelectView(View.SPECTRAL_ANALYSIS);
+          }
+        });
+
+        list.push({
+          id: 'track-send-beam-splitter',
+          category: 'context',
+          label: `Send "${targetTrack.name}" to Beam Splitter`,
+          sublabel: 'Separate stems or chop into timeline hits',
+          icon: Split,
+          iconColor: 'text-indigo-400',
+          action: () => {
+            if (targetTrack.clips[0]) {
+              onEditClip(targetTrack.clips[0]);
+            }
+            onSelectView(View.BEAM_SPLITTER);
+          }
+        });
       }
 
       // Track Controls
@@ -605,6 +783,21 @@ export const StudioContextMenu: React.FC<StudioContextMenuProps> = ({
       action: onToggleLynchianMode
     });
 
+    if (onToggleBeamMode) {
+      list.push({
+        id: 'util-beam-mode',
+        category: 'utilities',
+        label: beamModeEnabled ? 'Beam Mode (R-Click Erase): ON' : 'Beam Mode (R-Click Erase): OFF',
+        sublabel: beamModeEnabled
+          ? 'Switch OFF so right-clicking lanes/clips opens this Studio Menu'
+          : 'Switch ON for ACID-style left-paint / right-erase laser mode',
+        shortcut: 'B',
+        icon: Zap,
+        iconColor: beamModeEnabled ? 'text-[#00F0FF]' : 'text-[#888]',
+        action: onToggleBeamMode
+      });
+    }
+
     list.push({
       id: 'util-user-guide',
       category: 'utilities',
@@ -624,6 +817,8 @@ export const StudioContextMenu: React.FC<StudioContextMenuProps> = ({
     tracks,
     isUiSoundMuted,
     lynchianMode,
+    beamModeEnabled,
+    onToggleBeamMode,
     onEditClip,
     onSelectView,
     onAddAudioTrack,
@@ -819,6 +1014,65 @@ export const StudioContextMenu: React.FC<StudioContextMenuProps> = ({
             </button>
           )}
         </div>
+
+        {/* Quick Inline Clip Section Color Strip when a Clip Segment is Right-Clicked */}
+        {targetTrack && targetClip && onUpdateTrack && (
+          <div className="mt-2 pt-1.5 border-t border-[#1A2133] flex items-center justify-between gap-1.5">
+            <span className="text-[9px] font-mono text-[#64748B] uppercase shrink-0">
+              Clip Color:
+            </span>
+            <div className="flex items-center gap-1">
+              {[
+                { label: 'Verse', color: '#00F0FF' },
+                { label: 'Pre', color: '#38BDF8' },
+                { label: 'Chorus', color: '#FF8C00' },
+                { label: 'Drop', color: '#EC4899' },
+                { label: 'Bridge', color: '#A855F7' },
+                { label: 'Intro', color: '#10B981' },
+                { label: 'Solo', color: '#FFD700' },
+                { label: 'FX', color: '#EF4444' }
+              ].map((swatch) => {
+                const isActive = targetClip.color?.toLowerCase() === swatch.color.toLowerCase();
+                return (
+                  <button
+                    key={swatch.label}
+                    type="button"
+                    title={`${swatch.label} (${swatch.color})`}
+                    onClick={() => {
+                      onUpdateTrack(targetTrack.id, {
+                        clips: targetTrack.clips.map((c) =>
+                          c.id === targetClip.id ? { ...c, color: swatch.color } : c
+                        )
+                      });
+                      onClose();
+                    }}
+                    className={`w-3.5 h-3.5 rounded-full border transition-transform hover:scale-125 cursor-pointer ${
+                      isActive ? 'border-white ring-1 ring-white/80 scale-110' : 'border-white/30'
+                    }`}
+                    style={{ backgroundColor: swatch.color }}
+                  />
+                );
+              })}
+              {targetClip.color && (
+                <button
+                  type="button"
+                  title="Reset clip to track color"
+                  onClick={() => {
+                    onUpdateTrack(targetTrack.id, {
+                      clips: targetTrack.clips.map((c) =>
+                        c.id === targetClip.id ? { ...c, color: undefined } : c
+                      )
+                    });
+                    onClose();
+                  }}
+                  className="ml-0.5 px-1 py-0.2 rounded text-[8px] font-mono text-[#94A3B8] hover:text-white bg-[#131724] border border-[#232A3E] cursor-pointer"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Category Filter Tabs */}
         {!searchQuery && (

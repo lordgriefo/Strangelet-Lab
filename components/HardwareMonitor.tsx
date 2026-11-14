@@ -27,18 +27,26 @@ const HardwareMonitor: React.FC<HardwareMonitorProps> = ({
     return getStoredResourceState().activeTier;
   });
 
-  // Re-read storage periodically
+  // Re-read storage only when changed or on low-frequency fallback when visible
   useEffect(() => {
     const update = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       const resState = getStoredResourceState();
-      setMetrics(calculateCurrentVramMetrics(resState));
-      setActiveTier(resState.activeTier);
+      const nextMetrics = calculateCurrentVramMetrics(resState);
+      setMetrics(prev =>
+        prev.vramUsedGb === nextMetrics.vramUsedGb && prev.vramTotalGb === nextMetrics.vramTotalGb
+          ? prev
+          : nextMetrics
+      );
+      setActiveTier(prev => (prev === resState.activeTier ? prev : resState.activeTier));
     };
     window.addEventListener('storage', update);
-    const interval = setInterval(update, 3000);
+    window.addEventListener('strangelet-resource-updated', update);
+    const interval = window.setInterval(update, 15000);
     return () => {
       window.removeEventListener('storage', update);
-      clearInterval(interval);
+      window.removeEventListener('strangelet-resource-updated', update);
+      window.clearInterval(interval);
     };
   }, []);
 
@@ -63,7 +71,9 @@ const HardwareMonitor: React.FC<HardwareMonitorProps> = ({
             {tierProfile.targetHardware.split('/')[0].trim()}
           </span>
           <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold uppercase border ${
-            activeTier === 'tier_6gb' 
+            activeTier === 'tier_4gb'
+              ? 'bg-red-950/80 border-red-500/50 text-red-300'
+              : activeTier === 'tier_6gb' 
               ? 'bg-amber-950/80 border-amber-500/50 text-amber-300'
               : activeTier === 'tier_16gb'
               ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'

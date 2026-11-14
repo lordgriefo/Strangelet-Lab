@@ -25,6 +25,7 @@ import {
   AVAILABLE_MODELS,
   HUB_PRESETS
 } from '../services/koboldCppService';
+import { getStoredResourceState, getRecommendedGhostModelForTier } from '../services/hardwareResourceManager';
 import { playColliderInjectionSound, playLaserBeamSound } from '../lib/laserSound';
 
 interface KoboldSettingsModalProps {
@@ -42,8 +43,6 @@ export const KoboldSettingsModal: React.FC<KoboldSettingsModalProps> = ({
   onOpenSoftwareDojo,
   onOpenResourceManager
 }) => {
-  if (!isOpen) return null;
-
   const [settings, setSettings] = useState<KoboldSettings>(getStoredKoboldSettings);
   const [isTesting, setIsTesting] = useState<boolean>(false);
   const [testResult, setTestResult] = useState<{
@@ -56,13 +55,15 @@ export const KoboldSettingsModal: React.FC<KoboldSettingsModalProps> = ({
 
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
 
+  if (!isOpen) return null;
+
   const handleTestConnection = async () => {
     setIsTesting(true);
     setTestResult(null);
     playLaserBeamSound('laser_select');
 
     try {
-      const res = await checkKoboldConnection(settings.endpointUrl, settings.engine);
+      const res = await checkKoboldConnection(settings.endpointUrl, settings.engine, settings.customApiKey);
       setTestResult(res);
       if (res.connected) {
         playColliderInjectionSound();
@@ -113,14 +114,14 @@ export const KoboldSettingsModal: React.FC<KoboldSettingsModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-sm font-bold tracking-wider uppercase text-white">
-                  LOCAL AI HUB &amp; GURU BUDDIES
+                  AUDIO AI HUB &amp; ENGINE SELECTOR
                 </h2>
                 <span className="text-[10px] px-2 py-0.5 rounded bg-red-950/80 border border-red-600/40 text-red-300 font-bold">
-                  QWEN 4B ABLITERATED
+                  KOBOLD.CPP DEFAULT
                 </span>
               </div>
               <p className="text-xs text-[#8288AA]">
-                Connect Kobold.cpp, Ollama, or LM Studio for zero-telemetry local audio intelligence.
+                Choose Kobold.cpp (Primary Audio AI), Ollama, LM Studio, or any custom AI server — zero built-in cloud keys.
               </p>
             </div>
           </div>
@@ -216,13 +217,13 @@ export const KoboldSettingsModal: React.FC<KoboldSettingsModalProps> = ({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-[11px] font-bold text-[#A2A9D0] uppercase tracking-wider">
-                Select Local AI Hub
+                Select AI Service Provider
               </label>
-              <span className="text-[10px] text-cyan-400">All hubs run 100% offline</span>
+              <span className="text-[10px] text-cyan-400">User-selected • Zero exposed keys</span>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              {HUB_PRESETS.filter(h => h.id !== 'gemini').map(hub => (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+              {HUB_PRESETS.map(hub => (
                 <button
                   type="button"
                   key={hub.id}
@@ -232,8 +233,9 @@ export const KoboldSettingsModal: React.FC<KoboldSettingsModalProps> = ({
                       ? 'bg-cyan-950/60 border-cyan-400 text-white shadow-[0_0_10px_rgba(6,182,212,0.2)]'
                       : 'bg-[#0E1220] border-[#222944] text-[#7A82A4] hover:text-white'
                   }`}
+                  title={hub.desc}
                 >
-                  <div className="font-bold text-[11px] text-white truncate">{hub.name.split(' ')[0]}</div>
+                  <div className="font-bold text-[11px] text-white truncate">{hub.name.split(' (')[0]}</div>
                   <div className="text-[9px] text-amber-400 font-mono mt-0.5">
                     {hub.port ? `Port ${hub.port}` : 'Embedded'}
                   </div>
@@ -244,11 +246,11 @@ export const KoboldSettingsModal: React.FC<KoboldSettingsModalProps> = ({
 
           {/* Endpoint URL & Test Connection */}
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="text-[11px] font-bold text-[#A2A9D0] uppercase tracking-wider">
-                Active Local Hub Endpoint URL
+                Active AI Server Endpoint URL
               </label>
-              <div className="flex gap-1.5 text-[10px]">
+              <div className="flex flex-wrap gap-1.5 text-[10px]">
                 <button
                   type="button"
                   onClick={() => setSettings(prev => ({ ...prev, endpointUrl: 'http://localhost:5001', engine: 'koboldcpp' }))}
@@ -271,6 +273,14 @@ export const KoboldSettingsModal: React.FC<KoboldSettingsModalProps> = ({
                   className="text-purple-400 hover:underline"
                 >
                   :1234 (LM Studio)
+                </button>
+                <span className="text-[#4F577A]">|</span>
+                <button
+                  type="button"
+                  onClick={() => setSettings(prev => ({ ...prev, endpointUrl: 'http://localhost:8000', engine: 'openai_compatible' }))}
+                  className="text-emerald-400 hover:underline"
+                >
+                  :8000 (Custom)
                 </button>
               </div>
             </div>
@@ -317,6 +327,23 @@ export const KoboldSettingsModal: React.FC<KoboldSettingsModalProps> = ({
                 )}
               </div>
             )}
+            {/* Optional Custom Endpoint Bearer Key (LocalStorage Only) */}
+            {settings.engine === 'openai_compatible' && (
+              <div className="pt-1 space-y-1">
+                <label className="text-[10px] font-bold text-[#A2A9D0] uppercase tracking-wider flex items-center justify-between">
+                  <span>Optional Bearer Token / API Key</span>
+                  <span className="text-[9px] text-[#6E7599] font-normal">Saved only in your browser localStorage</span>
+                </label>
+                <input
+                  type="password"
+                  value={settings.customApiKey || ''}
+                  onChange={e => setSettings(prev => ({ ...prev, customApiKey: e.target.value }))}
+                  placeholder="Optional (leave blank for local llama-server / vLLM)"
+                  autoComplete="off"
+                  className="w-full px-3.5 py-2 rounded-xl bg-[#121626] border border-[#242A44] text-white text-xs focus:outline-none focus:border-cyan-400 font-mono"
+                />
+              </div>
+            )}
           </div>
 
           {/* Model Selection */}
@@ -324,31 +351,59 @@ export const KoboldSettingsModal: React.FC<KoboldSettingsModalProps> = ({
             <div className="flex items-center justify-between">
               <label className="text-[11px] font-bold text-[#A2A9D0] uppercase tracking-wider flex items-center gap-1.5">
                 <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Selected GGUF Model Profile</span>
+                <span>Model Identifier / GGUF Profile</span>
               </label>
-              {onOpenResourceManager && (
+              <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => { onClose(); onOpenResourceManager(); }}
-                  className="text-[10px] text-amber-300 hover:text-white flex items-center gap-1 underline font-mono"
+                  onClick={() => {
+                    const tierId = getStoredResourceState().activeTier;
+                    const rec = getRecommendedGhostModelForTier(tierId);
+                    setSettings(prev => ({
+                      ...prev,
+                      modelName: rec.name,
+                      vramBudgetMb: rec.vramBudgetMb
+                    }));
+                    playLaserBeamSound('laser_select');
+                  }}
+                  className="text-[10px] text-cyan-300 hover:text-white flex items-center gap-1 font-mono bg-cyan-950/60 border border-cyan-500/40 px-2 py-0.5 rounded"
+                  title="Automatically pick the best Ghost Mad Scientist model tier (3B/4B Compact, 7B/8B Balanced, or 14B Pro) for your current VRAM"
                 >
-                  <Sliders className="w-3 h-3" />
-                  <span>Configure 6GB/16GB VRAM Tiers</span>
+                  <Zap className="w-3 h-3 text-cyan-400" />
+                  <span>Auto-Match VRAM ({getRecommendedGhostModelForTier(getStoredResourceState().activeTier).shortLabel})</span>
                 </button>
-              )}
+                {onOpenResourceManager && (
+                  <button
+                    type="button"
+                    onClick={() => { onClose(); onOpenResourceManager(); }}
+                    className="text-[10px] text-amber-300 hover:text-white flex items-center gap-1 underline font-mono"
+                  >
+                    <Sliders className="w-3 h-3" />
+                    <span>Configure 4GB–24GB VRAM Tiers</span>
+                  </button>
+                )}
+              </div>
             </div>
+
+            <input
+              type="text"
+              value={settings.modelName}
+              onChange={e => setSettings(prev => ({ ...prev, modelName: e.target.value }))}
+              placeholder="e.g. qwen2.5:7b, llama3.1:8b, or pick a GGUF profile below"
+              className="w-full px-3.5 py-2 rounded-xl bg-[#121626] border border-[#242A44] text-cyan-200 text-xs focus:outline-none focus:border-cyan-400 font-mono"
+            />
 
             {/* Helper Buddy Soul Preservation Notice */}
             <div className="p-2.5 rounded-xl bg-purple-950/30 border border-purple-500/40 text-[10px] text-purple-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Zap className="w-3.5 h-3.5 text-purple-400" />
                 <span>
-                  <strong>Buddy Soul Evolved:</strong> Whichever GGUF model you choose, the Strangelet Guru's memory, Faust code skills, and eccentric studio stories are preserved seamlessly!
+                  <strong>Buddy Soul Evolved:</strong> Whichever local or custom model you choose, Ghost's Mad Scientist memory, Faust code skills, and eccentric studio stories are preserved seamlessly!
                 </span>
               </div>
             </div>
 
-            <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1 custom-scrollbar">
+            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
               {AVAILABLE_MODELS.map(m => (
                 <div
                   key={m.id}
@@ -366,13 +421,15 @@ export const KoboldSettingsModal: React.FC<KoboldSettingsModalProps> = ({
                         <Check className="w-3.5 h-3.5 text-cyan-400" />
                       )}
                       <span className={`text-[9px] px-1.5 py-0.2 rounded border font-bold ${
-                        m.recommendedTier === '6gb'
+                        m.recommendedTier === '4gb'
+                          ? 'bg-red-950/80 border-red-500/40 text-red-300'
+                          : m.recommendedTier === '6gb'
                           ? 'bg-amber-950/80 border-amber-500/40 text-amber-300'
                           : m.recommendedTier === '16gb'
                           ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
                           : 'bg-[#151B2E] border-[#242E4C] text-[#8E95B8]'
                       }`}>
-                        {m.recommendedTier === '6gb' ? '6GB RIG' : m.recommendedTier === '16gb' ? '16GB PRO' : 'ANY'}
+                        {m.recommendedTier === '4gb' ? '4GB MIN' : m.recommendedTier === '6gb' ? '6GB RIG' : m.recommendedTier === '16gb' ? '16GB PRO' : m.recommendedTier === '8gb' ? '8GB RIG' : 'ANY'}
                       </span>
                     </div>
                     <div className="text-[10px] text-[#6E7599] mt-0.5">{m.desc}</div>
@@ -401,6 +458,9 @@ export const KoboldSettingsModal: React.FC<KoboldSettingsModalProps> = ({
               </div>
               <div className="p-1.5 rounded bg-black/70 border border-white/10 text-purple-300 select-all">
                 # LM Studio: Open LM Studio -&gt; Local Server -&gt; Start Server (Port 1234)
+              </div>
+              <div className="p-1.5 rounded bg-black/70 border border-white/10 text-emerald-300 select-all">
+                # llama.cpp / OpenAI-Compat: ./llama-server -m model.gguf --port 8000
               </div>
             </div>
           </div>

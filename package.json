@@ -1,16 +1,18 @@
 {
   "name": "strangelet-lab",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.9.0-beta.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "tsc --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "desktop:electron": "electron ./desktop/electron-main.cjs",
+    "desktop:tauri": "tauri dev",
+    "desktop:build": "vite build && electron-builder"
   },
   "dependencies": {
-    "@google/genai": "^1.39.0",
     "@types/jszip": "^3.4.1",
     "d3": "^7.9.0",
     "jspdf": "^4.2.1",
@@ -22,12 +24,14 @@
     "ws": "^8.22.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
     "@types/d3": "^7.4.3",
     "@types/node": "^22.14.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^5.0.0",
+    "tailwindcss": "^4.3.5",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

@@ -15,7 +15,7 @@ interface ModelItem {
 
 export const SystemCore: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'hardware' | 'reqs'>('hardware');
-  const [code, setCode] = useState<string>('# Click "Generate Code" to build modular Strangelet DSP runtime using Gemini AI.');
+  const [code, setCode] = useState<string>('# Click "Generate Code" to build modular Strangelet DSP runtime using your configured AI Hub.');
   const [loading, setLoading] = useState(false);
   const [models, setModels] = useState<ModelItem[]>([
     { name: 'Roformer-DrumSep v2', category: 'Stem Separation', status: 'loaded', vram: '2.1GB', vramVal: 2.1 },
@@ -58,7 +58,7 @@ export const SystemCore: React.FC = () => {
       const result = await generateSystemCode(filename, promptContext);
       setCode(result);
     } catch (e) {
-      setCode('# Error contacting Gemini API service. Check network/credentials.');
+      setCode('# Error generating code from configured AI Hub. Using offline scaffold.');
     }
     setLoading(false);
   };

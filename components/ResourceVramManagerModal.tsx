@@ -30,6 +30,7 @@ import {
   ComponentPowerState
 } from '../services/hardwareResourceManager';
 import { getStoredBuddySoul, exportBuddySoulJson } from '../services/buddyEvolutionCore';
+import { syncGhostModelWithVramTier } from '../services/koboldCppService';
 import { playColliderInjectionSound, playLaserBeamSound } from '../lib/laserSound';
 
 interface ResourceVramManagerModalProps {
@@ -57,6 +58,7 @@ export const ResourceVramManagerModal: React.FC<ResourceVramManagerModalProps> =
   const handleSelectTier = (tierId: HardwareTierId) => {
     playLaserBeamSound('laser_select');
     const updated = setHardwareTier(tierId);
+    syncGhostModelWithVramTier(tierId);
     setState(updated);
   };
 
@@ -192,11 +194,11 @@ export const ResourceVramManagerModal: React.FC<ResourceVramManagerModalProps> =
                 Select Hardware VRAM Profile
               </label>
               <span className="text-[10px] text-[#7E85A8]">
-                Currently tailored to your 6GB setup; ready for instant 16GB upgrade!
+                Auto-scales Ghost AI model tier (3B–4B compact GGUF at low VRAM → 7B–8B → 14B Pro on higher VRAM)
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
               {(Object.keys(HARDWARE_TIERS) as HardwareTierId[]).map(tierKey => {
                 const tier = HARDWARE_TIERS[tierKey];
                 const isSelected = state.activeTier === tierKey;
@@ -205,7 +207,7 @@ export const ResourceVramManagerModal: React.FC<ResourceVramManagerModalProps> =
                   <div
                     key={tier.id}
                     onClick={() => handleSelectTier(tier.id)}
-                    className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
+                    className={`p-3 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
                       isSelected
                         ? 'bg-[#131B32] border-amber-500/80 shadow-[0_0_20px_rgba(245,158,11,0.2)]'
                         : 'bg-[#0C0F1D] border-[#1E253D] hover:border-[#2F3B60] opacity-80 hover:opacity-100'
@@ -232,7 +234,7 @@ export const ResourceVramManagerModal: React.FC<ResourceVramManagerModalProps> =
 
                     <div className="pt-2 border-t border-[#1C2338] text-[9px] space-y-1">
                       <div className="text-[#8E95B8]">
-                        Rec: <span className="text-white font-bold">{tier.recommendedLlmQuant}</span>
+                        Ghost: <span className="text-amber-300 font-bold">{tier.recommendedGhostModel.shortLabel}</span> ({tier.recommendedGhostModel.vramGb}GB)
                       </div>
                       <div className="text-[#8E95B8]">
                         Stems: <span className="text-cyan-300">{tier.defaultStemEngine === 'mobile_onnx' ? 'Fast ONNX' : 'HTDemucs FP16'}</span>
@@ -350,7 +352,7 @@ export const ResourceVramManagerModal: React.FC<ResourceVramManagerModalProps> =
             </div>
 
             <p className="text-[11px] text-[#A5B4FC] leading-relaxed">
-              When you swap models in Kobold.cpp, Ollama, or LM Studio (e.g. from an ultralight 3B GGUF on your 6GB laptop to a 14B Qwen on your upcoming 16GB rig), <strong>the Strangelet Guru never forgets you.</strong> His eccentric personality, Faust DSP expertise, 12 legendary studio tales, and evolving session memories are injected continuously regardless of the raw model engine underneath!
+              When you swap local models in Kobold.cpp, Ollama, or LM Studio (e.g. from an ultralight 3B GGUF on a 4–6GB laptop to a 14B Llama, Gemma, Mistral, or Qwen build on a 16GB rig), <strong>Ghost in the Machine — the lab&apos;s Mad Scientist — never forgets you.</strong> His smart, personable lab wit, recording setup troubleshooting, Faust DSP coding, and evolving session memories stay intact regardless of the raw model engine underneath!
             </p>
 
             <div className="flex items-center gap-3 pt-1 text-[10px] text-[#8E95B8]">

@@ -666,13 +666,14 @@ export class BasicPitchSynthEngine {
     }
   }
 
-  // Audition an entire sequence of MIDI notes
+  // Audition an entire sequence of MIDI notes (with optional Live Web MIDI Output routing)
   public playSequence(
     notes: MidiNoteEvent[], 
     instrument: string, 
     bpm: number = 120, 
     onProgress?: (progressSec: number) => void,
-    humanizeConfig?: { enabled: boolean; amount?: number }
+    humanizeConfig?: { enabled: boolean; amount?: number },
+    webMidiOut?: { outputPortId?: string; channel?: number; muteInternalSynth?: boolean }
   ): () => void {
     let isCancelled = false;
     const timeouts: any[] = [];
@@ -682,19 +683,142 @@ export class BasicPitchSynthEngine {
       ? humanizeMidiNotes(notes, humanizeConfig.amount ?? 0.18)
       : notes;
 
+    const outPortId = webMidiOut?.outputPortId || '';
+    const outChannel = webMidiOut?.channel ?? (instrument.toLowerCase().includes('drum') ? 10 : 1);
+
     playbackNotes.forEach(n => {
-      const startMs = n.startBar * 4 * secPerBeat * 1000;
-      const t = setTimeout(() => {
+      const startMs = Math.max(0, n.startBar * 4 * secPerBeat * 1000);
+      const durMs = Math.max(40, (n.durationSeconds || (n.durationBars * 4 * secPerBeat)) * 1000);
+
+      const tOn = setTimeout(() => {
         if (isCancelled) return;
-        this.playNote(n.pitch, instrument, n.durationSeconds, n.velocity);
+        if (!webMidiOut?.muteInternalSynth) {
+          this.playNote(n.pitch, instrument, n.durationSeconds, n.velocity);
+        }
+        if (outPortId) {
+          sendWebMidiNote(outPortId, n.pitch, n.velocity, durMs, outChannel);
+        }
       }, startMs);
-      timeouts.push(t);
+      timeouts.push(tOn);
     });
 
     return () => {
       isCancelled = true;
       timeouts.forEach(t => clearTimeout(t));
+      if (outPortId) {
+        sendWebMidiAllNotesOff(outPortId, outChannel);
+      }
     };
+  }
+}
+
+// --- Live Web MIDI Output Manager (navigator.requestMIDIAccess) ---
+export interface WebMidiOutputPortInfo {
+  id: string;
+  name: string;
+  manufacturer: string;
+  state: string;
+  connection: string;
+}
+
+let cachedMidiAccess: any = null;
+
+export async function requestWebMidiOutputPorts(): Promise<{
+  supported: boolean;
+  ports: WebMidiOutputPortInfo[];
+  error?: string;
+}> {
+  if (typeof navigator === 'undefined' || !('requestMIDIAccess' in navigator)) {
+    return {
+      supported: false,
+      ports: [],
+      error: 'Web MIDI API is not supported in this browser (use Chrome, Edge, or Electron/Tauri).'
+    };
+  }
+
+  try {
+    if (!cachedMidiAccess) {
+      cachedMidiAccess = await (navigator as any).requestMIDIAccess({ sysex: false });
+    }
+    const ports: WebMidiOutputPortInfo[] = [];
+    if (cachedMidiAccess?.outputs) {
+      cachedMidiAccess.outputs.forEach((output: any) => {
+        ports.push({
+          id: output.id,
+          name: output.name || `MIDI Output ${ports.length + 1}`,
+          manufacturer: output.manufacturer || 'Virtual / External Port',
+          state: output.state || 'connected',
+          connection: output.connection || 'open'
+        });
+      });
+    }
+    return { supported: true, ports };
+  } catch (err: any) {
+    return {
+      supported: true,
+      ports: [],
+      error: err?.message || 'MIDI permission denied or unavailable'
+    };
+  }
+}
+
+export function subscribeWebMidiPortChanges(callback: () => void): () => void {
+  if (!cachedMidiAccess) return () => {};
+  const prevHandler = cachedMidiAccess.onstatechange;
+  const handler = () => {
+    callback();
+  };
+  cachedMidiAccess.addEventListener?.('statechange', handler);
+  return () => {
+    cachedMidiAccess?.removeEventListener?.('statechange', handler);
+    if (prevHandler && cachedMidiAccess) {
+      cachedMidiAccess.onstatechange = prevHandler;
+    }
+  };
+}
+
+export function sendWebMidiNote(
+  outputPortId: string,
+  pitch: number,
+  velocity: number = 100,
+  durationMs: number = 350,
+  channel: number = 1
+): boolean {
+  if (!cachedMidiAccess?.outputs || !outputPortId) return false;
+  const output = cachedMidiAccess.outputs.get(outputPortId);
+  if (!output) return false;
+
+  const ch = Math.max(0, Math.min(15, (channel || 1) - 1));
+  const clampedPitch = Math.max(0, Math.min(127, Math.round(pitch)));
+  const clampedVel = Math.max(1, Math.min(127, Math.round(velocity)));
+
+  try {
+    output.send([0x90 | ch, clampedPitch, clampedVel]);
+    const offTime = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + Math.max(30, durationMs);
+    output.send([0x80 | ch, clampedPitch, 0x00], offTime);
+    return true;
+  } catch (err) {
+    console.warn('Web MIDI send failed:', err);
+    return false;
+  }
+}
+
+export function sendWebMidiAllNotesOff(outputPortId: string, channel?: number): void {
+  if (!cachedMidiAccess?.outputs || !outputPortId) return;
+  const output = cachedMidiAccess.outputs.get(outputPortId);
+  if (!output) return;
+
+  try {
+    if (typeof channel === 'number') {
+      const ch = Math.max(0, Math.min(15, channel - 1));
+      output.send([0xb0 | ch, 123, 0]); // CC 123 All Notes Off
+    } else {
+      for (let ch = 0; ch < 16; ch++) {
+        output.send([0xb0 | ch, 123, 0]);
+      }
+    }
+  } catch {
+    // ignore closed ports
   }
 }
 

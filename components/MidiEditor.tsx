@@ -38,7 +38,9 @@ import {
   Magnet,
   SlidersHorizontal,
   Undo2,
-  Redo2
+  Redo2,
+  Radio,
+  RefreshCw
 } from 'lucide-react';
 import { MidiNoteEvent, Track, Clip, BasicPitchTranscriptionResult } from '../types';
 import { 
@@ -49,10 +51,17 @@ import {
   humanizeMidiNotes,
   PRESET_SONGS,
   runSpotifyBasicPitchTranscription,
-  DEFAULT_BASIC_PITCH_SETTINGS
+  DEFAULT_BASIC_PITCH_SETTINGS,
+  WebMidiOutputPortInfo,
+  requestWebMidiOutputPorts,
+  subscribeWebMidiPortChanges,
+  sendWebMidiNote,
+  sendWebMidiAllNotesOff
 } from '../services/basicPitchService';
 import { snapToGrid } from '../lib/audioUtils';
 import { playLaserBeamSound, playColliderInjectionSound } from '../lib/laserSound';
+import { quantizeBarWithSwing, MidiQuantizeGrid } from '../services/midiQuantizeService';
+import { useSnapGrid, formatSnapDivisionLabel } from '../services/snapGridService';
 
 export type ArpPattern = 'up' | 'down' | 'random' | 'converge';
 
@@ -77,6 +86,7 @@ export interface MidiEditorProps {
   onSaveClipNotes?: (notes: MidiNoteEvent[], clipName?: string, instrument?: string) => void;
   onExportToNewTrack?: (trackName: string, notes: MidiNoteEvent[], instrument: string) => void;
   globalSnapValue?: string;
+  initialSwingPercent?: number;
 }
 
 const INSTRUMENT_OPTIONS = [
@@ -95,8 +105,7 @@ const SNAP_DIVISIONS = [
   { id: '1/8', label: '1/8', bars: 0.125 },
   { id: '1/16', label: '1/16', bars: 0.0625 },
   { id: '1/32', label: '1/32', bars: 0.03125 },
-  { id: 'triplet', label: '1/12 T', bars: 0.08333 },
-  { id: 'off', label: 'OFF', bars: 0 }
+  { id: 'triplet', label: '1/12 T', bars: 0.08333 }
 ];
 
 export const MidiEditor: React.FC<MidiEditorProps> = ({
@@ -110,10 +119,9 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
   tracks = [],
   onSaveClipNotes,
   onExportToNewTrack,
-  globalSnapValue = '1/16'
+  globalSnapValue = '1/16',
+  initialSwingPercent = 0
 }) => {
-  if (!isOpen) return null;
-
   // Active notes state
   const [notes, setNotes] = useState<MidiNoteEvent[]>(() => {
     if (initialNotes && initialNotes.length > 0) {
@@ -151,17 +159,29 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
   // Editor configuration
   const [instrument, setInstrument] = useState<string>(initialInstrument);
   const [activeTool, setActiveTool] = useState<'select' | 'draw' | 'erase' | 'velocity'>('draw');
-  const [snapGrid, setSnapGrid] = useState<string>('1/16');
-  const [projectSnap, setProjectSnap] = useState<string>(globalSnapValue);
-  const effectiveGlobalSnap = (projectSnap === '1/4' || projectSnap === '1/8' || projectSnap === '1/16')
-    ? projectSnap
-    : (globalSnapValue === '1/4' || globalSnapValue === '1/8' || globalSnapValue === '1/16' ? globalSnapValue : '1/16');
+  const {
+    enabled: snapEnabled,
+    division: snapDivision,
+    effectiveSnapValue: snapGrid,
+    toggleEnabled: toggleSnapEnabled,
+    setDivision: setSnapDivision
+  } = useSnapGrid();
+  const effectiveGlobalSnap = snapDivision;
+  const [dragSnapGuide, setDragSnapGuide] = useState<{
+    startBar: number;
+    endBar: number;
+    pitch: number;
+    noteName: string;
+    mode: 'move' | 'resize';
+    isSnapped: boolean;
+  } | null>(null);
 
   const [totalBars, setTotalBars] = useState<number>(4);
   const [bpm, setBpm] = useState<number>(projectBpm);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([]);
   const [quantizeLengths, setQuantizeLengths] = useState<boolean>(false);
+  const [swingPercent, setSwingPercent] = useState<number>(initialSwingPercent);
   const [undoStack, setUndoStack] = useState<MidiNoteEvent[][]>([]);
   const [redoStack, setRedoStack] = useState<MidiNoteEvent[][]>([]);
   const [currentVelocity, setCurrentVelocity] = useState<number>(95);
@@ -217,10 +237,23 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
   const [loopEnabled, setLoopEnabled] = useState<boolean>(true);
   const [auditionNote, setAuditionNote] = useState<number | null>(null);
 
+  // Live Web MIDI Output state
+  const [midiOutPorts, setMidiOutPorts] = useState<WebMidiOutputPortInfo[]>([]);
+  const [midiOutSupported, setMidiOutSupported] = useState<boolean>(true);
+  const [selectedMidiOutId, setSelectedMidiOutId] = useState<string>('');
+  const [midiOutChannel, setMidiOutChannel] = useState<number>(
+    initialInstrument.toLowerCase().includes('drum') ? 10 : 1
+  );
+  const [isRefreshingMidiOut, setIsRefreshingMidiOut] = useState<boolean>(false);
+  const [midiOutError, setMidiOutError] = useState<string | null>(null);
+
   const playbackTimerRef = useRef<any>(null);
   const playbackStartTimeRef = useRef<number>(0);
   const stopSequenceRef = useRef<(() => void) | null>(null);
   const gridContainerRef = useRef<HTMLDivElement>(null);
+  const selectedMidiOutRef = useRef<{ portId: string; channel: number }>({ portId: '', channel: 1 });
+
+  selectedMidiOutRef.current = { portId: selectedMidiOutId, channel: midiOutChannel };
 
   // Vertical pitch range calculation: keep range focused to note content with padding
   const { minPitch, maxPitch, pitchRange } = useMemo(() => {
@@ -239,16 +272,60 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
     setTimeout(() => setToastMessage(null), 3000);
   };
 
+  const refreshMidiOutputPorts = async (showNotice = false) => {
+    setIsRefreshingMidiOut(true);
+    const res = await requestWebMidiOutputPorts();
+    setMidiOutSupported(res.supported);
+    setMidiOutPorts(res.ports);
+    setMidiOutError(res.error || null);
+    setSelectedMidiOutId(prev => (prev && !res.ports.some(p => p.id === prev) ? '' : prev));
+    setIsRefreshingMidiOut(false);
+    if (showNotice) {
+      if (res.error) {
+        showToast(res.error);
+      } else if (res.ports.length === 0) {
+        showToast('No external/virtual MIDI ports found. Start loopMIDI or IAC Driver and click Scan.');
+      } else {
+        showToast(`Detected ${res.ports.length} Live Web MIDI Output port${res.ports.length === 1 ? '' : 's'}.`);
+      }
+    }
+  };
+
+  // Discover Web MIDI outputs & listen for hot-plug port changes
+  useEffect(() => {
+    let unsubscribe = () => {};
+    refreshMidiOutputPorts(false).then(() => {
+      unsubscribe = subscribeWebMidiPortChanges(() => {
+        refreshMidiOutputPorts(false);
+      });
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // Align channel 10 automatically for General MIDI Drum Kit
+  useEffect(() => {
+    if (instrument.toLowerCase().includes('drum')) {
+      setMidiOutChannel(10);
+    } else if (midiOutChannel === 10) {
+      setMidiOutChannel(1);
+    }
+  }, [instrument]);
+
   // Keep BPM synced if prop changes
   useEffect(() => {
     setBpm(projectBpm);
   }, [projectBpm]);
 
-  // Clean up timers on unmount
+  // Clean up timers & panic active Web MIDI notes on unmount
   useEffect(() => {
     return () => {
       if (playbackTimerRef.current) cancelAnimationFrame(playbackTimerRef.current);
       if (stopSequenceRef.current) stopSequenceRef.current();
+      if (selectedMidiOutRef.current.portId) {
+        sendWebMidiAllNotesOff(selectedMidiOutRef.current.portId, selectedMidiOutRef.current.channel);
+      }
     };
   }, []);
 
@@ -262,6 +339,9 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
       ? Math.max(20, Math.min(127, currentVelocity + Math.round((Math.random() * 2 - 1) * humanizeAmount * 40)))
       : currentVelocity;
     basicPitchSynth.playNote(pitch, instrument, 0.45, vel);
+    if (selectedMidiOutId) {
+      sendWebMidiNote(selectedMidiOutId, pitch, vel, 380, midiOutChannel);
+    }
     playLaserBeamSound('laser_select');
     setTimeout(() => setAuditionNote(null), 350);
   };
@@ -298,7 +378,10 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
         instrument,
         bpm,
         undefined,
-        { enabled: humanizeEnabled, amount: humanizeAmount }
+        { enabled: humanizeEnabled, amount: humanizeAmount },
+        selectedMidiOutId
+          ? { outputPortId: selectedMidiOutId, channel: midiOutChannel }
+          : undefined
       );
 
       const loop = () => {
@@ -311,12 +394,16 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
             setPlayheadBar(0);
 
             if (stopSequenceRef.current) stopSequenceRef.current();
+            const liveMidiOut = selectedMidiOutRef.current;
             stopSequenceRef.current = basicPitchSynth.playSequence(
               notes,
               instrument,
               bpm,
               undefined,
-              { enabled: humanizeEnabled, amount: humanizeAmount }
+              { enabled: humanizeEnabled, amount: humanizeAmount },
+              liveMidiOut.portId
+                ? { outputPortId: liveMidiOut.portId, channel: liveMidiOut.channel }
+                : undefined
             );
             playbackTimerRef.current = requestAnimationFrame(loop);
           } else {
@@ -340,6 +427,9 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
     if (stopSequenceRef.current) {
       stopSequenceRef.current();
       stopSequenceRef.current = null;
+    }
+    if (selectedMidiOutId) {
+      sendWebMidiAllNotesOff(selectedMidiOutId, midiOutChannel);
     }
     setPlayheadBar(0);
   };
@@ -406,8 +496,8 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
 
     // Calculate bar and pitch from coordinates
     const barRaw = (clickX / rect.width) * totalBars;
-    const isOff = snapGrid === 'off';
-    const snappedBar = isOff ? barRaw : snapToGrid(barRaw, snapGrid);
+    const isOff = !snapEnabled || e.altKey;
+    const snappedBar = isOff ? Number(barRaw.toFixed(4)) : snapToGrid(barRaw, snapDivision);
 
     const pitchIndex = Math.floor((clickY / rect.height) * pitchRange);
     const pitch = maxPitch - pitchIndex;
@@ -473,11 +563,12 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
 
     // Standard note insertion
     let durationBars = 0.25;
-    if (snapGrid === '1/4') durationBars = 0.25;
-    else if (snapGrid === '1/8') durationBars = 0.125;
-    else if (snapGrid === '1/16') durationBars = 0.0625;
-    else if (snapGrid === '1/32') durationBars = 0.03125;
-    else if (snapGrid === 'triplet') durationBars = 0.08333;
+    if (snapDivision === '1/4') durationBars = 0.25;
+    else if (snapDivision === '1/8') durationBars = 0.125;
+    else if (snapDivision === '1/16') durationBars = 0.0625;
+    else if (snapDivision === '1/32') durationBars = 0.03125;
+    else if (snapDivision === 'triplet' || snapDivision === '1/8T') durationBars = 0.08333;
+    else if (snapDivision === '1/16T') durationBars = 0.04167;
 
     // Apply Humanize if enabled
     const finalVelocity = humanizeEnabled
@@ -527,9 +618,9 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
 
   // Quantize selected MIDI notes (or all notes if none selected) to the user's selected snap value
   const handleQuantizeSelected = (overrideSnap?: string) => {
-    const activeSnap = overrideSnap || snapGrid;
-    if (activeSnap === 'off') {
-      showToast('Grid snap is OFF. Choose 1/4, 1/8, 1/16, 1/32, or Triplet to quantize.');
+    const activeSnap = overrideSnap && overrideSnap !== 'off' ? overrideSnap : snapDivision;
+    if (!activeSnap || activeSnap === 'off') {
+      showToast('Choose 1/4, 1/8, 1/16, 1/32, or Triplet to quantize.');
       return;
     }
 
@@ -559,12 +650,15 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
     pushUndoState();
 
     const secPerBar = (60 / bpm) * 4;
+    const isStandardGrid = activeSnap === '1/4' || activeSnap === '1/8' || activeSnap === '1/16' || activeSnap === '1/32';
 
     setNotes(prev => prev.map(n => {
       if (!targetIds.has(n.id)) return n;
 
-      // Snap start position to nearest grid division
-      const rawSnappedStart = snapToGrid(n.startBar, activeSnap);
+      // Snap start position to nearest grid division (+ swing % for humanization)
+      const rawSnappedStart = isStandardGrid
+        ? quantizeBarWithSwing(n.startBar, activeSnap as MidiQuantizeGrid, swingPercent, 100)
+        : snapToGrid(n.startBar, activeSnap);
       const snappedStart = Math.max(0, Math.min(totalBars - 0.03125, rawSnappedStart));
 
       // Snap duration if quantizeLengths is enabled, else preserve length
@@ -585,10 +679,11 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
     }));
 
     playLaserBeamSound('laser_curve');
+    const swingSuffix = isStandardGrid && swingPercent > 0 ? ` (${swingPercent}% swing)` : '';
     if (hasSelection) {
-      showToast(`Quantized ${targetIds.size} selected note${targetIds.size === 1 ? '' : 's'} to nearest ${activeSnap} grid!`);
+      showToast(`Quantized ${targetIds.size} selected note${targetIds.size === 1 ? '' : 's'} to ${activeSnap}${swingSuffix}!`);
     } else {
-      showToast(`Quantized all ${notes.length} notes to nearest ${activeSnap} grid!`);
+      showToast(`Quantized all ${notes.length} notes to ${activeSnap}${swingSuffix}!`);
     }
   };
 
@@ -638,12 +733,19 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
         if (!e.metaKey && !e.ctrlKey) {
           setActiveTool('velocity');
         }
+      } else if (e.key === 's' || e.key === 'S') {
+        if (!e.metaKey && !e.ctrlKey) {
+          e.preventDefault();
+          const next = toggleSnapEnabled();
+          playLaserBeamSound('laser_select');
+          showToast(next ? `Snap-to-Grid ON (${formatSnapDivisionLabel(snapDivision)})` : 'Snap-to-Grid OFF (Freeform)');
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNoteId, selectedNoteIds, isPlaying, playheadBar, notes, bpm, instrument, humanizeEnabled, humanizeAmount, effectiveGlobalSnap, snapGrid, quantizeLengths, undoStack, redoStack, handleQuantizeSelected, handleUndo, handleRedo]);
+  }, [selectedNoteId, selectedNoteIds, isPlaying, playheadBar, notes, bpm, instrument, humanizeEnabled, humanizeAmount, effectiveGlobalSnap, snapGrid, snapDivision, toggleSnapEnabled, quantizeLengths, undoStack, redoStack, handleQuantizeSelected, handleUndo, handleRedo]);
 
   // Transform selected or incoming MIDI notes with the MIDI Arpeggiator
   const handleTransformNotesWithArpeggiator = () => {
@@ -912,12 +1014,21 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
     const handleMouseMove = (ev: MouseEvent) => {
       const deltaX = ev.clientX - startX;
       const deltaBars = deltaX / pixelsPerBar;
+      const isOff = !snapEnabled || ev.altKey;
 
       if (isResize) {
         // Resizing note length
         const rawDur = Math.max(0.03125, initialDuration + deltaBars);
-        const isOff = snapGrid === 'off';
-        const snappedDur = isOff ? rawDur : Math.max(0.03125, snapToGrid(rawDur, snapGrid));
+        const snappedDur = isOff ? rawDur : Math.max(0.03125, snapToGrid(rawDur, snapDivision));
+
+        setDragSnapGuide({
+          startBar: note.startBar,
+          endBar: Math.min(totalBars, note.startBar + snappedDur),
+          pitch: note.pitch,
+          noteName: note.noteName,
+          mode: 'resize',
+          isSnapped: !isOff
+        });
 
         setNotes(prev => prev.map(n => n.id === note.id ? {
           ...n,
@@ -927,19 +1038,28 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
       } else {
         // Moving note in time & pitch
         const rawStart = Math.max(0, Math.min(totalBars - note.durationBars, initialStartBar + deltaBars));
-        const isOff = snapGrid === 'off';
-        const snappedStart = isOff ? rawStart : snapToGrid(rawStart, snapGrid);
+        const snappedStart = isOff ? rawStart : Math.max(0, Math.min(totalBars - note.durationBars, snapToGrid(rawStart, snapDivision)));
 
         const deltaY = ev.clientY - startY;
         const deltaPitchSteps = Math.round(-deltaY / pixelsPerPitch);
         const newPitch = Math.max(24, Math.min(96, initialPitch + deltaPitchSteps));
+        const newNoteName = midiToNoteName(newPitch);
+
+        setDragSnapGuide({
+          startBar: snappedStart,
+          endBar: Math.min(totalBars, snappedStart + note.durationBars),
+          pitch: newPitch,
+          noteName: newNoteName,
+          mode: 'move',
+          isSnapped: !isOff
+        });
 
         setNotes(prev => prev.map(n => n.id === note.id ? {
           ...n,
           startBar: Number(snappedStart.toFixed(4)),
           startTimeSeconds: Number((snappedStart * (60 / bpm) * 4).toFixed(4)),
           pitch: newPitch,
-          noteName: midiToNoteName(newPitch)
+          noteName: newNoteName
         } : n));
       }
     };
@@ -947,6 +1067,7 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
     const handleMouseUp = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      setDragSnapGuide(null);
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -954,6 +1075,8 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
   };
 
   const selectedNote = notes.find(n => n.id === selectedNoteId);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[9995] flex items-center justify-center p-2 sm:p-4 bg-black/90 backdrop-blur-md animate-fade-in font-mono select-none">
@@ -993,17 +1116,17 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
 
           {/* Header Action buttons, Global Snap Quantize & Close */}
           <div className="flex items-center gap-2.5 flex-wrap">
-            {/* Header Quantize Button: Aligns currently selected MIDI notes to project's global snap value (1/4, 1/8, 1/16) */}
+              {/* Header Quantize Button: Aligns currently selected MIDI notes to project's persistent snap value */}
             <div className="flex items-center bg-[#070A16] border border-emerald-500/50 rounded-xl p-1 shadow-[0_0_15px_rgba(16,185,129,0.25)]">
               <button
                 onClick={handleHeaderQuantize}
                 className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:brightness-110 text-black font-black text-xs flex items-center gap-1.5 transition-all shadow-md group active:scale-95"
-                title={`Quantize ${selectedNoteIds.length > 0 ? `${selectedNoteIds.length} selected notes` : (selectedNoteId ? 'selected note' : 'all notes')} to project global snap (${effectiveGlobalSnap}) to ensure rhythmic precision`}
+                title={`Quantize ${selectedNoteIds.length > 0 ? `${selectedNoteIds.length} selected notes` : (selectedNoteId ? 'selected note' : 'all notes')} to project global snap (${formatSnapDivisionLabel(effectiveGlobalSnap)}) to ensure rhythmic precision`}
               >
                 <Magnet size={14} className="text-black group-hover:rotate-12 transition-transform" />
                 <span className="tracking-wider">QUANTIZE</span>
                 <span className="px-1.5 py-0.5 rounded bg-black/25 text-emerald-950 font-black text-[10px]">
-                  {effectiveGlobalSnap}
+                  {formatSnapDivisionLabel(effectiveGlobalSnap)}
                 </span>
               </button>
 
@@ -1013,7 +1136,8 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
                   <button
                     key={snap}
                     onClick={() => {
-                      setProjectSnap(snap);
+                      setSnapDivision(snap);
+                      playLaserBeamSound('laser_select');
                       showToast(`Project Global Snap: ${snap}`);
                     }}
                     className={`px-2 py-0.5 rounded text-[10px] font-black transition-all ${
@@ -1031,11 +1155,12 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
 
             <button
               onClick={handleDownloadMidi}
-              className="px-3 py-1.5 rounded-xl bg-[#11172A] border border-[#202C48] hover:border-cyan-400 text-cyan-300 text-xs font-bold flex items-center gap-1.5 transition-colors"
-              title="Download standard .mid file"
+              disabled={notes.length === 0}
+              className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 via-sky-500 to-emerald-400 hover:brightness-110 text-black text-xs font-extrabold flex items-center gap-1.5 shadow-[0_0_16px_rgba(6,182,212,0.35)] transition-all disabled:opacity-40 cursor-pointer"
+              title="Download standard Type 0 .mid file for external DAWs"
             >
-              <Download size={13} />
-              <span className="hidden sm:inline">Export .MID</span>
+              <Download size={14} />
+              <span>Download .MID File</span>
             </button>
 
             {onClose && (
@@ -1219,26 +1344,52 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
             </div>
           </div>
 
-          {/* Grid Snap Selector */}
-          <div className="flex items-center gap-1 bg-[#060810] px-2.5 py-1.5 rounded-xl border border-[#182138]">
-            <span className="text-[10px] text-[#64748B] font-bold uppercase">SNAP:</span>
-            {SNAP_DIVISIONS.map(d => (
-              <button
-                key={d.id}
-                onClick={() => {
-                  setSnapGrid(d.id);
-                  showToast(`Snap grid: ${d.label}`);
-                }}
-                className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-all ${
-                  snapGrid === d.id
-                    ? 'bg-emerald-400 text-black font-extrabold shadow-[0_0_8px_#10B981]'
-                    : 'text-[#8C96B5] hover:text-white hover:bg-[#161D30]'
-                }`}
-                title={`Set snap grid division to ${d.label}`}
-              >
-                {d.label}
-              </button>
-            ))}
+          {/* Visual Snap-to-Grid Magnet Toggle + Synced Division Selector */}
+          <div className={`flex items-center gap-1 bg-[#060810] px-2 py-1 rounded-xl border transition-colors ${
+            snapEnabled ? 'border-emerald-500/50' : 'border-[#182138]'
+          }`}>
+            <button
+              type="button"
+              onClick={() => {
+                const next = toggleSnapEnabled();
+                playLaserBeamSound('laser_select');
+                showToast(next ? `Snap-to-Grid ON (${formatSnapDivisionLabel(snapDivision)})` : 'Snap-to-Grid OFF (Freeform)');
+              }}
+              className={`px-2 py-0.5 rounded-lg text-[10px] font-black flex items-center gap-1 transition-all cursor-pointer border ${
+                snapEnabled
+                  ? 'bg-emerald-400 text-black border-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.45)]'
+                  : 'bg-[#101524] text-[#64748B] border-[#1E293B] hover:text-white'
+              }`}
+              title={`Toggle Snap-to-Grid ON/OFF (Hotkey 'S' • Hold Alt while dragging for temporary freeform • Syncs with Mixer)`}
+            >
+              <Magnet size={11} />
+              <span>{snapEnabled ? 'SNAP ON' : 'SNAP OFF'}</span>
+            </button>
+
+            {SNAP_DIVISIONS.map(d => {
+              const isSelectedDiv = snapDivision === d.id || (d.id === 'triplet' && (snapDivision === '1/8T' || snapDivision === '1/16T'));
+              return (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => {
+                    setSnapDivision(d.id);
+                    playLaserBeamSound('laser_select');
+                    showToast(`Snap grid: ${d.label} (synced with Mixer)`);
+                  }}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer border ${
+                    isSelectedDiv && snapEnabled
+                      ? 'bg-emerald-500/25 text-emerald-300 border-emerald-400/70 shadow-[0_0_8px_rgba(16,185,129,0.25)]'
+                      : isSelectedDiv
+                        ? 'bg-[#161D30] text-[#94A3B8] border-[#334155]'
+                        : 'text-[#64748B] border-transparent hover:text-white hover:bg-[#161D30]'
+                  }`}
+                  title={`Set snap grid division to ${d.label}`}
+                >
+                  {d.label}
+                </button>
+              );
+            })}
           </div>
 
           {/* Quantize Action Deck */}
@@ -1247,12 +1398,12 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
             <button
               onClick={() => handleQuantizeSelected()}
               className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:brightness-110 active:scale-95 text-black font-black text-xs flex items-center gap-1.5 transition-all shadow-[0_0_12px_rgba(16,185,129,0.35)] group cursor-pointer"
-              title={`Snap ${selectedNoteIds.length > 0 ? `${selectedNoteIds.length} selected notes` : (selectedNoteId ? '1 selected note' : 'all notes')} to nearest ${snapGrid} grid division (Press 'Q')`}
+              title={`Snap ${selectedNoteIds.length > 0 ? `${selectedNoteIds.length} selected notes` : (selectedNoteId ? '1 selected note' : 'all notes')} to nearest ${formatSnapDivisionLabel(snapDivision)} grid division (Press 'Q')`}
             >
               <Magnet size={13} className="text-black group-hover:rotate-12 transition-transform" />
               <span className="tracking-wider">QUANTIZE</span>
               <span className="px-1.5 py-0.2 rounded bg-black/25 text-emerald-950 font-black text-[10px]">
-                {snapGrid}
+                {formatSnapDivisionLabel(snapDivision)}
               </span>
               {(selectedNoteIds.length > 0 || selectedNoteId) && (
                 <span className="px-1.5 py-0.2 rounded bg-black/40 text-emerald-200 font-bold text-[9px]">
@@ -1260,6 +1411,23 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
                 </span>
               )}
             </button>
+
+            {/* Swing Humanize Slider inside Quantize Action Deck */}
+            <div className="flex items-center gap-1.5 px-2 border-l border-[#1E293B]">
+              <span className="text-[9px] font-bold text-[#94A3B8]">SWING</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={swingPercent}
+                onChange={(e) => setSwingPercent(Number(e.target.value))}
+                className="w-16 accent-[#FF8C00] cursor-pointer"
+                title={`Quantize Swing Humanization: ${swingPercent}%`}
+              />
+              <span className="text-[9px] font-bold tabular-nums text-[#FF8C00] w-7 text-right">
+                {swingPercent}%
+              </span>
+            </div>
 
             {/* Note Lengths Quantize Toggle */}
             <button
@@ -1642,38 +1810,61 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
               onClick={handleGridClick}
               className="flex-1 relative overflow-auto bg-[#060810] cursor-crosshair select-none"
             >
-              {/* Measure & Beat Grid Lines */}
-              {Array.from({ length: totalBars }).map((_, bar) => (
-                <React.Fragment key={bar}>
-                  {/* Bar boundary line */}
-                  <div
-                    className="absolute top-0 bottom-0 border-l-2 border-[#1E293B] pointer-events-none z-10"
-                    style={{ left: `${(bar / totalBars) * 100}%` }}
-                  >
-                    <span className="text-[9px] font-bold text-[#64748B] pl-1.5 select-none">
-                      BAR {bar + 1}
-                    </span>
-                  </div>
+              {/* Dynamic Measure, Beat & Active Snap Subdivision Grid Lines */}
+              {Array.from({ length: totalBars }).map((_, bar) => {
+                const subCount =
+                  snapDivision === '1/32' ? 32 :
+                  snapDivision === '1/16T' ? 24 :
+                  snapDivision === '1/16' ? 16 :
+                  (snapDivision === 'triplet' || snapDivision === '1/8T') ? 12 :
+                  snapDivision === '1/8' ? 8 :
+                  snapDivision === '1/4' ? 4 :
+                  snapDivision === '1/2' ? 2 : 1;
 
-                  {/* Quarter note beat subdivisions */}
-                  {[1, 2, 3].map(beat => (
+                return (
+                  <React.Fragment key={bar}>
+                    {/* Bar boundary line */}
                     <div
-                      key={beat}
-                      className="absolute top-0 bottom-0 border-l border-[#131B2C] pointer-events-none"
-                      style={{ left: `${((bar + beat / 4) / totalBars) * 100}%` }}
-                    />
-                  ))}
+                      className="absolute top-0 bottom-0 border-l-2 border-[#1E293B] pointer-events-none z-10"
+                      style={{ left: `${(bar / totalBars) * 100}%` }}
+                    >
+                      <span className="text-[9px] font-bold text-[#64748B] pl-1.5 select-none">
+                        BAR {bar + 1}
+                      </span>
+                    </div>
 
-                  {/* Sixteenth note light lines */}
-                  {Array.from({ length: 16 }).map((_, sixteenth) => (
-                    <div
-                      key={sixteenth}
-                      className="absolute top-0 bottom-0 border-l border-[#0D1322]/60 pointer-events-none"
-                      style={{ left: `${((bar + sixteenth / 16) / totalBars) * 100}%` }}
-                    />
-                  ))}
-                </React.Fragment>
-              ))}
+                    {/* Quarter note beat subdivisions */}
+                    {[1, 2, 3].map(beat => (
+                      <div
+                        key={beat}
+                        className={`absolute top-0 bottom-0 border-l pointer-events-none ${
+                          snapEnabled ? 'border-[#162136]' : 'border-[#111827]/70'
+                        }`}
+                        style={{ left: `${((bar + beat / 4) / totalBars) * 100}%` }}
+                      />
+                    ))}
+
+                    {/* Active Snap Division Sub-lines (respond dynamically to 1/4, 1/8, 1/16, 1/32, Triplets & Snap ON/OFF) */}
+                    {subCount > 4 && Array.from({ length: subCount }).map((_, stepIdx) => {
+                      if (stepIdx === 0) return null;
+                      const frac = stepIdx / subCount;
+                      const isBeat = Math.abs((frac * 4) - Math.round(frac * 4)) < 0.001;
+                      if (isBeat) return null;
+                      return (
+                        <div
+                          key={stepIdx}
+                          className={`absolute top-0 bottom-0 border-l pointer-events-none transition-opacity ${
+                            snapEnabled
+                              ? 'border-emerald-500/15 opacity-100'
+                              : 'border-[#0D1322]/40 opacity-25'
+                          }`}
+                          style={{ left: `${((bar + frac) / totalBars) * 100}%` }}
+                        />
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              })}
 
               {/* Pitch Horizontal Guides */}
               {Array.from({ length: pitchRange }).map((_, idx) => {
@@ -1681,16 +1872,19 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
                 const name = midiToNoteName(pitch);
                 const isBlack = name.includes('#');
                 const isC = name.startsWith('C') && !name.includes('#');
+                const isDragPitch = dragSnapGuide?.pitch === pitch;
 
                 return (
                   <div
                     key={pitch}
                     className={`absolute left-0 right-0 border-b pointer-events-none ${
-                      isC
-                        ? 'border-emerald-500/20 bg-emerald-950/10'
-                        : isBlack
-                          ? 'border-[#0F1424] bg-[#070A13]/50'
-                          : 'border-[#12192C]'
+                      isDragPitch
+                        ? 'border-cyan-400/50 bg-cyan-500/10'
+                        : isC
+                          ? 'border-emerald-500/20 bg-emerald-950/10'
+                          : isBlack
+                            ? 'border-[#0F1424] bg-[#070A13]/50'
+                            : 'border-[#12192C]'
                     }`}
                     style={{
                       top: `${(idx / pitchRange) * 100}%`,
@@ -1699,6 +1893,52 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
                   />
                 );
               })}
+
+              {/* Live Magnetic Drag Alignment Guide & Readout */}
+              {dragSnapGuide && (
+                <>
+                  <div
+                    className={`absolute top-0 bottom-0 pointer-events-none z-30 ${
+                      dragSnapGuide.isSnapped ? 'bg-emerald-400/10' : 'bg-sky-400/5'
+                    }`}
+                    style={{
+                      left: `${(dragSnapGuide.startBar / totalBars) * 100}%`,
+                      width: `${Math.max(0.4, ((dragSnapGuide.endBar - dragSnapGuide.startBar) / totalBars) * 100)}%`
+                    }}
+                  />
+                  <div
+                    className={`absolute top-0 bottom-0 w-0.5 pointer-events-none z-40 ${
+                      dragSnapGuide.isSnapped
+                        ? 'bg-emerald-400 shadow-[0_0_12px_#10B981]'
+                        : 'bg-sky-400/80 border-l border-dashed border-sky-300'
+                    }`}
+                    style={{
+                      left: `${((dragSnapGuide.mode === 'resize' ? dragSnapGuide.endBar : dragSnapGuide.startBar) / totalBars) * 100}%`
+                    }}
+                  >
+                    <div
+                      className={`mt-1 ml-1.5 px-2 py-0.5 rounded text-[9px] font-mono font-black whitespace-nowrap border shadow-xl flex items-center gap-1 ${
+                        dragSnapGuide.isSnapped
+                          ? 'bg-[#04120E]/95 border-emerald-400 text-emerald-300'
+                          : 'bg-[#08101C]/95 border-sky-400 text-sky-300'
+                      }`}
+                    >
+                      <Magnet size={9} />
+                      <span>
+                        {dragSnapGuide.isSnapped
+                          ? `SNAP ${formatSnapDivisionLabel(snapDivision)}`
+                          : 'FREEFORM'}
+                      </span>
+                      <span className="text-white">
+                        {dragSnapGuide.mode === 'resize'
+                          ? `LEN ${(dragSnapGuide.endBar - dragSnapGuide.startBar).toFixed(2)}b`
+                          : `BAR ${(dragSnapGuide.startBar + 1).toFixed(2)}`}
+                      </span>
+                      <span className="text-amber-300">{dragSnapGuide.noteName}</span>
+                    </div>
+                  </div>
+                </>
+              )}
 
               {/* Synchronized Playhead Marker */}
               {isPlaying && (
@@ -1836,57 +2076,147 @@ export const MidiEditor: React.FC<MidiEditorProps> = ({
           )}
         </div>
 
-        {/* Bottom Instrument Routing & Mixer Export Bar */}
-        <div className="px-5 py-3 border-t border-[#182035] bg-[#090D1C] flex flex-wrap items-center justify-between gap-4 shrink-0">
-          
-          {/* Instrument Selector */}
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-bold uppercase tracking-wider text-[#A0AEC0] flex items-center gap-1.5">
-              <Music size={13} className="text-cyan-400" />
-              <span>Assigned Instrument:</span>
-            </span>
-            <select
-              value={instrument}
-              onChange={e => setInstrument(e.target.value)}
-              className="px-3 py-1.5 rounded-xl bg-[#11172A] border border-[#202C48] text-xs font-bold text-white focus:outline-none focus:border-cyan-400 cursor-pointer"
-            >
-              {INSTRUMENT_OPTIONS.map(inst => (
-                <option key={inst.id} value={inst.id}>
-                  {inst.icon} {inst.name} — {inst.desc}
-                </option>
-              ))}
-            </select>
+        {/* Bottom Instrument Routing, Live Web MIDI Out & Mixer Export Bar */}
+        <div className="px-5 py-3 border-t border-[#182035] bg-[#090D1C] flex flex-col gap-2.5 shrink-0">
+          {/* Live Web MIDI Output Row */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-2.5 border-b border-[#141B2E]">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className="text-xs font-bold uppercase tracking-wider text-cyan-300 flex items-center gap-1.5">
+                <Radio size={13} className={selectedMidiOutId ? 'text-emerald-400 animate-pulse' : 'text-cyan-400'} />
+                <span>Live Web MIDI Output:</span>
+              </span>
+              <select
+                aria-label="Live Web MIDI Output"
+                value={selectedMidiOutId}
+                onChange={e => {
+                  const nextPort = e.target.value;
+                  if (selectedMidiOutId && selectedMidiOutId !== nextPort) {
+                    sendWebMidiAllNotesOff(selectedMidiOutId, midiOutChannel);
+                  }
+                  setSelectedMidiOutId(nextPort);
+                  const portObj = midiOutPorts.find(p => p.id === nextPort);
+                  if (portObj) {
+                    showToast(`Live Web MIDI Output routed to "${portObj.name}" (Ch ${midiOutChannel})`);
+                  } else {
+                    showToast('Routed to Internal WebAudio Synth Only');
+                  }
+                }}
+                className="px-3 py-1.5 rounded-xl bg-[#11172A] border border-[#243252] hover:border-cyan-400/70 text-xs font-bold text-white focus:outline-none focus:border-cyan-400 cursor-pointer min-w-[220px]"
+              >
+                <option value="">Internal WebAudio Synth Only</option>
+                {midiOutPorts.map(port => (
+                  <option key={port.id} value={port.id}>
+                    {port.name} ({port.manufacturer})
+                  </option>
+                ))}
+              </select>
+
+              <select
+                aria-label="MIDI Output Channel"
+                value={midiOutChannel}
+                onChange={e => setMidiOutChannel(parseInt(e.target.value, 10) || 1)}
+                className="px-2.5 py-1.5 rounded-xl bg-[#11172A] border border-[#243252] text-xs font-bold text-cyan-200 focus:outline-none focus:border-cyan-400 cursor-pointer"
+                title="Target MIDI Channel (1–16)"
+              >
+                {Array.from({ length: 16 }).map((_, idx) => {
+                  const ch = idx + 1;
+                  return (
+                    <option key={ch} value={ch}>
+                      Ch {ch}{ch === 10 ? ' (GM Drums)' : ''}
+                    </option>
+                  );
+                })}
+              </select>
+
+              <button
+                onClick={() => refreshMidiOutputPorts(true)}
+                disabled={isRefreshingMidiOut}
+                className="px-2.5 py-1.5 rounded-xl bg-[#11172A] border border-[#202C48] hover:border-cyan-400 text-[#A0AEC0] hover:text-cyan-300 text-[11px] font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                title="Scan for virtual MIDI ports (loopMIDI, IAC Driver) and standalone VST MIDI inputs"
+              >
+                <RefreshCw size={12} className={isRefreshingMidiOut ? 'animate-spin text-cyan-400' : ''} />
+                <span>Scan Ports</span>
+              </button>
+            </div>
+
+            <div className="text-[10px] flex items-center gap-2">
+              {selectedMidiOutId ? (
+                <span className="px-2 py-1 rounded-lg bg-emerald-950/70 border border-emerald-500/40 text-emerald-300 font-bold">
+                  LIVE OUT: {midiOutPorts.find(p => p.id === selectedMidiOutId)?.name || 'Port Active'} • CH {midiOutChannel}
+                </span>
+              ) : !midiOutSupported ? (
+                <span className="text-amber-300/90">Web MIDI unavailable in this browser</span>
+              ) : midiOutError ? (
+                <span className="text-amber-300/90">{midiOutError}</span>
+              ) : midiOutPorts.length === 0 ? (
+                <span className="text-[#64748B]">No virtual/hardware MIDI ports detected (loopMIDI / IAC ready)</span>
+              ) : (
+                <span className="text-cyan-300/80 font-bold">{midiOutPorts.length} MIDI port{midiOutPorts.length === 1 ? '' : 's'} ready</span>
+              )}
+            </div>
           </div>
 
-          {/* Quick Note Counts & Key Detection */}
-          <div className="flex items-center gap-4 text-xs">
-            <div>
-              <span className="text-[#64748B]">Total Notes:</span>{' '}
-              <span className="font-bold text-emerald-300">{notes.length}</span>
+          {/* Instrument & Export Row */}
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            {/* Instrument Selector */}
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-[#A0AEC0] flex items-center gap-1.5">
+                <Music size={13} className="text-cyan-400" />
+                <span>Assigned Instrument:</span>
+              </span>
+              <select
+                value={instrument}
+                onChange={e => setInstrument(e.target.value)}
+                className="px-3 py-1.5 rounded-xl bg-[#11172A] border border-[#202C48] text-xs font-bold text-white focus:outline-none focus:border-cyan-400 cursor-pointer"
+              >
+                {INSTRUMENT_OPTIONS.map(inst => (
+                  <option key={inst.id} value={inst.id}>
+                    {inst.icon} {inst.name} — {inst.desc}
+                  </option>
+                ))}
+              </select>
             </div>
-            <div>
-              <span className="text-[#64748B]">Range:</span>{' '}
-              <span className="font-bold text-purple-300">{midiToNoteName(minPitch)} - {midiToNoteName(maxPitch)}</span>
+
+            {/* Quick Note Counts & Key Detection */}
+            <div className="flex items-center gap-4 text-xs">
+              <div>
+                <span className="text-[#64748B]">Total Notes:</span>{' '}
+                <span className="font-bold text-emerald-300">{notes.length}</span>
+              </div>
+              <div>
+                <span className="text-[#64748B]">Range:</span>{' '}
+                <span className="font-bold text-purple-300">{midiToNoteName(minPitch)} - {midiToNoteName(maxPitch)}</span>
+              </div>
             </div>
-          </div>
 
-          {/* Export / Commit Buttons */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleSaveToCurrentClip}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:brightness-110 text-black font-extrabold text-xs flex items-center gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all"
-            >
-              <Check size={14} />
-              <span>Apply to Mixer Clip</span>
-            </button>
+            {/* Export / Commit Buttons */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={handleDownloadMidi}
+                disabled={notes.length === 0}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 via-sky-500 to-emerald-400 hover:brightness-110 text-black font-extrabold text-xs flex items-center gap-1.5 shadow-[0_0_15px_rgba(6,182,212,0.35)] transition-all disabled:opacity-40 cursor-pointer"
+                title="Download standard Type 0 .mid file for Ableton, FL Studio, Logic, or Reaper"
+              >
+                <Download size={14} />
+                <span>Download .MID File</span>
+              </button>
 
-            <button
-              onClick={handleExportNewMidiTrack}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 via-pink-600 to-indigo-600 hover:brightness-110 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-[0_0_15px_rgba(192,132,252,0.3)] transition-all"
-            >
-              <Plus size={14} />
-              <span>Deploy as New MIDI Track</span>
-            </button>
+              <button
+                onClick={handleSaveToCurrentClip}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:brightness-110 text-black font-extrabold text-xs flex items-center gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all"
+              >
+                <Check size={14} />
+                <span>Apply to Mixer Clip</span>
+              </button>
+
+              <button
+                onClick={handleExportNewMidiTrack}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 via-pink-600 to-indigo-600 hover:brightness-110 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-[0_0_15px_rgba(192,132,252,0.3)] transition-all"
+              >
+                <Plus size={14} />
+                <span>Deploy as New MIDI Track</span>
+              </button>
+            </div>
           </div>
         </div>
 

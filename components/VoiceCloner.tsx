@@ -382,14 +382,19 @@ export const VoiceCloner: React.FC<VoiceClonerProps> = ({
     }
   };
 
-  // Delete User Profile
+  const [pendingDeleteProfileId, setPendingDeleteProfileId] = useState<string | null>(null);
+
+  // Delete User Profile (In-App Two-Step Confirmation)
   const handleDeleteProfile = (id: string, name: string) => {
-    if (window.confirm(`Delete cloned profile "${name}"?`)) {
-      const updated = lowResourceVoiceCloner.deleteUserProfile(id);
-      setProfiles(updated);
-      handleSelectVoice(updated[0].id);
-      showToast(`Deleted voice profile "${name}".`);
+    if (pendingDeleteProfileId !== id) {
+      setPendingDeleteProfileId(id);
+      return;
     }
+    setPendingDeleteProfileId(null);
+    const updated = lowResourceVoiceCloner.deleteUserProfile(id);
+    setProfiles(updated);
+    handleSelectVoice(updated[0].id);
+    showToast(`Deleted voice profile "${name}".`);
   };
 
   return (
@@ -499,13 +504,32 @@ export const VoiceCloner: React.FC<VoiceClonerProps> = ({
           </div>
 
           {activeProfile.category === 'User' && (
-            <button
-              onClick={() => handleDeleteProfile(activeProfile.id, activeProfile.name)}
-              className="p-2 rounded-xl bg-red-950/40 text-red-400 hover:bg-red-900/60 border border-red-800 transition-all cursor-pointer"
-              title="Delete this cloned profile"
-            >
-              <Trash2 size={14} />
-            </button>
+            pendingDeleteProfileId === activeProfile.id ? (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => handleDeleteProfile(activeProfile.id, activeProfile.name)}
+                  className="px-2.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white border border-red-400 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer"
+                  title={`Confirm delete "${activeProfile.name}"`}
+                >
+                  <Trash2 size={12} />
+                  <span>Confirm Delete</span>
+                </button>
+                <button
+                  onClick={() => setPendingDeleteProfileId(null)}
+                  className="px-2 py-1.5 rounded-xl bg-[#0B1022] text-[#9AA5C4] hover:text-white border border-[#1E2849] text-[11px] cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => handleDeleteProfile(activeProfile.id, activeProfile.name)}
+                className="p-2 rounded-xl bg-red-950/40 text-red-400 hover:bg-red-900/60 border border-red-800 transition-all cursor-pointer"
+                title="Delete this cloned profile"
+              >
+                <Trash2 size={14} />
+              </button>
+            )
           )}
         </div>
       </div>

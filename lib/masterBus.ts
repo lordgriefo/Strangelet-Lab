@@ -1,6 +1,8 @@
 // Master Audio Bus & Real-time Analyser Hub
 // Provides a shared connection point for the Master Bus output across Mixer, Mastering, and Audio services,
-// with a real-time 6-band Parametric EQ and frequency response transfer engine.
+// with a real-time 6-band Parametric EQ, FFT Reference Matchering engine, and level-matched reference auditioning.
+
+import { audioService } from '../services/audioService';
 
 export interface ParametricEqBand {
   id: string;
@@ -12,6 +14,36 @@ export interface ParametricEqBand {
   enabled: boolean;
   color: string;
   isCutoff?: boolean;     // true if primary HPF (low-cut) or LPF (high-cut)
+}
+
+export interface SpectrumFiveBandProfile {
+  subDb: number;       // 20 - 90 Hz
+  lowMidDb: number;    // 90 - 420 Hz
+  midDb: number;       // 420 - 2200 Hz
+  presenceDb: number;  // 2200 - 6500 Hz
+  airDb: number;       // 6500 - 18000 Hz
+}
+
+export interface ReferenceMatchResult {
+  fileName: string;
+  fileSizeBytes: number;
+  durationSec: number;
+  refSpectrum: SpectrumFiveBandProfile;
+  masterSpectrum: SpectrumFiveBandProfile;
+  refRmsDb: number;
+  masterRmsDb: number;
+  levelMatchTrimDb: number;
+  eqAdjustmentsDb: {
+    sub: number;
+    lowMid: number;
+    mid: number;
+    presence: number;
+    air: number;
+  };
+  calibratedLowCutHz: number;
+  calibratedHighCutHz: number;
+  masterSourceLabel: string;
+  analyzedAt: number;
 }
 
 export const DEFAULT_PARAMETRIC_EQ_BANDS: ParametricEqBand[] = [
@@ -107,6 +139,21 @@ class MasterAudioBus {
   private masteringBypassed: boolean = false;
   private masteringBypassListeners: Set<(bypassed: boolean) => void> = new Set();
 
+  // Reference Matchering & Level-Matched Auditioning State
+  private referenceBuffer: AudioBuffer | null = null;
+  private referenceSourceNode: AudioBufferSourceNode | null = null;
+  private referenceGainNode: GainNode | null = null;
+  private referenceMatchResult: ReferenceMatchResult | null = null;
+  private isAuditioningReference: boolean = false;
+  private isAnalyzingReference: boolean = false;
+  private referencePlayOffsetSec: number = 0;
+  private referencePlayStartedAt: number = 0;
+  private referenceMatchListeners: Set<(state: {
+    match: ReferenceMatchResult | null;
+    isAuditioning: boolean;
+    isAnalyzing: boolean;
+  }) => void> = new Set();
+
   public getAudioContext(): AudioContext {
     if (!this.audioContext && typeof window !== 'undefined') {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -177,6 +224,11 @@ class MasterAudioBus {
     this.saturationMakeupNode.connect(this.analyserNode);
     this.analyserNode.connect(this.masterGainNode);
     this.masterGainNode.connect(ctx.destination);
+
+    // Direct Reference Audition Path (bypasses Master EQ/Comp/Sat so reference is uncolored)
+    this.referenceGainNode = ctx.createGain();
+    this.referenceGainNode.gain.value = 1.0;
+    this.referenceGainNode.connect(ctx.destination);
   }
 
   public getCompressorGainReduction(): number {
@@ -572,6 +624,482 @@ class MasterAudioBus {
       isPlaying: this.isTestingSignal,
       type: this.currentTestType
     };
+  }
+
+  // =========================================================================
+  // REAL-TIME WEB AUDIO FFT REFERENCE MATCHERING & LEVEL-MATCHED AUDITION
+  // =========================================================================
+
+  /**
+   * In-place Radix-2 Cooley-Tukey FFT on real windowed frame (N must be power of 2).
+   * Populates half-spectrum linear magnitudes [0 .. N/2 - 1].
+   */
+  private computeFftMagnitudes(frame: Float32Array): Float32Array {
+    const n = frame.length;
+    const real = new Float32Array(n);
+    const imag = new Float32Array(n);
+
+    // Apply Hann window to eliminate spectral leakage
+    for (let i = 0; i < n; i++) {
+      const w = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (n - 1)));
+      real[i] = frame[i] * w;
+    }
+
+    // Bit-reversal permutation
+    let j = 0;
+    for (let i = 0; i < n; i++) {
+      if (i < j) {
+        const tr = real[i];
+        real[i] = real[j];
+        real[j] = tr;
+      }
+      let m = n >> 1;
+      while (m >= 1 && j >= m) {
+        j -= m;
+        m >>= 1;
+      }
+      j += m;
+    }
+
+    // Iterative butterfly stages
+    for (let size = 2; size <= n; size <<= 1) {
+      const half = size >> 1;
+      const theta = (-2 * Math.PI) / size;
+      const wStepR = Math.cos(theta);
+      const wStepI = Math.sin(theta);
+
+      for (let start = 0; start < n; start += size) {
+        let wR = 1;
+        let wI = 0;
+        for (let k = 0; k < half; k++) {
+          const evenIdx = start + k;
+          const oddIdx = evenIdx + half;
+          const tR = wR * real[oddIdx] - wI * imag[oddIdx];
+          const tI = wR * imag[oddIdx] + wI * real[oddIdx];
+          real[oddIdx] = real[evenIdx] - tR;
+          imag[oddIdx] = imag[evenIdx] - tI;
+          real[evenIdx] += tR;
+          imag[evenIdx] += tI;
+
+          const nextWR = wR * wStepR - wI * wStepI;
+          wI = wR * wStepI + wI * wStepR;
+          wR = nextWR;
+        }
+      }
+    }
+
+    const halfN = n >> 1;
+    const mags = new Float32Array(halfN);
+    const norm = 2.0 / n;
+    for (let i = 0; i < halfN; i++) {
+      mags[i] = Math.hypot(real[i], imag[i]) * norm;
+    }
+    return mags;
+  }
+
+  /**
+   * Computes averaged 5-band spectral balance (Sub, Low-Mid, Mid, Presence, Air)
+   * and integrated active RMS dBFS from one or more AudioBuffers.
+   */
+  private analyzeAudioBuffersSpectrum(buffers: AudioBuffer[]): {
+    spectrum: SpectrumFiveBandProfile;
+    rmsDb: number;
+  } {
+    const fftSize = 2048;
+    const frame = new Float32Array(fftSize);
+    const sampleRate = buffers[0]?.sampleRate || 44100;
+    const halfBins = fftSize >> 1;
+    const binHz = sampleRate / fftSize;
+
+    const bandAccum = { sub: 0, lowMid: 0, mid: 0, presence: 0, air: 0 };
+    const bandCounts = { sub: 0, lowMid: 0, mid: 0, presence: 0, air: 0 };
+    let totalRmsSq = 0;
+    let totalFrames = 0;
+
+    for (const buffer of buffers) {
+      const ch0 = buffer.getChannelData(0);
+      const ch1 = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : ch0;
+      if (ch0.length < fftSize) continue;
+
+      const sampleWindowCount = 24;
+      const usableLen = ch0.length - fftSize;
+      const step = Math.max(fftSize, Math.floor(usableLen / sampleWindowCount));
+
+      for (let w = 0; w < sampleWindowCount; w++) {
+        const offset = Math.min(usableLen, w * step);
+        let frameSq = 0;
+        for (let i = 0; i < fftSize; i++) {
+          const mono = 0.5 * (ch0[offset + i] + ch1[offset + i]);
+          frame[i] = mono;
+          frameSq += mono * mono;
+        }
+        const frameRms = Math.sqrt(frameSq / fftSize);
+        // Skip near-silent intro/outro gaps (< -58 dBFS) so spectral averages reflect real program energy
+        if (frameRms < 0.0012 && w > 0) continue;
+
+        totalRmsSq += frameSq / fftSize;
+        totalFrames++;
+
+        const mags = this.computeFftMagnitudes(frame);
+        for (let bin = 1; bin < halfBins; bin++) {
+          const freq = bin * binHz;
+          const pwr = mags[bin] * mags[bin];
+          if (freq >= 20 && freq < 90) {
+            bandAccum.sub += pwr;
+            bandCounts.sub++;
+          } else if (freq >= 90 && freq < 420) {
+            bandAccum.lowMid += pwr;
+            bandCounts.lowMid++;
+          } else if (freq >= 420 && freq < 2200) {
+            bandAccum.mid += pwr;
+            bandCounts.mid++;
+          } else if (freq >= 2200 && freq < 6500) {
+            bandAccum.presence += pwr;
+            bandCounts.presence++;
+          } else if (freq >= 6500 && freq <= 18000) {
+            bandAccum.air += pwr;
+            bandCounts.air++;
+          }
+        }
+      }
+    }
+
+    const toDb = (sumSq: number, count: number) => {
+      const avgPwr = count > 0 ? sumSq / count : 1e-8;
+      return Math.max(-72, Math.min(0, 10 * Math.log10(Math.max(1e-8, avgPwr))));
+    };
+
+    const avgRms = totalFrames > 0 ? Math.sqrt(totalRmsSq / totalFrames) : 0.14;
+    const rmsDb = Math.max(-60, Math.min(-0.5, 20 * Math.log10(Math.max(1e-5, avgRms))));
+
+    return {
+      spectrum: {
+        subDb: toDb(bandAccum.sub, bandCounts.sub),
+        lowMidDb: toDb(bandAccum.lowMid, bandCounts.lowMid),
+        midDb: toDb(bandAccum.mid, bandCounts.mid),
+        presenceDb: toDb(bandAccum.presence, bandCounts.presence),
+        airDb: toDb(bandAccum.air, bandCounts.air)
+      },
+      rmsDb
+    };
+  }
+
+  /**
+   * Captures the current master bus 5-band spectrum from:
+   *  1) Live AnalyserNode FFT if audio is actively flowing, OR
+   *  2) Loaded project track buffers in audioService, OR
+   *  3) Current Parametric EQ contour over a balanced studio mix baseline.
+   */
+  private captureMasterBusSpectrum(): {
+    spectrum: SpectrumFiveBandProfile;
+    rmsDb: number;
+    sourceLabel: string;
+  } {
+    const ctx = this.getAudioContext();
+
+    // 1. Live AnalyserNode inspection
+    if (this.analyserNode) {
+      const bins = new Float32Array(this.analyserNode.frequencyBinCount);
+      this.analyserNode.getFloatFrequencyData(bins);
+      const binHz = ctx.sampleRate / this.analyserNode.fftSize;
+
+      let peakDb = -120;
+      const sums = { sub: 0, lowMid: 0, mid: 0, presence: 0, air: 0 };
+      const counts = { sub: 0, lowMid: 0, mid: 0, presence: 0, air: 0 };
+
+      for (let i = 1; i < bins.length; i++) {
+        const db = Number.isFinite(bins[i]) ? bins[i] : -100;
+        if (db > peakDb) peakDb = db;
+        const freq = i * binHz;
+        const lin = Math.pow(10, db / 10);
+        if (freq >= 20 && freq < 90) {
+          sums.sub += lin; counts.sub++;
+        } else if (freq >= 90 && freq < 420) {
+          sums.lowMid += lin; counts.lowMid++;
+        } else if (freq >= 420 && freq < 2200) {
+          sums.mid += lin; counts.mid++;
+        } else if (freq >= 2200 && freq < 6500) {
+          sums.presence += lin; counts.presence++;
+        } else if (freq >= 6500 && freq <= 18000) {
+          sums.air += lin; counts.air++;
+        }
+      }
+
+      if (peakDb > -78) {
+        const toDb = (linSum: number, count: number) =>
+          Math.max(-72, Math.min(0, 10 * Math.log10(Math.max(1e-8, count > 0 ? linSum / count : 1e-8))));
+        const subDb = toDb(sums.sub, counts.sub);
+        const lowMidDb = toDb(sums.lowMid, counts.lowMid);
+        const midDb = toDb(sums.mid, counts.mid);
+        const presenceDb = toDb(sums.presence, counts.presence);
+        const airDb = toDb(sums.air, counts.air);
+        const avgBandDb = (subDb + lowMidDb + midDb + presenceDb + airDb) / 5;
+        return {
+          spectrum: { subDb, lowMidDb, midDb, presenceDb, airDb },
+          rmsDb: Math.max(-42, Math.min(-3, avgBandDb + 12)),
+          sourceLabel: 'Live Master Bus FFT'
+        };
+      }
+    }
+
+    // 2. Loaded DAW track AudioBuffers
+    const trackBuffers = audioService.getAllTrackBuffers();
+    if (trackBuffers.length > 0) {
+      const analyzed = this.analyzeAudioBuffersSpectrum(trackBuffers);
+      return {
+        ...analyzed,
+        sourceLabel: `Loaded Project Stems (${trackBuffers.length} tracks FFT)`
+      };
+    }
+
+    // 3. Current Master EQ contour baseline (when idle with no tracks playing)
+    const bandFreqs = new Float32Array([55, 250, 1100, 4200, 11500]);
+    const eqResponse = this.getCombinedFrequencyResponse(bandFreqs);
+    return {
+      spectrum: {
+        subDb: -22.5 + eqResponse[0],
+        lowMidDb: -24.0 + eqResponse[1],
+        midDb: -26.5 + eqResponse[2],
+        presenceDb: -31.0 + eqResponse[3],
+        airDb: -37.5 + eqResponse[4]
+      },
+      rmsDb: -15.5,
+      sourceLabel: 'Master Bus EQ Baseline Curve'
+    };
+  }
+
+  /**
+   * Decodes a dropped reference WAV/MP3/OGG file in Web Audio, computes its average 5-band FFT spectrum,
+   * compares it against the current Master Bus spectrum, and automatically calibrates the 6-band Parametric EQ.
+   */
+  public async loadAndMatchReferenceTrack(file: File): Promise<ReferenceMatchResult> {
+    this.stopReferenceAudition();
+    this.isAnalyzingReference = true;
+    this.notifyReferenceMatchListeners();
+
+    try {
+      const ctx = this.getAudioContext();
+      if (ctx.state === 'suspended') {
+        await ctx.resume().catch(() => {});
+      }
+
+      const arrayBuffer = await file.arrayBuffer();
+      const decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
+      this.referenceBuffer = decodedBuffer;
+      this.referencePlayOffsetSec = Math.min(decodedBuffer.duration * 0.2, Math.max(0, decodedBuffer.duration - 4));
+
+      // 1. Reference track 5-band FFT spectrum & RMS loudness
+      const refAnalysis = this.analyzeAudioBuffersSpectrum([decodedBuffer]);
+
+      // 2. Current Master Bus 5-band spectrum & RMS
+      const masterAnalysis = this.captureMasterBusSpectrum();
+
+      // Normalize spectral shape relative to mid-band centroid so tonal curve matching stays independent of absolute volume
+      const refCentroid = (refAnalysis.spectrum.subDb + refAnalysis.spectrum.lowMidDb + refAnalysis.spectrum.midDb + refAnalysis.spectrum.presenceDb + refAnalysis.spectrum.airDb) / 5;
+      const masterCentroid = (masterAnalysis.spectrum.subDb + masterAnalysis.spectrum.lowMidDb + masterAnalysis.spectrum.midDb + masterAnalysis.spectrum.presenceDb + masterAnalysis.spectrum.airDb) / 5;
+
+      const clampEq = (db: number, min: number, max: number) =>
+        Math.round(Math.max(min, Math.min(max, db)) * 10) / 10;
+
+      const rawSubDelta = (refAnalysis.spectrum.subDb - refCentroid) - (masterAnalysis.spectrum.subDb - masterCentroid);
+      const rawLowMidDelta = (refAnalysis.spectrum.lowMidDb - refCentroid) - (masterAnalysis.spectrum.lowMidDb - masterCentroid);
+      const rawMidDelta = (refAnalysis.spectrum.midDb - refCentroid) - (masterAnalysis.spectrum.midDb - masterCentroid);
+      const rawPresenceDelta = (refAnalysis.spectrum.presenceDb - refCentroid) - (masterAnalysis.spectrum.presenceDb - masterCentroid);
+      const rawAirDelta = (refAnalysis.spectrum.airDb - refCentroid) - (masterAnalysis.spectrum.airDb - masterCentroid);
+
+      // Gentle 75% match depth factor keeps calibration musical and prevents over-boosting
+      const matchFactor = 0.75;
+      const eqAdjustmentsDb = {
+        sub: clampEq(rawSubDelta * matchFactor, -6.5, 6.5),
+        lowMid: clampEq(rawLowMidDelta * matchFactor, -6.5, 5.5),
+        mid: clampEq(rawMidDelta * matchFactor, -5.5, 5.5),
+        presence: clampEq(rawPresenceDelta * matchFactor, -6.0, 6.0),
+        air: clampEq(rawAirDelta * matchFactor, -6.0, 6.0)
+      };
+
+      const calibratedLowCutHz = Math.round(Math.max(22, Math.min(46, 32 - eqAdjustmentsDb.sub * 1.4)));
+      const calibratedHighCutHz = Math.round(Math.max(15000, Math.min(21500, 19000 + eqAdjustmentsDb.air * 420)));
+
+      // 3. Calibrate the 6-band Parametric EQ in MasterAudioBus
+      this.eqBypassed = false;
+      this.masteringBypassed = false;
+      this.notifyMasteringBypassListeners();
+
+      const currentBands = this.getBands();
+      const calibratedBands = currentBands.map(band => {
+        if (band.id === 'band-1') {
+          return { ...band, enabled: true, frequency: calibratedLowCutHz, gain: 0 };
+        }
+        if (band.id === 'band-2') {
+          return { ...band, enabled: true, frequency: 95, gain: eqAdjustmentsDb.sub };
+        }
+        if (band.id === 'band-3') {
+          return { ...band, enabled: true, frequency: 380, q: 1.25, gain: eqAdjustmentsDb.lowMid };
+        }
+        if (band.id === 'band-4') {
+          return { ...band, enabled: true, frequency: 1850, q: 1.05, gain: eqAdjustmentsDb.mid };
+        }
+        if (band.id === 'band-5') {
+          const blendedHighGain = clampEq(eqAdjustmentsDb.presence * 0.65 + eqAdjustmentsDb.air * 0.35, -6.5, 6.5);
+          const highCenterHz = Math.abs(eqAdjustmentsDb.air) > Math.abs(eqAdjustmentsDb.presence) ? 7600 : 4800;
+          return { ...band, enabled: true, frequency: highCenterHz, q: 1.15, gain: blendedHighGain };
+        }
+        if (band.id === 'band-6') {
+          return { ...band, enabled: true, frequency: calibratedHighCutHz, gain: 0 };
+        }
+        return band;
+      });
+
+      this.setAllBands(calibratedBands);
+
+      // Compute level-matching trim between master RMS and reference RMS
+      const rawTrimDb = masterAnalysis.rmsDb - refAnalysis.rmsDb;
+      const levelMatchTrimDb = Math.round(Math.max(-18, Math.min(12, rawTrimDb)) * 10) / 10;
+
+      const result: ReferenceMatchResult = {
+        fileName: file.name,
+        fileSizeBytes: file.size,
+        durationSec: decodedBuffer.duration,
+        refSpectrum: refAnalysis.spectrum,
+        masterSpectrum: masterAnalysis.spectrum,
+        refRmsDb: Math.round(refAnalysis.rmsDb * 10) / 10,
+        masterRmsDb: Math.round(masterAnalysis.rmsDb * 10) / 10,
+        levelMatchTrimDb,
+        eqAdjustmentsDb,
+        calibratedLowCutHz,
+        calibratedHighCutHz,
+        masterSourceLabel: masterAnalysis.sourceLabel,
+        analyzedAt: Date.now()
+      };
+
+      this.referenceMatchResult = result;
+      this.isAnalyzingReference = false;
+      this.notifyReferenceMatchListeners();
+      return result;
+    } catch (err) {
+      this.isAnalyzingReference = false;
+      this.notifyReferenceMatchListeners();
+      throw err;
+    }
+  }
+
+  public startReferenceAudition(): boolean {
+    if (!this.referenceBuffer) return false;
+    const ctx = this.getAudioContext();
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+
+    this.stopReferenceSourceOnly();
+
+    const source = ctx.createBufferSource();
+    source.buffer = this.referenceBuffer;
+    source.loop = true;
+
+    if (this.referenceGainNode) {
+      const trimDb = this.referenceMatchResult?.levelMatchTrimDb ?? -3;
+      const trimLinear = Math.max(0.08, Math.min(2.0, Math.pow(10, trimDb / 20)));
+      this.referenceGainNode.gain.setTargetAtTime(trimLinear, ctx.currentTime, 0.02);
+      source.connect(this.referenceGainNode);
+    } else {
+      source.connect(ctx.destination);
+    }
+
+    // Mute master bus output seamlessly while auditioning reference
+    if (this.masterGainNode) {
+      this.masterGainNode.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.02);
+    }
+
+    const offset = this.referenceBuffer.duration > 0
+      ? this.referencePlayOffsetSec % this.referenceBuffer.duration
+      : 0;
+    source.start(0, offset);
+
+    this.referenceSourceNode = source;
+    this.referencePlayStartedAt = ctx.currentTime - offset;
+    this.isAuditioningReference = true;
+    this.notifyReferenceMatchListeners();
+    return true;
+  }
+
+  private stopReferenceSourceOnly() {
+    if (this.referenceSourceNode) {
+      if (this.audioContext && this.referenceBuffer && this.referenceBuffer.duration > 0) {
+        const elapsed = this.audioContext.currentTime - this.referencePlayStartedAt;
+        this.referencePlayOffsetSec = Math.max(0, elapsed % this.referenceBuffer.duration);
+      }
+      try {
+        this.referenceSourceNode.stop();
+        this.referenceSourceNode.disconnect();
+      } catch {
+        // ignored
+      }
+      this.referenceSourceNode = null;
+    }
+  }
+
+  public stopReferenceAudition() {
+    this.stopReferenceSourceOnly();
+    if (this.audioContext && this.masterGainNode) {
+      this.masterGainNode.gain.setTargetAtTime(1.0, this.audioContext.currentTime, 0.02);
+    }
+    if (this.isAuditioningReference) {
+      this.isAuditioningReference = false;
+      this.notifyReferenceMatchListeners();
+    }
+  }
+
+  public toggleReferenceAudition(): boolean {
+    if (this.isAuditioningReference) {
+      this.stopReferenceAudition();
+      return false;
+    }
+    return this.startReferenceAudition();
+  }
+
+  public clearReferenceTrack() {
+    this.stopReferenceAudition();
+    this.referenceBuffer = null;
+    this.referenceMatchResult = null;
+    this.referencePlayOffsetSec = 0;
+    this.notifyReferenceMatchListeners();
+  }
+
+  public getReferenceMatchState() {
+    return {
+      match: this.referenceMatchResult,
+      isAuditioning: this.isAuditioningReference,
+      isAnalyzing: this.isAnalyzingReference
+    };
+  }
+
+  public subscribeReferenceMatch(
+    cb: (state: {
+      match: ReferenceMatchResult | null;
+      isAuditioning: boolean;
+      isAnalyzing: boolean;
+    }) => void
+  ): () => void {
+    this.referenceMatchListeners.add(cb);
+    try {
+      cb(this.getReferenceMatchState());
+    } catch (e) {
+      console.error(e);
+    }
+    return () => {
+      this.referenceMatchListeners.delete(cb);
+    };
+  }
+
+  private notifyReferenceMatchListeners() {
+    const snapshot = this.getReferenceMatchState();
+    this.referenceMatchListeners.forEach(cb => {
+      try {
+        cb(snapshot);
+      } catch (e) {
+        console.error('Error in reference match listener', e);
+      }
+    });
   }
 }
 

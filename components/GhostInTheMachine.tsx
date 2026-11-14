@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Bot, 
   Send, 
@@ -37,7 +37,14 @@ import {
   Layers
 } from 'lucide-react';
 import { GhostMessage, Track, View, GhostPersona, VibeCheckReport, SpectralVibeIssue } from '../types';
-import { consultQuinnGhost, checkKoboldConnection, getStoredKoboldSettings, performTracksVibeCheck } from '../services/koboldCppService';
+import {
+  consultGhost,
+  checkKoboldConnection,
+  getStoredKoboldSettings,
+  performTracksVibeCheck,
+  simulateGhostInference,
+  inspectActiveStudioSession
+} from '../services/koboldCppService';
 import { getStoredBuddySoul, exportBuddySoulJson, importBuddySoulJson, calculateLevel, awardBuddyXp } from '../services/buddyEvolutionCore';
 import { playLaserBeamSound, playColliderInjectionSound } from '../lib/laserSound';
 
@@ -93,7 +100,7 @@ export const GhostInTheMachine: React.FC<GhostInTheMachineProps> = ({
   const [inputMessage, setInputMessage] = useState<string>('');
   const [isThinking, setIsThinking] = useState<boolean>(false);
   const [koboldConnected, setKoboldConnected] = useState<boolean | null>(null);
-  const [activeEngine, setActiveEngine] = useState<string>('koboldcpp');
+  const [activeEngine, setActiveEngine] = useState<string>('offline_dojo');
   const [connectionLatency, setConnectionLatency] = useState<number | null>(null);
 
   // Position & Fold / Pollute settings (Persisted)
@@ -124,6 +131,8 @@ export const GhostInTheMachine: React.FC<GhostInTheMachineProps> = ({
   const [appliedFixes, setAppliedFixes] = useState<string[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const vibeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef<boolean>(true);
 
   const handleToggleFold = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -173,13 +182,26 @@ export const GhostInTheMachine: React.FC<GhostInTheMachineProps> = ({
     setBuddySoul(getStoredBuddySoul());
   };
 
+  const liveSnapshot = useMemo(
+    () =>
+      inspectActiveStudioSession({
+        bpm: tempo,
+        currentView: String(currentView),
+        tracks,
+        collisionEnergy
+      }),
+    [tempo, currentView, tracks, collisionEnergy]
+  );
+
   // Singular Ghost in the Machine Welcome Message
   const getInitialMessage = (): GhostMessage => {
+    const snap = liveSnapshot;
     return {
       id: 'ghost-welcome',
       sender: 'ghost',
       persona: 'ghost',
-      text: "👻 The Ghost in the Machine is active and resident in your lab.\n• Core Engine: Local Qwen 4B Abliterated (Refusal-neutralized audio intelligence, 2.6GB VRAM)\n• Disciplines: Software Dojo scrolls, Faust DSP bytecode, Studer tape saturation, Ace-Step diffusion, and real-time Spectral Vibe Checks.\n• Quick Tip: Press 'Esc' or click '✕ Close' anytime to close this window.\n• Ready to train on your workflow and sculpt the lab with zero corporate censorship. What are we jamming on, brother?",
+      engineSource: koboldConnected ? undefined : 'offline_dojo',
+      text: `GHOST online. Session inspected: ${snap.activeTracks} active track(s) (${snap.audioTrackCount} Audio, ${snap.midiTrackCount} MIDI) at ${snap.bpm} BPM in ${snap.timeSignature}, routed into "${snap.goldPathPresetName}" (Matchering ${snap.matcheringEnabled ? 'ON' : 'OFF'}). Ask for mix surgery, Hz/kHz frequency carving, Gold Path calibration, or custom Faust DSP circuits.`,
       timestamp: Date.now() - 1000 * 60,
       actionProposal: {
         type: 'open_vibe_check',
@@ -189,7 +211,7 @@ export const GhostInTheMachine: React.FC<GhostInTheMachineProps> = ({
     };
   };
 
-  const [messages, setMessages] = useState<GhostMessage[]>([getInitialMessage()]);
+  const [messages, setMessages] = useState<GhostMessage[]>(() => [getInitialMessage()]);
 
   // Global keydown listener to close terminal with Escape key
   useEffect(() => {
@@ -204,24 +226,37 @@ export const GhostInTheMachine: React.FC<GhostInTheMachineProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen]);
 
-  // Periodic health check on local AI hub
+  // Periodic health check on configured local/custom AI hub (active only when open & visible)
   useEffect(() => {
-    let isMounted = true;
+    isMountedRef.current = true;
     const testPing = async () => {
-      const res = await checkKoboldConnection();
-      if (isMounted) {
-        setKoboldConnected(res.connected);
-        setActiveEngine(res.engine || 'local');
-        setConnectionLatency(res.latencyMs || null);
+      try {
+        const res = await checkKoboldConnection();
+        if (isMountedRef.current) {
+          setKoboldConnected(res.connected);
+          setActiveEngine(res.connected ? (res.engine || 'koboldcpp') : 'offline_dojo');
+          setConnectionLatency(res.latencyMs ?? 1);
+        }
+      } catch {
+        if (isMountedRef.current) {
+          setKoboldConnected(false);
+          setActiveEngine('offline_dojo');
+          setConnectionLatency(1);
+        }
       }
     };
-    testPing();
-    const interval = setInterval(testPing, 30000);
+
+    if (!isHidden) {
+      testPing();
+    }
+
+    const interval = isOpen && !isHidden ? setInterval(testPing, 30000) : null;
     return () => {
-      isMounted = false;
-      clearInterval(interval);
+      isMountedRef.current = false;
+      if (interval) clearInterval(interval);
+      if (vibeTimerRef.current) clearTimeout(vibeTimerRef.current);
     };
-  }, []);
+  }, [isOpen, isHidden]);
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -244,62 +279,113 @@ export const GhostInTheMachine: React.FC<GhostInTheMachineProps> = ({
     setIsThinking(true);
     playLaserBeamSound('laser_select');
 
+    const snap = inspectActiveStudioSession({
+      bpm: tempo,
+      currentView: String(currentView),
+      tracks,
+      collisionEnergy
+    });
+
+    const dawContext = {
+      bpm: snap.bpm,
+      timeSignature: snap.timeSignature,
+      currentView: String(currentView),
+      tracksCount: tracks.length,
+      activeTrackCount: snap.activeTracks,
+      tracks,
+      audioTrackCount: snap.audioTrackCount,
+      midiTrackCount: snap.midiTrackCount,
+      goldPathPresetId: snap.goldPathPreset.id,
+      goldPathPresetName: snap.goldPathPresetName,
+      matcheringEnabled: snap.matcheringEnabled,
+      matcheringReferenceName: snap.matcheringReferenceName || undefined,
+      collisionEnergy
+    };
+
+    let safetyTimer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const reply = await consultQuinnGhost(text, messages, {
-        bpm: tempo,
-        currentView: String(currentView),
-        tracksCount: tracks.length,
-        collisionEnergy
-      }, 'ghost');
-      setMessages(prev => [...prev, reply]);
-      playLaserBeamSound('laser_audio');
-      refreshSoul();
-    } catch (err) {
-      setMessages(prev => [
-        ...prev,
-        {
-          id: `ghost-err-${Date.now()}`,
-          sender: 'ghost',
-          persona: 'ghost',
-          text: "The quantum buffer momentarily drifted, but I remain listening through the local loopback. Let's sculpt the sound.",
-          timestamp: Date.now()
-        }
+      const reply = await Promise.race<GhostMessage>([
+        consultGhost(text, messages, dawContext, currentPersona),
+        new Promise<GhostMessage>(resolve => {
+          safetyTimer = setTimeout(() => {
+            resolve({
+              id: `ghost-dojo-${Date.now()}`,
+              sender: currentPersona,
+              persona: currentPersona,
+              text: simulateGhostInference(text, currentPersona, dawContext),
+              timestamp: Date.now(),
+              engineSource: 'offline_dojo'
+            });
+          }, 6500);
+        })
       ]);
+
+      if (isMountedRef.current) {
+        setMessages(prev => [...prev, reply]);
+        playLaserBeamSound('laser_audio');
+        refreshSoul();
+      }
+    } catch {
+      if (isMountedRef.current) {
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `ghost-dojo-${Date.now()}`,
+            sender: currentPersona,
+            persona: currentPersona,
+            text: simulateGhostInference(text, currentPersona, dawContext),
+            timestamp: Date.now(),
+            engineSource: 'offline_dojo'
+          }
+        ]);
+      }
     } finally {
-      setIsThinking(false);
+      if (safetyTimer !== undefined) clearTimeout(safetyTimer);
+      if (isMountedRef.current) {
+        setIsThinking(false);
+      }
     }
   };
 
   // Real-Time Spectral Vibe Check Scan
   const handleRunVibeCheck = () => {
+    if (isScanningVibe) return;
     setIsScanningVibe(true);
     playLaserBeamSound('laser_select');
 
-    setTimeout(() => {
-      const report = performTracksVibeCheck(tracks, tempo);
-      setVibeReport(report);
-      setShowVibeCheckDrawer(true);
-      setIsScanningVibe(false);
-      playColliderInjectionSound();
+    if (vibeTimerRef.current) clearTimeout(vibeTimerRef.current);
+    vibeTimerRef.current = setTimeout(() => {
+      try {
+        const report = performTracksVibeCheck(tracks, tempo);
+        if (!isMountedRef.current) return;
+        setVibeReport(report);
+        setShowVibeCheckDrawer(true);
+        playColliderInjectionSound();
 
-      // Award XP to Ghost for conducting lab inspection
-      awardBuddyXp(30, 'interaction', `Ran Spectral Vibe Check across ${tracks.length} stems`);
-      refreshSoul();
+        // Award XP to Ghost for conducting lab inspection
+        awardBuddyXp(30, 'interaction', `Ran Spectral Vibe Check across ${tracks.length} stems`);
+        refreshSoul();
 
-      const scanMsg: GhostMessage = {
-        id: `vibe-scan-${Date.now()}`,
-        sender: 'ghost',
-        persona: 'ghost',
-        text: `🌊 Spectral Vibe Check completed across ${tracks.length} active tracks!\n• Overall Coherence: ${report.overallScore}%\n• Harmonic Health: ${report.harmonicHealth}% | Rhythm Coherence: ${report.rhythmCoherence}% | Spectral Balance: ${report.spectralBalance}%\n• Detected ${report.issues.length} frequency collision/drift zones. Review the Spectral Vibe Monitor drawer above to inspect frequency distributions and trigger 1-click auto-fixes.`,
-        timestamp: Date.now(),
-        actionProposal: report.issues.length > 0 ? {
-          type: 'open_vibe_check',
-          payload: {},
-          label: `🌊 Review ${report.issues.length} Spectral Vibe Fixes`
-        } : undefined
-      };
-      setMessages(prev => [...prev, scanMsg]);
-    }, 450);
+        const scanMsg: GhostMessage = {
+          id: `vibe-scan-${Date.now()}`,
+          sender: 'ghost',
+          persona: 'ghost',
+          engineSource: 'offline_dojo',
+          text: `🌊 Spectral Vibe Check completed across ${tracks.length} active tracks!\n• Overall Coherence: ${report.overallScore}%\n• Harmonic Health: ${report.harmonicHealth}% | Rhythm Coherence: ${report.rhythmCoherence}% | Spectral Balance: ${report.spectralBalance}%\n• Detected ${report.issues.length} frequency collision/drift zones. Review the Spectral Vibe Monitor drawer above to inspect frequency distributions and trigger 1-click auto-fixes.`,
+          timestamp: Date.now(),
+          actionProposal: report.issues.length > 0 ? {
+            type: 'open_vibe_check',
+            payload: {},
+            label: `🌊 Review ${report.issues.length} Spectral Vibe Fixes`
+          } : undefined
+        };
+        setMessages(prev => [...prev, scanMsg]);
+      } finally {
+        if (isMountedRef.current) {
+          setIsScanningVibe(false);
+        }
+      }
+    }, 350);
   };
 
   // Apply 1-Click Surgical Vibe Fix
@@ -373,7 +459,7 @@ export const GhostInTheMachine: React.FC<GhostInTheMachineProps> = ({
   };
 
   const handleRunTestRun = () => {
-    handleSendMessage("⚡ Run full benchmark test run on Qwen 4B Abliterated: verify refusal-free telemetry, latency, and DSP recommendations.");
+    handleSendMessage("⚡ Run Ghost Lab Diagnostic: verify active local model telemetry, latency, Faust DSP readiness, and Collider prompt status.");
   };
 
   const getWidgetPositionClasses = (pos: GhostWidgetPosition) => {
@@ -481,7 +567,9 @@ export const GhostInTheMachine: React.FC<GhostInTheMachineProps> = ({
                   </span>
                 </div>
                 <div className="text-[9px] text-[#7E85A8]">
-                  {koboldConnected ? `${activeEngine.toUpperCase()} • Qwen 4B` : 'Resident Offline Core'}
+                  {koboldConnected
+                    ? `${activeEngine.replace('_', ' ').toUpperCase()} • ACTIVE`
+                    : 'DOJO HEURISTIC • 100% OFFLINE'}
                 </div>
               </div>
             </button>
@@ -546,14 +634,18 @@ export const GhostInTheMachine: React.FC<GhostInTheMachineProps> = ({
                   </span>
                   <span className={`w-2 h-2 rounded-full ${
                     koboldConnected ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'
-                  }`} title={koboldConnected ? 'Hub connected' : 'Offline Dojo Kernel active'} />
+                  }`} title={koboldConnected ? 'Configured AI hub connected' : 'Built-in Offline Dojo Heuristic Engine active'} />
                 </div>
                 <div className="text-[9px] text-[#7E85A8] flex items-center gap-2">
-                  <span>QWEN 4B ABLITERATED</span>
+                  <span>
+                    {koboldConnected
+                      ? `${activeEngine.replace('_', ' ').toUpperCase()} LIVE`
+                      : 'OFFLINE DOJO HEURISTIC'}
+                  </span>
                   <span>•</span>
                   <span>VRAM: 2.6 GB</span>
                   <span>•</span>
-                  <span>{connectionLatency ? `${connectionLatency}ms` : '12ms (Kernel)'}</span>
+                  <span>{connectionLatency ? `${connectionLatency}ms` : '1ms (Dojo)'}</span>
                 </div>
               </div>
             </div>
@@ -667,16 +759,26 @@ export const GhostInTheMachine: React.FC<GhostInTheMachineProps> = ({
             </div>
 
             <div className="text-[9px] text-[#5C6588] flex-shrink-0 ml-2">
-              Single Dedicated Lab Companion
+              Sole Audio Mentor &amp; DSP Architect
             </div>
           </div>
 
           {/* Telemetry Status Bar with VIBE CHECK Trigger */}
-          <div className="px-4 py-1.5 bg-[#0A0E1A] border-b border-[#181F33] flex items-center justify-between text-[10px] text-[#71789B] flex-shrink-0 select-none">
-            <div className="flex items-center gap-3">
+          <div className="px-4 py-1.5 bg-[#0A0E1A] border-b border-[#181F33] flex items-center justify-between text-[10px] text-[#71789B] flex-shrink-0 select-none gap-2">
+            <div className="flex items-center gap-2.5 overflow-x-auto scrollbar-none">
               <span>VIEW: <strong className="text-cyan-300">{String(currentView)}</strong></span>
-              <span>TEMPO: <strong className="text-amber-300">{tempo} BPM</strong></span>
-              <span>TRACKS: <strong className="text-purple-300">{tracks.length}</strong></span>
+              <span>METER: <strong className="text-amber-300">{liveSnapshot.bpm} BPM • {liveSnapshot.timeSignature}</strong></span>
+              <span>TRACKS: <strong className="text-purple-300">{liveSnapshot.activeTracks}/{liveSnapshot.totalTracks} ({liveSnapshot.audioTrackCount}A/{liveSnapshot.midiTrackCount}M)</strong></span>
+              <span className="hidden md:inline" title={`Gold Path: ${liveSnapshot.goldPathPresetName}`}>
+                GP: <strong className="text-emerald-300">{liveSnapshot.goldPathPresetName.replace('Gold Path: ', '')}</strong>
+              </span>
+              <span className={`px-1.5 py-0.2 rounded border text-[8px] font-bold uppercase ${
+                liveSnapshot.matcheringEnabled
+                  ? 'bg-emerald-950/70 border-emerald-500/40 text-emerald-300'
+                  : 'bg-[#121629] border-[#262F4A] text-[#7E88AA]'
+              }`}>
+                Matchering {liveSnapshot.matcheringEnabled ? 'ON' : 'OFF'}
+              </span>
             </div>
 
             <div className="flex items-center gap-2">
@@ -699,7 +801,7 @@ export const GhostInTheMachine: React.FC<GhostInTheMachineProps> = ({
                 type="button"
                 onClick={handleRunTestRun}
                 className="flex items-center gap-1 px-2.5 py-0.5 rounded bg-gradient-to-r from-red-600 via-orange-600 to-amber-500 hover:from-red-500 hover:to-amber-400 text-white font-bold text-[9px] shadow-[0_0_12px_rgba(239,68,68,0.5)] border border-yellow-300/40 animate-pulse transition-all cursor-pointer active:scale-95"
-                title="Execute Live Benchmark Test Run on Qwen 4B Abliterated (Verifies Refusal-Free Telemetry & Audio Parameters)"
+                title="Execute Ghost Lab Diagnostic on Active Local Model (Verifies Latency, Audio Telemetry & Faust DSP Readiness)"
               >
                 <Zap className="w-2.5 h-2.5 text-yellow-200 fill-yellow-200" />
                 <span>⚡ TEST RUN</span>
@@ -995,6 +1097,17 @@ export const GhostInTheMachine: React.FC<GhostInTheMachineProps> = ({
                     <span>
                       {isUser ? 'PRODUCER (YOU)' : 'THE GHOST IN THE MACHINE // RESIDENT AI'}
                     </span>
+                    {!isUser && msg.engineSource && (
+                      <span className={`px-1.5 py-0.2 rounded border text-[8px] font-bold uppercase ${
+                        msg.engineSource === 'offline_dojo' || msg.engineSource === 'simulated'
+                          ? 'bg-emerald-950/70 border-emerald-500/40 text-emerald-300'
+                          : 'bg-cyan-950/70 border-cyan-500/40 text-cyan-300'
+                      }`}>
+                        {msg.engineSource === 'offline_dojo' || msg.engineSource === 'simulated'
+                          ? 'Dojo Heuristic'
+                          : msg.engineSource}
+                      </span>
+                    )}
                     <span>•</span>
                     <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                   </div>
@@ -1045,7 +1158,7 @@ export const GhostInTheMachine: React.FC<GhostInTheMachineProps> = ({
             </span>
             {[
               { label: '🌊 Spectral Vibe Check', prompt: 'Run a full Spectral Vibe Check on active tracks for low-end masking, 8.5kHz sheen, and rhythm groove drift.' },
-              { label: '⚡ Run Qwen 4B Test Run', prompt: 'Execute live test run benchmark on Qwen 4B Abliterated model with DAW audio telemetry, refusal verification, and DSP recommendations.' },
+              { label: '⚡ Ghost Lab Diagnostic', prompt: 'Execute Ghost Lab Diagnostic on the active local model with DAW audio telemetry, latency check, and Faust DSP recommendations.' },
               { label: '🔥 Uncensored Tube Overdrive', prompt: 'Give me an uncensored asymmetric vacuum tube saturation formula for extreme guitar and drum punch.' },
               { label: '🚀 Quantum Alchemist Workflow', prompt: 'Walk me through the full pipeline: LSC prompt into Ace-Step, into mixer console, live guitar humanizing, and Devine Machine tape slicing!' },
               { label: '🎲 Mad Studio Tale', prompt: 'Tell me an eccentric studio story from Lee Perry, Brian Eno, Prince, or Dr Dre!' },
@@ -1061,7 +1174,7 @@ export const GhostInTheMachine: React.FC<GhostInTheMachineProps> = ({
                 className={`px-2 py-0.5 rounded-md border text-[#9CA5CA] hover:text-white transition-colors flex-shrink-0 ${
                   chip.label.includes('Vibe Check')
                     ? 'bg-cyan-950/60 border-cyan-500/60 text-cyan-200 hover:bg-cyan-900/60 font-bold'
-                    : chip.label.includes('Qwen') || chip.label.includes('Uncensored')
+                    : chip.label.includes('Diagnostic') || chip.label.includes('Uncensored')
                       ? 'bg-red-950/40 border-red-500/50 text-amber-300 hover:bg-red-900/60 font-bold'
                       : 'bg-[#131728] hover:bg-[#1E2540] border-[#242C4C]'
                 }`}

@@ -34,8 +34,6 @@ export const CollaborativeWorkspaceModal: React.FC<CollaborativeWorkspaceModalPr
   tracks,
   tempo
 }) => {
-  if (!isOpen) return null;
-
   const [collabState, setCollabState] = useState<CollabSessionState>(collabService.getState());
   const [activeTab, setActiveTab] = useState<'session' | 'members' | 'chat'>('session');
   const [joinCodeInput, setJoinCodeInput] = useState<string>('');
@@ -106,6 +104,8 @@ export const CollaborativeWorkspaceModal: React.FC<CollaborativeWorkspaceModalPr
     playLaserBeamSound('laser_select');
     setTimeout(() => setCopiedLink(false), 2000);
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[9996] flex items-center justify-center p-3 md:p-6 bg-black/85 backdrop-blur-md animate-fade-in font-mono select-none">

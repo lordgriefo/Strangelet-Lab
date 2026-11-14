@@ -3,14 +3,17 @@ import { Upload, FileAudio, Mic, Music } from 'lucide-react';
 
 interface ImportAreaProps {
   onImport: (file: File) => void;
+  onOpenLoops?: () => void;
+  onOpenLiveInput?: () => void;
 }
 
-const ImportArea: React.FC<ImportAreaProps> = ({ onImport }) => {
+const ImportArea: React.FC<ImportAreaProps> = ({ onImport, onOpenLoops, onOpenLiveInput }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files.length > 0) {
       onImport(event.target.files[0]);
+      event.target.value = '';
     }
   };
 
@@ -21,17 +24,29 @@ const ImportArea: React.FC<ImportAreaProps> = ({ onImport }) => {
       </h3>
       <div className="grid grid-cols-3 gap-2">
         <button 
+          type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="flex flex-col items-center justify-center p-3 bg-[#121212] border border-[#333] rounded hover:border-[#FFD700] transition-colors"
+          className="flex flex-col items-center justify-center p-3 bg-[#121212] border border-[#333] rounded hover:border-[#FFD700] transition-colors cursor-pointer"
+          title="Import WAV, MP3, OGG, or FLAC audio onto a new track"
         >
           <FileAudio size={20} className="text-[#A0A0A0] mb-1" />
-          <span className="text-[10px] text-[#A0A0A0]">New Record</span>
+          <span className="text-[10px] text-[#A0A0A0]">Audio File</span>
         </button>
-        <button className="flex flex-col items-center justify-center p-3 bg-[#121212] border border-[#333] rounded hover:border-[#FFD700] transition-colors">
+        <button
+          type="button"
+          onClick={() => onOpenLoops?.()}
+          className="flex flex-col items-center justify-center p-3 bg-[#121212] border border-[#333] rounded hover:border-[#FFD700] transition-colors cursor-pointer"
+          title="Open Ace-Step 1.5 Loop & Stem Designer"
+        >
           <Music size={20} className="text-[#A0A0A0] mb-1" />
           <span className="text-[10px] text-[#A0A0A0]">Loops/MIDI</span>
         </button>
-        <button className="flex flex-col items-center justify-center p-3 bg-[#121212] border border-[#333] rounded hover:border-[#FFD700] transition-colors">
+        <button
+          type="button"
+          onClick={() => onOpenLiveInput?.()}
+          className="flex flex-col items-center justify-center p-3 bg-[#121212] border border-[#333] rounded hover:border-[#FFD700] transition-colors cursor-pointer"
+          title="Open Live Microphone / Guitar Recorder"
+        >
           <Mic size={20} className="text-[#A0A0A0] mb-1" />
           <span className="text-[10px] text-[#A0A0A0]">Live Input</span>
         </button>

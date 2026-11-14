@@ -1,5 +1,5 @@
 // Strangelet Lab - Offline PDF User Guide & Field Manual Generator
-// Generates a complete, beautifully formatted multi-page PDF document using jsPDF
+// Generates a clean, properly paginated multi-page PDF document using jsPDF
 // 100% client-side, zero network dependencies, air-gapped offline certified
 
 import { jsPDF } from 'jspdf';
@@ -12,7 +12,7 @@ export interface PdfGenerationOptions {
 
 export async function generateOfflineManualPdf(options: PdfGenerationOptions = {}): Promise<Blob> {
   const {
-    version = 'v2.4.0',
+    version = 'v2.5.0',
     onProgress
   } = options;
 
@@ -27,90 +27,90 @@ export async function generateOfflineManualPdf(options: PdfGenerationOptions = {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 16;
+  const topY = 22;
+  const bottomLimit = pageHeight - 19;
   const contentWidth = pageWidth - margin * 2;
   let cursorY = margin;
 
   // Color Palette
-  const darkBg = [10, 14, 28];        // #0A0E1C
-  const goldAccent = [245, 158, 11];  // #F59E0B
-  const cyanAccent = [6, 182, 212];   // #06B6D4
-  const textDark = [30, 41, 59];      // #1E293B
-  const textMuted = [100, 116, 139];  // #64748B
-  const textBody = [51, 65, 85];      // #334155
-  const codeBg = [241, 245, 249];     // #F1F5F9
-  const cardBorder = [203, 213, 225]; // #CBD5E1
+  const darkBg: [number, number, number] = [10, 14, 28];
+  const goldAccent: [number, number, number] = [217, 119, 6];
+  const goldBright: [number, number, number] = [245, 158, 11];
+  const cyanAccent: [number, number, number] = [8, 145, 178];
+  const textDark: [number, number, number] = [15, 23, 42];
+  const textMuted: [number, number, number] = [100, 116, 139];
+  const textBody: [number, number, number] = [51, 65, 85];
+  const codeBg: [number, number, number] = [241, 245, 249];
+  const cardBorder: [number, number, number] = [203, 213, 225];
 
-  // Helper: check page break
-  const ensureSpace = (neededHeight: number) => {
-    if (cursorY + neededHeight > pageHeight - 18) {
+  // Sanitize any non-Latin1 characters so jsPDF Helvetica width/glyph rendering never overlaps
+  const safeText = (input: string): string =>
+    input
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/[\u201C\u201D]/g, '"')
+      .replace(/[\u2013\u2014]/g, '-')
+      .replace(/\u2026/g, '...')
+      .replace(/[\u2192\u2794]/g, '->')
+      .replace(/\u2194/g, '<->')
+      .replace(/\u00B1/g, '+/-')
+      .replace(/\u00D7/g, 'x')
+      .replace(/[^\x20-\x7E\u00A0-\xFF]/g, '');
+
+  // Ensure vertical space on current page; add a clean new page if needed
+  const ensureSpace = (neededHeight: number): boolean => {
+    if (cursorY + neededHeight > bottomLimit) {
       doc.addPage();
-      drawPageHeaderFooter();
-      cursorY = 22;
+      cursorY = topY;
+      return true;
     }
+    return false;
   };
 
-  // Helper: draw Header and Footer on every page
-  const drawPageHeaderFooter = () => {
-    const totalPages = (doc as any).internal.getNumberOfPages();
-    
-    // Top subtle bar
-    doc.setDrawColor(226, 232, 240);
-    doc.setLineWidth(0.3);
-    doc.line(margin, 12, pageWidth - margin, 12);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-    doc.text('STRANGELET LAB — OFFICIAL FIELD MANUAL & OS GUIDE', margin, 9.5);
-    doc.text('AIR-GAPPED OFFLINE EDITION', pageWidth - margin, 9.5, { align: 'right' });
-
-    // Bottom footer
-    doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-    doc.text('Quantum-Acoustic Production Workstation • Client-Side DSP • No Cloud Required', margin, pageHeight - 8);
-    doc.text(`Page ${totalPages}`, pageWidth - margin, pageHeight - 8, { align: 'right' });
+  // Start a new page explicitly
+  const startNewPage = () => {
+    doc.addPage();
+    cursorY = topY;
   };
 
   // Helper: Section title
   const addSectionTitle = (number: string, title: string, category: string) => {
     ensureSpace(24);
-    cursorY += 4;
+    cursorY += 3;
 
-    // Category Pill
-    doc.setFillColor(goldAccent[0], goldAccent[1], goldAccent[2]);
-    doc.roundedRect(margin, cursorY, 26, 4.5, 1, 1, 'F');
+    const catText = safeText(category.toUpperCase());
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7);
+    const pillWidth = Math.max(24, doc.getTextWidth(catText) + 8);
+
+    doc.setFillColor(goldBright[0], goldBright[1], goldBright[2]);
+    doc.roundedRect(margin, cursorY, pillWidth, 4.8, 1, 1, 'F');
     doc.setTextColor(0, 0, 0);
-    doc.text(category.toUpperCase(), margin + 13, cursorY + 3.2, { align: 'center' });
+    doc.text(catText, margin + pillWidth / 2, cursorY + 3.4, { align: 'center' });
 
-    cursorY += 7;
+    cursorY += 8.5;
 
-    // Title text
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
+    doc.setFontSize(13.5);
     doc.setTextColor(textDark[0], textDark[1], textDark[2]);
-    doc.text(`${number}. ${title}`, margin, cursorY);
-    cursorY += 2;
+    const titleLines = doc.splitTextToSize(safeText(`${number}. ${title}`), contentWidth);
+    doc.text(titleLines, margin, cursorY);
+    cursorY += titleLines.length * 5.2 + 0.5;
 
-    // Underline
-    doc.setDrawColor(goldAccent[0], goldAccent[1], goldAccent[2]);
+    doc.setDrawColor(goldBright[0], goldBright[1], goldBright[2]);
     doc.setLineWidth(0.6);
     doc.line(margin, cursorY, margin + contentWidth, cursorY);
-    cursorY += 5;
+    cursorY += 5.5;
   };
 
   // Helper: Subheading
   const addSubheading = (title: string) => {
     ensureSpace(12);
-    cursorY += 2;
+    cursorY += 2.5;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10.5);
     doc.setTextColor(cyanAccent[0], cyanAccent[1], cyanAccent[2]);
-    doc.text(title, margin, cursorY);
-    cursorY += 4.5;
+    doc.text(safeText(title), margin, cursorY);
+    cursorY += 5;
   };
 
   // Helper: Paragraph
@@ -118,83 +118,151 @@ export async function generateOfflineManualPdf(options: PdfGenerationOptions = {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.setTextColor(textBody[0], textBody[1], textBody[2]);
-    const lines = doc.splitTextToSize(text, contentWidth);
-    const height = lines.length * 4.2;
+    const lineHeight = 4.3;
+    const lines: string[] = doc.splitTextToSize(safeText(text), contentWidth);
+    const height = lines.length * lineHeight;
     ensureSpace(height + 2);
-    doc.text(lines, margin, cursorY);
-    cursorY += height + 2.5;
+    lines.forEach((line, idx) => {
+      doc.text(line, margin, cursorY + idx * lineHeight);
+    });
+    cursorY += height + 2.8;
   };
 
-  // Helper: Bullet point
+  // Helper: Bullet point with clean bold prefix and zero-overlap multi-line wrapping
   const addBulletPoint = (boldLabel: string, text: string) => {
-    doc.setFontSize(8.5);
-    const fullText = `${boldLabel} ${text}`;
-    const lines = doc.splitTextToSize(fullText, contentWidth - 6);
-    const height = lines.length * 4;
-    ensureSpace(height + 2);
+    const cleanLabel = safeText(boldLabel).trim();
+    const cleanBody = safeText(text).trim();
+    const indentX = margin + 5.5;
+    const maxWidth = contentWidth - 6.5;
+    const lineHeight = 4.2;
 
-    // Bullet dot
-    doc.setFillColor(goldAccent[0], goldAccent[1], goldAccent[2]);
-    doc.circle(margin + 2, cursorY - 1, 1, 'F');
-
-    // Text with bold prefix
+    doc.setFontSize(8.8);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(textDark[0], textDark[1], textDark[2]);
-    doc.text(boldLabel, margin + 5, cursorY);
+    const labelWidth = doc.getTextWidth(cleanLabel);
 
-    const boldWidth = doc.getTextWidth(boldLabel);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(textBody[0], textBody[1], textBody[2]);
-    
-    // Split the remaining text properly
-    const remainingLines = doc.splitTextToSize(` ${text}`, contentWidth - 6 - boldWidth);
-    if (remainingLines.length === 1) {
-      doc.text(` ${text}`, margin + 5 + boldWidth, cursorY);
-      cursorY += 4.2;
+    const spaceWidth = doc.getTextWidth(' ');
+    const firstLineAvail = maxWidth - labelWidth - spaceWidth;
+
+    // Split body into first-line segment (beside bold label) and subsequent wrapped lines
+    let firstLineBody = '';
+    let restLines: string[] = [];
+
+    if (firstLineAvail >= 28) {
+      const words = cleanBody.split(/\s+/).filter(Boolean);
+      let current = '';
+      let breakIdx = words.length;
+      for (let i = 0; i < words.length; i++) {
+        const candidate = current ? `${current} ${words[i]}` : words[i];
+        if (doc.getTextWidth(candidate) <= firstLineAvail) {
+          current = candidate;
+        } else {
+          breakIdx = i;
+          break;
+        }
+      }
+      firstLineBody = current;
+      const remainingText = words.slice(breakIdx).join(' ');
+      if (remainingText) {
+        restLines = doc.splitTextToSize(remainingText, maxWidth);
+      }
     } else {
-      // Re-split full text for clean multi-line wrapping
-      doc.setFont('helvetica', 'normal');
-      doc.text(lines, margin + 5, cursorY);
-      cursorY += height + 1.5;
+      restLines = doc.splitTextToSize(cleanBody, maxWidth);
     }
+
+    const totalLines = 1 + restLines.length;
+    const totalHeight = totalLines * lineHeight + 1.6;
+    ensureSpace(totalHeight);
+
+    // Vector bullet dot
+    doc.setFillColor(goldAccent[0], goldAccent[1], goldAccent[2]);
+    doc.circle(margin + 2, cursorY - 1.1, 0.9, 'F');
+
+    // Line 1: Bold label + optional first-line body continuation
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.8);
+    doc.setTextColor(textDark[0], textDark[1], textDark[2]);
+    doc.text(cleanLabel, indentX, cursorY);
+
+    if (firstLineBody) {
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(textBody[0], textBody[1], textBody[2]);
+      doc.text(firstLineBody, indentX + labelWidth + spaceWidth, cursorY);
+    }
+
+    // Remaining wrapped lines cleanly below line 1
+    if (restLines.length > 0) {
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(textBody[0], textBody[1], textBody[2]);
+      restLines.forEach((line, idx) => {
+        doc.text(line, indentX, cursorY + (idx + 1) * lineHeight);
+      });
+    }
+
+    cursorY += totalHeight;
   };
 
-  // Helper: Info Card / Box
-  const addCalloutCard = (title: string, lines: string[], accentColor = goldAccent) => {
-    const textHeight = lines.length * 4.2 + 8;
-    ensureSpace(textHeight + 4);
+  // Helper: Info Card / Callout Box with wrapped lines
+  const addCalloutCard = (
+    title: string,
+    lines: string[],
+    accentColor: [number, number, number] = goldBright
+  ) => {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.2);
+    const innerWidth = contentWidth - 10;
+    const wrappedLines: string[] = [];
+    lines.forEach((raw) => {
+      const parts = doc.splitTextToSize(safeText(raw), innerWidth);
+      wrappedLines.push(...parts);
+    });
+
+    const lineHeight = 4.1;
+    const boxHeight = wrappedLines.length * lineHeight + 10.5;
+    ensureSpace(boxHeight + 4);
 
     doc.setFillColor(248, 250, 252);
     doc.setDrawColor(cardBorder[0], cardBorder[1], cardBorder[2]);
-    doc.setLineWidth(0.4);
-    doc.roundedRect(margin, cursorY, contentWidth, textHeight, 2, 2, 'FD');
+    doc.setLineWidth(0.35);
+    doc.roundedRect(margin, cursorY, contentWidth, boxHeight, 2, 2, 'FD');
 
-    // Left accent strip
     doc.setFillColor(accentColor[0], accentColor[1], accentColor[2]);
-    doc.roundedRect(margin, cursorY, 2.5, textHeight, 1, 1, 'F');
+    doc.roundedRect(margin, cursorY, 2.5, boxHeight, 1, 1, 'F');
 
-    // Card Header
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(accentColor[0], accentColor[1], accentColor[2]);
-    doc.text(title.toUpperCase(), margin + 5, cursorY + 4.5);
+    doc.text(safeText(title.toUpperCase()), margin + 5.5, cursorY + 5);
 
-    // Card Body
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
+    doc.setFontSize(8.2);
     doc.setTextColor(textBody[0], textBody[1], textBody[2]);
-    let cardY = cursorY + 8.5;
-    lines.forEach(line => {
-      doc.text(line, margin + 5, cardY);
-      cardY += 4.2;
+    let cardY = cursorY + 9.5;
+    wrappedLines.forEach((line) => {
+      doc.text(line, margin + 5.5, cardY);
+      cardY += lineHeight;
     });
 
-    cursorY += textHeight + 4;
+    cursorY += boxHeight + 4;
   };
 
-  // Helper: Code snippet block
+  // Helper: Code snippet block with wrapped lines
   const addCodeBlock = (codeLines: string[]) => {
-    const blockHeight = codeLines.length * 4 + 6;
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(8);
+    const innerWidth = contentWidth - 8;
+    const wrappedLines: string[] = [];
+    codeLines.forEach((raw) => {
+      if (!raw) {
+        wrappedLines.push('');
+      } else {
+        const parts = doc.splitTextToSize(safeText(raw), innerWidth);
+        wrappedLines.push(...parts);
+      }
+    });
+
+    const lineHeight = 4.0;
+    const blockHeight = wrappedLines.length * lineHeight + 6.5;
     ensureSpace(blockHeight + 3);
 
     doc.setFillColor(codeBg[0], codeBg[1], codeBg[2]);
@@ -206,310 +274,406 @@ export async function generateOfflineManualPdf(options: PdfGenerationOptions = {
     doc.setFontSize(8);
     doc.setTextColor(textDark[0], textDark[1], textDark[2]);
 
-    let codeY = cursorY + 4.5;
-    codeLines.forEach(line => {
-      doc.text(line, margin + 4, codeY);
-      codeY += 4;
+    let codeY = cursorY + 4.8;
+    wrappedLines.forEach((line) => {
+      if (line) {
+        doc.text(line, margin + 4, codeY);
+      }
+      codeY += lineHeight;
     });
 
-    cursorY += blockHeight + 3;
+    cursorY += blockHeight + 3.5;
+  };
+
+  // Helper: Two-column data table with automatic page-break header repetition
+  const addTable = (headers: [string, string], rows: [string, string][], col1Width = 46) => {
+    const col2Width = contentWidth - col1Width - 6;
+    const headerHeight = 6.2;
+
+    const drawHeader = () => {
+      doc.setFillColor(darkBg[0], darkBg[1], darkBg[2]);
+      doc.rect(margin, cursorY, contentWidth, headerHeight, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(goldBright[0], goldBright[1], goldBright[2]);
+      doc.text(safeText(headers[0]), margin + 3, cursorY + 4.2);
+      doc.text(safeText(headers[1]), margin + col1Width + 3, cursorY + 4.2);
+      cursorY += headerHeight;
+    };
+
+    ensureSpace(headerHeight + 10);
+    drawHeader();
+
+    rows.forEach((row, idx) => {
+      doc.setFont('courier', 'bold');
+      doc.setFontSize(7.8);
+      const col1Lines: string[] = doc.splitTextToSize(safeText(row[0]), col1Width - 4);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      const col2Lines: string[] = doc.splitTextToSize(safeText(row[1]), col2Width);
+
+      const lineCount = Math.max(col1Lines.length, col2Lines.length);
+      const rowHeight = lineCount * 4.0 + 2.4;
+
+      if (ensureSpace(rowHeight)) {
+        drawHeader();
+      }
+
+      const isEven = idx % 2 === 0;
+      doc.setFillColor(isEven ? 248 : 255, isEven ? 250 : 255, isEven ? 252 : 255);
+      doc.rect(margin, cursorY, contentWidth, rowHeight, 'F');
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.2);
+      doc.line(margin, cursorY + rowHeight, margin + contentWidth, cursorY + rowHeight);
+
+      doc.setFont('courier', 'bold');
+      doc.setFontSize(7.8);
+      doc.setTextColor(textDark[0], textDark[1], textDark[2]);
+      col1Lines.forEach((l, i) => {
+        doc.text(l, margin + 3, cursorY + 4.0 + i * 4.0);
+      });
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(textBody[0], textBody[1], textBody[2]);
+      col2Lines.forEach((l, i) => {
+        doc.text(l, margin + col1Width + 3, cursorY + 4.0 + i * 4.0);
+      });
+
+      cursorY += rowHeight;
+    });
+
+    cursorY += 4;
   };
 
   // =========================================================================
   // COVER / FRONT TITLE PAGE
   // =========================================================================
-  onProgress?.(20, 'Generating Title Cover Page...');
+  onProgress?.(15, 'Generating Title Cover Page...');
 
-  // Top Dark Banner
   doc.setFillColor(darkBg[0], darkBg[1], darkBg[2]);
-  doc.rect(0, 0, pageWidth, 85, 'F');
+  doc.rect(0, 0, pageWidth, 82, 'F');
 
-  // Title Accent Glow Strip
-  doc.setFillColor(goldAccent[0], goldAccent[1], goldAccent[2]);
-  doc.rect(margin, 20, 4, 34, 'F');
+  doc.setFillColor(goldBright[0], goldBright[1], goldBright[2]);
+  doc.rect(margin, 18, 4, 34, 'F');
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(24);
   doc.setTextColor(255, 255, 255);
-  doc.text('STRANGELET LAB', margin + 8, 30);
+  doc.text('STRANGELET LAB', margin + 8, 28);
 
-  doc.setFontSize(14);
-  doc.setTextColor(goldAccent[0], goldAccent[1], goldAccent[2]);
-  doc.text('QUANTUM-ACOUSTIC FIELD MANUAL & OPERATING SYSTEM GUIDE', margin + 8, 39);
+  doc.setFontSize(13.5);
+  doc.setTextColor(goldBright[0], goldBright[1], goldBright[2]);
+  doc.text('QUANTUM-ACOUSTIC FIELD MANUAL & OPERATING SYSTEM GUIDE', margin + 8, 37);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(148, 163, 184);
-  doc.text(`Official Air-Gapped Documentation • Version ${version} • Offline-Certified Architecture`, margin + 8, 48);
+  doc.text(
+    safeText(`Official Air-Gapped Documentation | Version ${version} | Offline-Certified Architecture`),
+    margin + 8,
+    46
+  );
 
-  // Status Badges on Dark Banner
+  // Status Badges on Dark Banner (drawn cleanly without overlapping symbols)
   doc.setFillColor(30, 41, 59);
-  doc.roundedRect(margin + 8, 54, 45, 6, 1, 1, 'F');
+  doc.roundedRect(margin + 8, 53, 50, 6, 1, 1, 'F');
+  doc.setFillColor(52, 211, 153);
+  doc.circle(margin + 12, 56, 1.1, 'F');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.setTextColor(52, 211, 153);
-  doc.text('● 100% OFFLINE CAPABLE', margin + 11, 58.2);
+  doc.text('100% OFFLINE CAPABLE', margin + 15, 57.1);
 
   doc.setFillColor(30, 41, 59);
-  doc.roundedRect(margin + 56, 54, 52, 6, 1, 1, 'F');
+  doc.roundedRect(margin + 61, 53, 58, 6, 1, 1, 'F');
+  doc.setFillColor(56, 189, 248);
+  doc.circle(margin + 65, 56, 1.1, 'F');
   doc.setTextColor(56, 189, 248);
-  doc.text('● ZERO TELEMETRY / AIR-GAPPED', margin + 59, 58.2);
+  doc.text('ZERO TELEMETRY / AIR-GAPPED', margin + 68, 57.1);
 
-  cursorY = 96;
+  cursorY = 92;
 
-  // Executive Overview Box
-  addCalloutCard('Executive Abstract', [
-    'Strangelet Lab is a browser-native standalone quantum-acoustic Digital Audio Workstation (DAW) and sonic physics synthesizer.',
-    'It merges Web Audio DSP, relativistic hadron audio collisions, multi-track timeline editing, Faust DSP compilation,',
-    'and offline local AI intelligence (Kobold.cpp, Ollama, LM Studio, Ghost in the Machine, and Strangelet Guru).',
-    'This document provides complete instructions for operating all systems in air-gapped studio environments.'
-  ], cyanAccent);
+  addCalloutCard(
+    'Executive Abstract',
+    [
+      'Strangelet Lab is a browser-native quantum-acoustic Digital Audio Workstation (DAW) and DSP laboratory.',
+      'It unites Web Audio DSP, relativistic hadron collisions, multi-track arrangement & Pure Timeline editing, Faust WebAssembly synthesis, Reference Matchering, and GHOST (The Ghost in the Machine), your studio companion.',
+      'This manual covers every workspace view, automation workflow, local AI integration, and keyboard shortcut.'
+    ],
+    cyanAccent
+  );
 
-  // Table of Contents
   addSubheading('Table of Contents');
-  const tocEntries = [
-    '1. Architecture & Global Signal Flow (Zero-latency Web Audio, WebAssembly, Multi-threading)',
-    '2. Large Sonic Collider (LSC) Quantum Physics Engine & Laser Steering System',
-    '3. Gold Path 6-Stage Mastering Suite & Instantaneous A/B Auditioning Console',
-    '4. Batch Multi-Core Auto-Mastering Engine (Parallel Stem & Album Processing)',
-    '5. Software Dojo AI Training Scrolls & The Strangelet Guru Knowledge System',
-    '6. Offline AI Ghost Buddies: Ghost (Llama 3.1) & Quinn (Qwen 2.5) Co-Op Duo',
-    '7. Local AI Hub Air-Gapped Connection Guide (Kobold.cpp / Ollama / LM Studio)',
-    '8. Beam Splitter Multiband Crossovers & Frequency Demuxing',
-    '9. Suno AI De-Sheen, Anti-Fizz & Un-Bake Audio Restoration Engine',
-    '10. Faust WebAudio Real-Time DSP Compiler & Live Toy Generator',
-    '11. Spotify Basic Pitch Neural Polyphonic Audio-to-MIDI Transcriber',
-    '12. Guided Quantum Workflows & Production Templates (LSC -> Ace-Step -> Mixer)',
-    '13. SFZ Open Library & Open Community Sample Exchange',
-    '14. Ace-Step 1.5 LoRA Lending Library & Sound Diffusion Shapers',
-    '15. Hardware Monitor & Dynamic VRAM Scalability Guide (6GB Laptop to 16GB Studio)',
-    '16. Master Keyboard Shortcuts & Studio Command Cheatsheet'
+  const tocEntries: [string, string][] = [
+    ['01', 'System Architecture & Global Signal Flow'],
+    ['02', 'Workspace Views: Pure Timeline, Timeline, Mixer Only, Split & Snapshots Menu'],
+    ['03', 'Global VST Browser, Parameter Automation Lanes & Macro Engine'],
+    ['04', 'Global MIDI Quantize, Swing Humanization & Native Hardware Cursor'],
+    ['05', 'The Large Sonic Collider (Hadron Synthesis & Laser Steering)'],
+    ['06', 'Gold Path 6-Stage Mastering Suite & FFT Reference Matchering'],
+    ['07', 'Batch Multi-Core Auto-Mastering Engine'],
+    ['08', 'GHOST (The Ghost in the Machine) & Software Dojo'],
+    ['09', 'Local AI Hub Air-Gapped Connection Guide (Kobold.cpp / Ollama / LM Studio)'],
+    ['10', 'Faust DSP Workbench (12 Boutique Models, Idea Board & Prompt-to-Toy)'],
+    ['11', 'Beam Splitter, Suno De-Sheen & Spotify Basic Pitch'],
+    ['12', 'Guided Workflows, SFZ Open Library, LoRAs & VRAM Scaling'],
+    ['13', 'Master Keyboard Shortcuts Reference']
   ];
-
-  tocEntries.forEach(entry => {
-    addParagraph(`• ${entry}`);
-  });
-
-  drawPageHeaderFooter();
+  addTable(['CHAPTER', 'TOPIC'], tocEntries, 22);
 
   // =========================================================================
-  // CHAPTER 1: ARCHITECTURE
+  // CHAPTER 1: SYSTEM ARCHITECTURE
   // =========================================================================
-  onProgress?.(30, 'Writing Chapter 1: Architecture & Signal Flow...');
-  doc.addPage();
-  drawPageHeaderFooter();
-  cursorY = 22;
+  onProgress?.(25, 'Writing Chapter 1: Architecture & Signal Flow...');
+  startNewPage();
 
   addSectionTitle('1', 'System Architecture & Global Signal Flow', 'Core');
   addParagraph(
-    'Strangelet Lab is architected as an ultra-low latency, client-side workstation that executes entirely inside modern Chromium/WebKit Web Audio graphs and WebAssembly threads. At no point is audio compressed, uploaded, or processed on remote cloud servers.'
+    'Strangelet Lab executes inside modern browser Web Audio graphs and WebAssembly threads. All audio synthesis, filtering, mastering, and offline WAV rendering happen locally on your hardware with zero cloud audio uploads.'
   );
 
   addSubheading('Core Architectural Principles');
-  addBulletPoint('Zero-Latency Audio Bus:', 'Sub-millisecond buffer dispatch with dedicated gain staging, 3-band surgical channel EQ, and stereo aux sends.');
-  addBulletPoint('Multi-Core Parallelism:', 'Audio rendering dispatches concurrent OfflineAudioContext instances across available CPU hardware threads (via navigator.hardwareConcurrency).');
-  addBulletPoint('Strict Local Air-Gapping:', 'All AI and DSP tools connect to localhost endpoints (127.0.0.1) without internet access requirements.');
-  addBulletPoint('Linear-Phase Precision:', 'Filter networks and mastering stages preserve transient phase alignment to ensure maximum punch and intelligibility.');
+  addBulletPoint('Zero-Latency Audio Bus:', 'Sub-millisecond buffer dispatch with dedicated gain staging, 3-band surgical channel EQ, stereo panning, and aux FX slots.');
+  addBulletPoint('Multi-Core Parallelism:', 'Batch rendering dispatches concurrent OfflineAudioContext instances across available CPU hardware threads.');
+  addBulletPoint('Strict Local Air-Gapping:', 'Local AI tools connect directly to localhost endpoints (Kobold.cpp, Ollama, LM Studio) without internet requirements.');
+  addBulletPoint('Native 60fps Hardware Cursor:', 'Uses the OS hardware pointer with zero software cursor lag for instant timeline scrubbing and fader precision.');
 
-  addCalloutCard('Signal Flow Topology', [
-    '[Input: Audio / MIDI / Faust] ➔ [Channel Strip Pre-EQ & VST Slots] ➔ [Stereo Bus Routing]',
-    '➔ [Master Aux FX Rack] ➔ [Gold Path Mastering Chain / A-B Switcher] ➔ [Hardware Audio DAC / WAV Bounce]'
-  ], goldAccent);
-
-  // =========================================================================
-  // CHAPTER 2: LARGE SONIC COLLIDER
-  // =========================================================================
-  onProgress?.(40, 'Writing Chapter 2: Large Sonic Collider...');
-  addSectionTitle('2', 'The Large Sonic Collider (Quantum Hadron Synthesis)', 'Physics');
-  addParagraph(
-    'The Large Sonic Collider (LSC) treats recorded audio stems and synthesizer loops as charged relativistic hadrons inside a superconducting magnetic containment ring. By accelerating these sound particles to near-light speed, micro-collisions create granular fission, Doppler pitch warps, and micro-tonal textures.'
+  addCalloutCard(
+    'Signal Flow Topology',
+    [
+      '[Audio / MIDI / Faust] -> [Track Pre-EQ & VST Inserts] -> [Stereo Bus Routing]',
+      '-> [Master Gain & Aux FX] -> [Gold Path Mastering / Matchering EQ] -> [DAC / WAV Bounce]'
+    ],
+    goldBright
   );
 
-  addSubheading('Physical Parameters & Steering Controls');
-  addBulletPoint('Beam Energy (GeV):', 'Accelerates particle orbital velocity. Higher GeV increases Doppler modulation, grain overlap frequency, and collision likelihood.');
-  addBulletPoint('Magnetic B-Field (Tesla):', 'Controls ring containment radius. High Tesla values force particles into compressed orbits, causing dense comb filtering and chaotic near-misses.');
-  addBulletPoint('Laser Tool Suite:', 'Four interactive beam tools allow direct mouse manipulation of orbiting audio hadrons:');
-  addParagraph('  • Inspect: Displays real-time spectral centroid, instantaneous frequency, and harmonic mass.');
-  addParagraph('  • Gravity Well: Creates an intense localized gravitational vortex, pulling hadrons together to force fission bursts.');
-  addParagraph('  • Repulsor Beam: Sweeps hadrons outward with Doppler pitch dive-bombs and flanging phase shifts.');
-  addParagraph('  • Exciter / Ionizer: Injects high-frequency tape sheen and sub-harmonic sub-bass on contact.');
-
   // =========================================================================
-  // CHAPTER 3: GOLD PATH MASTERING SUITE & A/B AUDITIONING
+  // CHAPTER 2: WORKSPACE VIEWS & SNAPSHOTS MENU
   // =========================================================================
-  onProgress?.(50, 'Writing Chapter 3: Gold Path Mastering & A/B...');
-  doc.addPage();
-  drawPageHeaderFooter();
-  cursorY = 22;
+  onProgress?.(35, 'Writing Chapter 2: Mixer Views & Snapshots Menu...');
 
-  addSectionTitle('3', 'Gold Path 6-Stage Mastering Suite & A/B Console', 'Mastering');
+  addSectionTitle('2', 'Workspace Views & Auto-Mix Snapshots Menu', 'Workspace');
   addParagraph(
-    'The Gold Path is Strangelet Lab\'s premier reference-grade output chain designed to achieve competitive commercial loudness (-14 to -9 LUFS) while preserving dynamic impact and transient clarity.'
+    'The Mixer Console header includes a 4-way layout switcher so you can dedicate the entire screen to arrangement, faders, or both without clutter.'
   );
 
-  addSubheading('The 6 Dedicated Processing Stages');
-  addBulletPoint('1. Sub-Sonic Pre-EQ:', 'High-pass filter (25-35 Hz) removes inaudible DC offset and rumble; surgical notch removes boxy 400Hz mid mud.');
-  addBulletPoint('2. Mid/Side Stereo Imager:', 'Mono-locks sub-bass below 120Hz while gently expanding high-frequency side air above 8kHz.');
-  addBulletPoint('3. Multiband Dynamics Glue:', 'Precision crossover dynamics that compress frequency bands independently for cohesive glue.');
-  addBulletPoint('4. Analog Tape / Tube Saturation:', 'Harmonic exciter using mathematical hyperbolic tangent curves to simulate vintage magnetic tape compression.');
-  addBulletPoint('5. Real-Time D3 Spectral Visualizer:', 'Logarithmic dual-curve FFT analyzer displaying pre-master vs. post-master frequency envelopes.');
-  addBulletPoint('6. True-Peak Brickwall Limiter:', 'Ultra-fast 1ms brickwall limiter with adjustable ceiling (-0.1 to -1.5 dBFS) for inter-sample safety.');
+  addSubheading('4-Way Layout Switcher');
+  addBulletPoint('Pure Timeline:', 'Distraction-free, edge-to-edge full-height timeline. Hides the full console header, Vegas Motif deck, VST Browser, Macro sidebar, channel strips, and bottom transport deck, leaving a single slim micro-transport bar (Rewind, Stop, Play, Rec, Loop, BPM, +Audio/+MIDI, and Snapshots).');
+  addBulletPoint('Timeline (Arrange):', 'Full-height timeline paired with the main Mixer header, Global VST Browser automation panel, and full analog transport bar.');
+  addBulletPoint('Mixer Only (Console):', 'Hides the timeline to give tall studio height to all channel strips and the sticky Master Out fader.');
+  addBulletPoint('Split View:', 'Classic dual layout with the arrangement timeline above and mixer channel strips below. Press [Tab] anywhere to cycle between your active timeline view and Mixer Only.');
 
-  addSubheading('The Hardware A/B Auditioning Console');
+  addSubheading('Auto-Mix Snapshots Dropdown Menu');
   addParagraph(
-    'Mastering decisions are easily corrupted by "loudness bias" (louder always sounds deceptively better to human ears). The built-in A/B Console eliminates this pitfall:'
+    'To maximize vertical room for timeline tracks, Auto-Mix Snapshots are housed inside a compact SNAPSHOTS button in the Mixer header rather than a permanent bar above the lanes.'
   );
-  addBulletPoint('Slot [A] (Processed):', 'Auditions the active Gold Path DSP chain with all modules engaged.');
-  addBulletPoint('Slot [B] (Dry / Reference):', 'Instantly switches to 100% bypass or a saved baseline preset with zero audible latency.');
-  addBulletPoint('Hotkey Toggle:', 'Press [B] on your keyboard at any moment during playback to flip instantaneously between processed and dry signals.');
+  addBulletPoint('8 Capture Slots (1-8):', 'Click SNAPSHOTS to open the menu. Click any empty slot to capture track volumes, pans, mutes, solos, and FX states. Click a saved slot to recall it immediately.');
+  addBulletPoint('Save Mode & Renaming:', 'Toggle Save Mode to overwrite an occupied slot. Double-click any slot (or click its pencil icon) to give it a custom mix name.');
+  addBulletPoint('Instant A/B Mix Comparison:', 'Assign two slots to A and B inside the menu to reveal a 1-click A/B toggle chip right next to the SNAPSHOTS button for instant comparison during playback.');
 
   // =========================================================================
-  // CHAPTER 4: BATCH MULTI-CORE AUTO-MASTERING ENGINE
+  // CHAPTER 3: VST BROWSER, AUTOMATION & MACRO ENGINE
   // =========================================================================
-  onProgress?.(60, 'Writing Chapter 4: Batch Multi-Core Engine...');
-  addSectionTitle('4', 'Batch Multi-Core Auto-Mastering Engine', 'Batch DSP');
+  onProgress?.(45, 'Writing Chapter 3: VST Browser & Macro Engine...');
+  startNewPage();
+
+  addSectionTitle('3', 'Global VST Browser, Automation & Macro Engine', 'Automation');
   addParagraph(
-    'The Batch Auto-Mastering Engine processes entire session folders of multitrack stems or full album tracks in parallel, leveraging multi-core CPU architectures via concurrent OfflineAudioContext worker pools.'
+    'Automate any track volume, pan, or Faust/VST plugin parameter directly on the timeline, or record live performance moves into triggerable macros.'
   );
 
-  addSubheading('Key Capabilities');
-  addBulletPoint('Folder Drag & Drop:', 'Drop an entire session folder into the intake zone; the engine recursively unpacks all audio files (.wav, .mp3, .flac, .ogg, .m4a, .aif).');
-  addBulletPoint('Automatic Stem Categorization:', 'Heuristic filename analysis tags files automatically as Drums, Kick, Snare, Bass, Vocal, Guitar, Keys, Synth, FX, or Full Mix.');
-  addBulletPoint('Multi-Core Parallel Acceleration:', 'Engage up to 16 concurrent CPU threads to achieve up to 8x faster processing than traditional real-time bounces.');
-  addBulletPoint('Stem Submix Mode (-4.5dB Headroom):', 'Crucial mode for stems destined for multitrack summing in DAWs; leaves clean headroom so stems do not clip when combined.');
-  addBulletPoint('ZIP Batch Export:', 'Downloads all completed 16-bit PCM WAV masters in a single ZIP archive accompanied by a comprehensive Mastering_Log_Report.txt manifest.');
+  addSubheading('Global VST Browser & Parameter Automation');
+  addBulletPoint('Project Plugin Scanner:', 'Click VST BROWSER in the Mixer header to scan every track for active Faust DSP toys and VST3/CLAP/AU wrappers.');
+  addBulletPoint('Unified Automation Lanes:', 'Select any discovered plugin parameter to reveal its automation envelope lane directly on the track timeline and activate the curve drawing tool.');
+  addBulletPoint('Show All Envelopes:', 'Toggle the Envelopes button in the Timeline toolbar to inspect or hide all volume, pan, and plugin lanes across tracks at once.');
+
+  addSubheading('Performance Macro Engine');
+  addBulletPoint('Live Gesture Recording:', 'Open MACROS to record real-time sequences of fader volume moves, panning sweeps, and VST parameter tweaks.');
+  addBulletPoint('MIDI Triggering & Timeline Baking:', 'Trigger saved Performance Macros via mapped hardware MIDI controller buttons, or bake a macro directly onto track automation lanes at the current playhead.');
 
   // =========================================================================
-  // CHAPTER 5 & 6: SOFTWARE DOJO & GHOST BUDDIES
+  // CHAPTER 4: GLOBAL MIDI QUANTIZE & SWING
   // =========================================================================
-  onProgress?.(70, 'Writing Chapters 5 & 6: Software Dojo & AI Duo...');
-  doc.addPage();
-  drawPageHeaderFooter();
-  cursorY = 22;
+  onProgress?.(55, 'Writing Chapter 4: MIDI Quantize & Swing...');
 
-  addSectionTitle('5', 'Software Dojo & The Offline AI Ghost Buddies', 'AI Cybernetics');
+  addSectionTitle('4', 'Global MIDI Quantize & Swing Humanization', 'MIDI');
   addParagraph(
-    'Strangelet Lab features a native cybernetic AI assistant network running entirely on your local machine via local LLM runtimes (Kobold.cpp, Ollama, LM Studio).'
+    'Tighten loose MIDI performances or inject classic pocket groove across selected MIDI clips and individual notes.'
   );
 
-  addSubheading('The Co-Op Persona Team');
-  addBulletPoint('Ghost (Llama 3.1 8B):', 'The literal "ghost in the machine." Energetic co-producer focused on rhythm, groove, arrangement flow, and punchy mixing tricks.');
-  addBulletPoint('Quinn (Qwen 2.5 7B):', 'Avant-garde sound designer with deep knowledge of micro-tonal harmonics, spectral de-sheen filters, and ambient textures.');
-  addBulletPoint('Strangelet Guru:', 'Disciplined acoustic sensei specializing in Faust DSP equations, phase coherence, and mastering targets.');
+  addBulletPoint('Subdivision Grids:', 'Open MIDI QUANTIZE in the Mixer header to snap timing to 1/4, 1/8, 1/16, or 1/32 note grids.');
+  addBulletPoint('Adjustable Swing %:', 'Dial in Swing percentage (0-100%) to delay off-beat subdivisions for natural MPC/LinnDrum human feel.');
+  addBulletPoint('Quantize Strength & Scope:', 'Blend between raw timing and 100% grid lock, target selected clips or specific notes, toggle live preview, and restore original timing non-destructively at any time.');
 
-  addSubheading('The Software Dojo Scrolls');
+  // =========================================================================
+  // CHAPTER 5: LARGE SONIC COLLIDER
+  // =========================================================================
+  onProgress?.(60, 'Writing Chapter 5: Large Sonic Collider...');
+
+  addSectionTitle('5', 'The Large Sonic Collider (Hadron Synthesis)', 'Physics');
   addParagraph(
-    'The Software Dojo contains curated training scrolls that prime your local model with the exact parameters and features of Strangelet Lab:'
+    'The Large Sonic Collider (LSC) models audio stems as charged relativistic particles orbiting inside a magnetic containment ring. Micro-collisions trigger granular fission, Doppler pitch modulation, and rhythmic drone cascades.'
   );
-  addBulletPoint('Scroll of Gold Path Mastering:', 'Instructs the LLM on target LUFS, crossover slopes, and Mid/Side balancing.');
-  addBulletPoint('Scroll of the Large Sonic Collider:', 'Teaches the model relativistic GeV equations and laser steering tactics.');
-  addBulletPoint('Scroll of Faust DSP Synthesizer:', 'Provides syntax examples and functional filter code for the Faust WebAssembly compiler.');
 
-  addSubheading('Air-Gapped Setup Commands');
+  addBulletPoint('Beam Energy (GeV):', 'Accelerates orbital velocity, increasing Doppler modulation and collision frequency.');
+  addBulletPoint('Magnetic B-Field (Tesla):', 'Tightens containment radius, forcing dense comb-filtering near-misses.');
+  addBulletPoint('Laser Steering Tools:', 'Use Inspect (frequency centroid), Gravity Well (force collisions), Repulsor Beam (pitch dive-bombs), and Exciter/Ionizer (harmonic saturation).');
+
+  // =========================================================================
+  // CHAPTER 6 & 7: GOLD PATH MASTERING & MATCHERING
+  // =========================================================================
+  onProgress?.(68, 'Writing Chapters 6 & 7: Mastering & Matchering...');
+  startNewPage();
+
+  addSectionTitle('6', 'Gold Path Mastering & FFT Reference Matchering', 'Mastering');
+  addParagraph(
+    'The Gold Path mastering deck combines a 6-stage analog/digital chain with real-time Web Audio FFT Reference Matchering so you can match the tonal contour and loudness balance of commercial reference tracks.'
+  );
+
+  addSubheading('The 6 Processing Stages');
+  addBulletPoint('1. Sub-Sonic & Parametric EQ:', '6-band precision EQ removes DC rumble (<30Hz), boxy 400Hz mud, and harsh digital resonances.');
+  addBulletPoint('2. Mid/Side Stereo Imager:', 'Mono-locks sub-bass below 120Hz while widening upper stereo air above 8kHz.');
+  addBulletPoint('3. Multiband Dynamics Glue:', 'Three-band compression for punchy, cohesive dynamic control.');
+  addBulletPoint('4. Analog Tape Saturation:', 'Hyperbolic tangent magnetic hysteresis adding warm odd/even harmonics.');
+  addBulletPoint('5. D3 Spectral Analyzer:', 'Real-time dual-curve FFT comparing raw input against the processed master bus.');
+  addBulletPoint('6. True-Peak Brickwall Limiter:', 'Lookahead ceiling (-0.3 dBFS default) preventing inter-sample clipping.');
+
+  addSubheading('Real-Time Reference Matchering Dropzone');
+  addBulletPoint('Drop Reference Audio:', 'Drag any .wav or .mp3 song onto the permanent Drop Reference Audio Track (Matchering) deck.');
+  addBulletPoint('5-Band FFT Calibration:', 'Decodes the reference buffer in Web Audio, computes its average spectrum across Sub, Low-Mid, Mid, Presence, and Air, compares it to your current master bus, and automatically calibrates the 6-band Parametric EQ in masterBus.');
+  addBulletPoint('Level-Matched Auditioning:', 'Click Audition Reference Track to flip instantaneously between your master and the reference song at matched loudness.');
+
+  addSectionTitle('7', 'Batch Multi-Core Auto-Mastering Engine', 'Batch DSP');
+  addParagraph(
+    'Drop a folder of stems or album tracks into Batch Auto-Mastering to process all files in parallel across concurrent CPU threads using your active Gold Path settings, with an optional -4.5 dB Stem Submix headroom mode and one-click ZIP WAV export.'
+  );
+
+  // =========================================================================
+  // CHAPTER 8 & 9: GHOST AI COMPANION & LOCAL HUB
+  // =========================================================================
+  onProgress?.(78, 'Writing Chapters 8 & 9: GHOST & Local AI Hub...');
+  startNewPage();
+
+  addSectionTitle('8', 'GHOST (The Ghost in the Machine) & Software Dojo', 'AI Studio');
+  addParagraph(
+    'GHOST is your sole resident audio mentor, DSP architect, and studio partner inside Strangelet Lab. GHOST maintains continuous awareness of your active session before answering.'
+  );
+
+  addSubheading('Live Studio Session Awareness');
+  addBulletPoint('Session Telemetry Inspection:', 'GHOST automatically reads your current BPM, time signature, active track count, audio vs. MIDI breakdown, active Gold Path mastering preset, and whether Reference Matchering is enabled.');
+  addBulletPoint('Hyper-Practical Engineering:', 'Gives concise 2-4 sentence answers referencing exact Hz/kHz frequencies and specific Strangelet Lab knobs, plus persistent XP/level evolution via buddyEvolutionCore.');
+  addBulletPoint('Software Dojo Scrolls:', 'Inject curated domain scrolls (Gold Path Mastering, Large Sonic Collider, Faust DSP, Ace-Step, and custom studio rules) into your local LLM context.');
+
+  addSectionTitle('9', 'Local AI Hub Connection Guide (Offline GGUFs)', 'Local AI');
+  addParagraph(
+    'Connect Kobold.cpp, Ollama, or LM Studio for 100% offline inference with GHOST:'
+  );
   addCodeBlock([
-    '# Option 1: Kobold.cpp (High performance GGUF runner)',
+    '# Kobold.cpp (Recommended GGUF runner, Port 5001)',
     './koboldcpp --model Qwen2.5-7B-Instruct.gguf --port 5001 --usecublas',
     '',
-    '# Option 2: Ollama (Command line local runner)',
-    'ollama run llama3.1:8b',
+    '# Ollama (Port 11434)',
+    'ollama run qwen2.5:7b',
     '',
-    '# In Strangelet Lab: Click "AI Hub Endpoints" -> Select Local Engine -> Test Connection'
+    '# LM Studio: Enable Local Server on Port 1234 (OpenAI-compatible endpoint)'
   ]);
 
   // =========================================================================
-  // CHAPTER 7 & 8: ADVANCED AUDIO TOOLS & SUNO DE-SHEEN
+  // CHAPTER 10 & 11: FAUST DSP WORKBENCH & AUDIO TOOLS
   // =========================================================================
-  onProgress?.(80, 'Writing Chapters 7 & 8: De-Sheen & DSP Lab...');
-  addSectionTitle('6', 'Suno AI De-Sheen & Faust DSP WebAudio Lab', 'Restoration');
+  onProgress?.(88, 'Writing Chapters 10 & 11: Faust DSP & Audio Tools...');
+
+  addSectionTitle('10', 'Faust DSP Workbench (12 Models & Idea Board)', 'WASM DSP');
   addParagraph(
-    'Generative AI music models (like Suno and Udio) frequently suffer from characteristic high-frequency metallic "sheen" and muddy boxiness around 400Hz. The Suno De-Sheen Studio removes these artifacts using specialized DSP algorithms.'
+    'Write functional Faust audio code compiled to real-time WebAudio nodes, browse boutique models visually, or let GHOST assemble custom DSP toys from natural-language prompts.'
   );
 
-  addSubheading('De-Sheen DSP Architecture');
-  addBulletPoint('Anti-Sheen High Shelf:', 'Smooth attenuation between 8kHz and 11kHz to tame synthetic digital comb-filtering.');
-  addBulletPoint('De-Mud Peaking Notch:', 'Surgically attenuates congested 380Hz - 440Hz cardboard build-up.');
-  addBulletPoint('Silky Air Restoration:', 'Injects clean analog high-frequency sheen above 14kHz to restore open spaciousness.');
-  addBulletPoint('Dynamic Transient Reconstructor:', 'Re-sharpens drum transients softened by neural diffusion models.');
+  addBulletPoint('12 Boutique Preset Toys:', 'Includes classics plus 5 expanded models: VHS 1985 Chorus & Pitch Drift, Deep Cavern Shimmer Reverb, Cassette Head Magnetic Saturator, Barberpole Infinite Phaser, and FM Glass Bell Synth.');
+  addBulletPoint('Visual Idea Board / Cookbook Tab:', 'Toggle from the code editor to browse cards tagged by [Time & Warble], [Grit & Crunch], [Space & Dimension], [Physical Modeling], and [Sci-Fi Glitch] with plain-English explanations and 1-click Inspect & Tweak.');
+  addBulletPoint('Prompt-to-Toy One-Click Recipes:', 'Click quick chips like Underwater Muffled Reverb, Broken AM Radio, Laser Gun Zap, or Dub Siren to populate the prompt and trigger GHOST to assemble and compile live Faust code.');
 
-  addSubheading('Faust DSP WebAudio Lab');
-  addParagraph(
-    'Faust (Functional Audio Stream) is a high-level DSP programming language. Strangelet Lab includes an in-app Faust compiler that translates DSP code into WebAssembly in real-time, allowing you to build custom oscillators, reverbs, and wave-shapers on the fly.'
+  addSectionTitle('11', 'Beam Splitter, Suno De-Sheen & Basic Pitch', 'Tools');
+  addBulletPoint('Beam Splitter:', 'Phase-aligned Low/High, Mid/Side, and Transient/Tonal frequency demuxing plus Chrono-Pin tempo mapping.');
+  addBulletPoint('Suno AI De-Glaze / De-Sheen:', 'Suppresses 8-16kHz brittle digital sheen, attenuates 400Hz mud, and reconstructs squashed transients.');
+  addBulletPoint('Spotify Basic Pitch:', 'Polyphonic Audio-to-MIDI neural transcription with velocity and pitch-bend extraction.');
+
+  // =========================================================================
+  // CHAPTER 12 & 13: WORKFLOWS, LIBRARIES & SHORTCUTS
+  // =========================================================================
+  onProgress?.(95, 'Writing Chapters 12 & 13: Libraries & Shortcuts...');
+  startNewPage();
+
+  addSectionTitle('12', 'Workflows, SFZ Soundbanks, LoRAs & VRAM Tiers', 'Ecosystem');
+  addBulletPoint('SFZ Open Library:', 'Audition and load open-format multi-velocity instruments (1973 Rhodes Mk I, Juno-106 Pad, Chamber Cello, Model D Bass, LinnDrum LM-1).');
+  addBulletPoint('Ace-Step 1.5 LoRA Lending Library:', 'Stack up to 3 diffusion adapters (lofi-tape-decay, sp1200-crunch, prince-linn-groove, glacial-sub-drone) with adjustable weights.');
+  addBulletPoint('VRAM Scalability (6GB to 24GB+):', 'Toggle Demucs, Ace-Step, Basic Pitch, and Faust engines between ACTIVE, STANDBY, and UNLOADED in Resource & VRAM Manager.');
+
+  addSectionTitle('13', 'Master Keyboard Shortcuts Reference', 'Hotkeys');
+  addTable(
+    ['SHORTCUT', 'ACTION / WORKFLOW FUNCTION'],
+    [
+      ['Space', 'Play / Pause Master Transport'],
+      ['Tab', 'Cycle between Active Timeline View (Pure Timeline / Timeline) and Mixer Only'],
+      ['B / A', 'Instant A/B Audition Toggle (Slot A vs Slot B / Dry Reference)'],
+      ['Alt + G', 'Toggle GHOST (The Ghost in the Machine) Companion Terminal'],
+      ['Ctrl + B', 'Collapse / Expand Left Navigation Sidebar'],
+      ['Ctrl + E', 'Open Batch Stem Export (.WAV ZIP)'],
+      ['Ctrl + Z / Y', 'Undo / Redo Project Snapshot History'],
+      ['Ctrl + S', 'Manual Project Save (Auto-save runs every 60 seconds)'],
+      ['F1 or ?', 'Open Official User Manual & Field Guide'],
+      ['R / M / S', 'Toggle Record / Mute Selected Track / Solo Selected Track'],
+      ['Esc', 'Close active modal, popover menu, or deselect current tool']
+    ],
+    40
+  );
+
+  addCalloutCard(
+    'Air-Gapped Studio Certification',
+    [
+      'This field manual is certified for offline studio use with zero external network dependencies.',
+      `Strangelet Lab Acoustic Cybernetics Division | Document ID: SL-MANUAL-${version.replace(/[^0-9A-Za-z]/g, '')}-AIRGAP`
+    ],
+    goldBright
   );
 
   // =========================================================================
-  // CHAPTER 9: KEYBOARD SHORTCUTS & TEMPLATES
+  // FINAL PASS: DRAW CLEAN HEADERS & FOOTERS ONCE PER PAGE
   // =========================================================================
-  onProgress?.(90, 'Writing Chapter 9: Shortcuts & Workflows...');
-  doc.addPage();
-  drawPageHeaderFooter();
-  cursorY = 22;
+  const totalPages = (doc as any).internal.getNumberOfPages();
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p);
 
-  addSectionTitle('7', 'Guided Workflows, Production Templates & Hotkeys', 'Workflow');
-  addParagraph(
-    'Workflows and templates help you move from initial prompt generation directly to finished master:'
-  );
+    // Skip top header on Page 1 (Cover dark banner occupies top 82mm)
+    if (p > 1) {
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.3);
+      doc.line(margin, 13, pageWidth - margin, 13);
 
-  addSubheading('Featured Guided Workflow: The Full Quantum Cycle');
-  addBulletPoint('Step 1 (Prompt Ideation):', 'Craft your sonic concept in the Large Sonic Collider with Ghost & Quinn.');
-  addBulletPoint('Step 2 (Ace-Step Loop Bed):', 'Feed prompt into Ace-Step 1.5 to generate multi-stem synchronized loop beds (Drums, Bass, Leads).');
-  addBulletPoint('Step 3 (Mixer Console Summing):', 'Route generated stems directly into Strangelet Mixer channel strips.');
-  addBulletPoint('Step 4 (Humanizing & Overdub):', 'Plug in guitar/keyboard, apply humanize velocity drift, and loop slices with Beam Splitter.');
-  addBulletPoint('Step 5 (Gold Path Master):', 'Send final arrangement through Gold Path or Batch Auto-Mastering for commercial release.');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.8);
+      doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+      doc.text('STRANGELET LAB - OFFICIAL FIELD MANUAL & OS GUIDE', margin, 9.8);
+      doc.text('AIR-GAPPED OFFLINE EDITION', pageWidth - margin, 9.8, { align: 'right' });
+    }
 
-  addSubheading('Master Keyboard Shortcuts Reference');
-  const shortcuts = [
-    ['Space', 'Play / Pause Master Audio Transport'],
-    ['B', 'Instant A/B Audition Toggle (Mastered vs Dry Signal)'],
-    ['A', 'Select Audition Slot A (Active Gold Path DSP)'],
-    ['Alt + G', 'Toggle Ghost in the Machine / Quinn AI Co-Producer'],
-    ['Ctrl + B', 'Toggle Left Navigation Sidebar (Collapse for Fullscreen)'],
-    ['F1 or ?', 'Open Official User Guide & Manual'],
-    ['R', 'Toggle Master WAV Audio Recording'],
-    ['M', 'Mute Selected Mixer Channel Strip'],
-    ['S', 'Solo Selected Mixer Channel Strip'],
-    ['Tab', 'Quick Switch between Timeline and Mixer Views'],
-    ['Esc', 'Close active modal / Deselect current tool']
-  ];
-
-  // Draw shortcut table
-  ensureSpace(shortcuts.length * 5.5 + 8);
-  doc.setFillColor(darkBg[0], darkBg[1], darkBg[2]);
-  doc.rect(margin, cursorY, contentWidth, 5.5, 'F');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.setTextColor(goldAccent[0], goldAccent[1], goldAccent[2]);
-  doc.text('KEYBOARD SHORTCUT', margin + 3, cursorY + 3.8);
-  doc.text('ACTION / WORKFLOW FUNCTION', margin + 50, cursorY + 3.8);
-  cursorY += 5.5;
-
-  shortcuts.forEach((sc, idx) => {
-    const isEven = idx % 2 === 0;
-    doc.setFillColor(isEven ? 248 : 255, isEven ? 250 : 255, isEven ? 252 : 255);
-    doc.rect(margin, cursorY, contentWidth, 5, 'F');
-
-    doc.setFont('courier', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(textDark[0], textDark[1], textDark[2]);
-    doc.text(sc[0], margin + 3, cursorY + 3.5);
+    // Consistent bottom footer on every page
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.3);
+    doc.line(margin, pageHeight - 13, pageWidth - margin, pageHeight - 13);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(textBody[0], textBody[1], textBody[2]);
-    doc.text(sc[1], margin + 50, cursorY + 3.5);
-
-    cursorY += 5;
-  });
-
-  cursorY += 6;
-
-  // Closing Hardware Certificate
-  addCalloutCard('Air-Gapped Studio Certification', [
-    'This field manual is certified for air-gapped studio use without internet connection requirements.',
-    'For updates, project backups, and user preset exchange, visit Strangelet Lab offline export utilities.',
-    'Strangelet Acoustic Cybernetics Division • Document ID: SL-MANUAL-240-AIRGAP'
-  ], goldAccent);
+    doc.setFontSize(7.8);
+    doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+    doc.text(
+      `Quantum-Acoustic Workstation | Client-Side DSP | Version ${version}`,
+      margin,
+      pageHeight - 8.5
+    );
+    doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - 8.5, { align: 'right' });
+  }
 
   onProgress?.(100, 'Finalizing PDF Binary Output...');
-
   return doc.output('blob');
 }

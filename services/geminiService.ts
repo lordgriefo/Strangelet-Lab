@@ -1,16 +1,8 @@
-import { GoogleGenAI } from "@google/genai";
-
-let ai: GoogleGenAI | null = null;
-
-const getAI = () => {
-  if (!ai) {
-    ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-  }
-  return ai;
-};
+import { generateWithKoboldDetailed } from './koboldCppService';
+import { awardBuddyXp, buildBuddySoulPromptBlock } from './buddyEvolutionCore';
+import { ColliderChip, PromptOutputResult, LyricLabOutput, SongDeconstruction } from '../types';
 
 export const generateSystemCode = async (filename: string, context: string): Promise<string> => {
-  const client = getAI();
   try {
     const prompt = `
       You are an expert Python engineer specializing in Audio Processing and AI pipelines.
@@ -29,45 +21,115 @@ export const generateSystemCode = async (filename: string, context: string): Pro
         - Mastering: Matchering 2.0.
         - Backend: FastAPI, Celery (for task queue), Redis.
         - Model Plugin Architecture: Implement a standardized interface for loading modular AI models (e.g., Ace-Step 1.5, Lora-based models) dynamically from a \`plugins/\` directory.
-      - Pipeline Logic:
-        1. Stem Separation (Roformer/Demucs).
-        2. Audio-to-MIDI conversion for drums.
-        3. MIDI rendering via SFZ/VSTi.
-        4. SFZ Instrument Generation (from audio samples).
-        5. Mixing.
-        6. Mastering (Matchering 2.0).
-        7. Modular AI Integration: Use a standardized plugin interface to load/unload models (like Ace-Step 1.5) for track generation, key/flow maintenance, and style transfer.
-      - The system should be configurable to use different AI endpoints like a local LM Studio server or a cloud service like OpenRouter.
+      - The system should be configurable to use local AI endpoints such as Kobold.cpp, Ollama, LM Studio, or any OpenAI-compatible server.
       
       Return ONLY the raw code/text content, no markdown formatting blocks if possible, or minimally wrapped.
     `;
 
-    const response = await client.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
+    const res = await generateWithKoboldDetailed(prompt, {
+      maxTokens: 1200,
+      temperature: 0.35
     });
 
-    return response.text || '# Error generating code.';
+    if (res.engineSource !== 'offline_dojo' && res.text.trim()) {
+      return res.text
+        .replace(/^```(?:python|text|txt)?\s*/i, '')
+        .replace(/```\s*$/i, '')
+        .trim();
+    }
+
+    // Deterministic offline scaffolding when no local LLM server is running
+    if (filename === 'requirements.txt') {
+      return `# Strangelet Lab Modular DSP & AI Runtime Dependencies
+torch>=2.3.0
+torchaudio>=2.3.0
+numpy>=1.26.0
+scipy>=1.12.0
+librosa>=0.10.2
+soundfile>=0.12.1
+audio-separator>=0.18.0
+demucs>=4.0.1
+basic-pitch>=0.3.3
+matchering>=2.0.6
+fastapi>=0.111.0
+uvicorn>=0.30.0
+celery>=5.4.0
+redis>=5.0.4
+httpx>=0.27.0
+PySide6>=6.7.0
+`;
+    }
+
+    return `# Strangelet Lab Hardware & Plugin Manager (6GB VRAM Singleton)
+import gc
+import importlib
+import pathlib
+from typing import Any, Dict, Optional
+import torch
+
+
+class ModelManager:
+    _instance: Optional["ModelManager"] = None
+
+    def __new__(cls) -> "ModelManager":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._loaded_models: Dict[str, Any] = {}
+            cls._instance._vram_limit_gb = 6.0
+        return cls._instance
+
+    @property
+    def device(self) -> str:
+        if torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
+
+    def load_model(self, plugin_name: str, plugins_dir: str = "plugins") -> Any:
+        if plugin_name in self._loaded_models:
+            return self._loaded_models[plugin_name]
+        self.unload_all()
+        plugin_path = pathlib.Path(plugins_dir) / f"{plugin_name}.py"
+        if not plugin_path.exists():
+            raise FileNotFoundError(f"Plugin module not found: {plugin_path}")
+        module = importlib.import_module(f"{plugins_dir}.{plugin_name}")
+        model = module.initialize(device=self.device)
+        self._loaded_models[plugin_name] = model
+        return model
+
+    def unload_model(self, plugin_name: str) -> None:
+        if plugin_name in self._loaded_models:
+            del self._loaded_models[plugin_name]
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    def unload_all(self) -> None:
+        self._loaded_models.clear()
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+`;
   } catch (error) {
-    console.error("Gemini Error:", error);
-    return `# Error: Unable to generate code. Ensure API Key is valid.\n# ${error}`;
+    console.warn('Local AI codegen bypassed:', error);
+    return `# Offline fallback active for ${filename}\n# Connect Kobold.cpp, Ollama, or LM Studio in AI Hub Settings for live generation.`;
   }
 };
 
 export const analyzeMix = async (description: string): Promise<string> => {
-    const client = getAI();
-    try {
-        const response = await client.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `Analyze this mixing scenario and provide spectral rebuilding advice using 'Strangelet Lab's Mastering Engineer' module philosophy (AudioSR/Matchering reference): ${description}`,
-        });
-        return response.text || "Analysis failed.";
-    } catch (e) {
-        return "Could not connect to AI Neural Net.";
-    }
+  try {
+    const promptContents = description.includes('[ACTIVE STUDIO SESSION SNAPSHOT]')
+      ? description
+      : `Analyze this mixing scenario and provide spectral rebuilding advice using 'Strangelet Lab's Mastering Engineer' module philosophy (AudioSR/Matchering reference): ${description}`;
+    const res = await generateWithKoboldDetailed(promptContents, {
+      maxTokens: 320,
+      temperature: 0.65,
+      userQuery: description
+    });
+    return res.text || 'Analysis complete via Strangelet Offline Dojo.';
+  } catch {
+    return 'Analysis complete via Strangelet Offline Dojo.';
+  }
 };
-
-import { ColliderChip, PromptOutputResult, LyricLabOutput, SongDeconstruction } from '../types';
 
 /**
  * Collide musical particles (styles, genres, eras, instruments, production nuances)
@@ -75,25 +137,44 @@ import { ColliderChip, PromptOutputResult, LyricLabOutput, SongDeconstruction } 
  */
 export const collideSonicParticlesGemini = async (
   chips: ColliderChip[],
-  targetFormat: 'suno' | 'udio' | 'universal' = 'suno'
+  targetFormat: 'acestep' | 'yue2' | 'suno' | 'udio' | 'universal' = 'suno'
 ): Promise<PromptOutputResult> => {
   const chipLabels = chips.map(c => `${c.label} (${c.category}, weight: ${Math.round((c.energyWeight || 0.75) * 100)}%)`).join(', ');
 
   const fallbackResult: PromptOutputResult = generateFallbackSonicPrompt(chips, targetFormat);
 
+  const formatLabel =
+    targetFormat === 'acestep'
+      ? 'Ace-Step 1.5 audio diffusion'
+      : targetFormat === 'yue2'
+        ? 'YuE 2.0 full-song synthesis'
+        : targetFormat === 'udio'
+          ? 'Udio style prompt'
+          : targetFormat === 'suno'
+            ? 'Suno style & prompt tags'
+            : 'Universal AI music generators (Ace-Step, YuE 2, Suno, Udio)';
+
   try {
-    const client = getAI();
+    const soulBlock = buildBuddySoulPromptBlock();
+    const topParticleNames = chips.slice(0, 3).map(c => c.label).join(' + ');
+    awardBuddyXp(
+      20,
+      'interaction',
+      `Collided [${topParticleNames || 'sonic particles'}] for ${formatLabel}`
+    );
+
     const prompt = `
-      You are the AI Quantum Music Engineer at Strangelet Lab's "Large Sonic Collider" (LSC).
+      You are Ghost in the Machine, the smart, personable Mad Scientist running Strangelet Lab's "Large Sonic Collider" (LSC).
+      ${soulBlock}
       We have injected the following sonic particle chips into the collision chamber:
       [${chipLabels}]
 
-      Target Engine Format: ${targetFormat.toUpperCase()} (e.g. optimized for Suno v3.5/v4 or Udio style tags).
+      Target Engine Format: ${formatLabel}.
 
       Synthesize the collision into a JSON object with this EXACT structure:
       {
         "title": "Evocative Short Track Title",
-        "promptText": "Rich, highly effective prompt string ready to paste into ${targetFormat} prompt box",
+        "promptText": "Rich, highly effective prompt string ready to paste directly into ${formatLabel}",
         "styleTags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6"],
         "tempoBpm": 115,
         "vibeDescription": "1-2 sentence visceral description of the collided aesthetic",
@@ -108,14 +189,18 @@ export const collideSonicParticlesGemini = async (
       Return ONLY raw JSON, with no outer markdown blocks if possible.
     `;
 
-    const response = await client.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
+    const res = await generateWithKoboldDetailed(prompt, {
+      maxTokens: 600,
+      temperature: 0.7
     });
 
-    const raw = response.text || '';
-    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleaned);
+    if (res.engineSource === 'offline_dojo') {
+      return fallbackResult;
+    }
+
+    const cleaned = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : cleaned);
     return {
       title: parsed.title || fallbackResult.title,
       promptText: parsed.promptText || fallbackResult.promptText,
@@ -126,7 +211,7 @@ export const collideSonicParticlesGemini = async (
       generatedAt: Date.now()
     };
   } catch (err) {
-    console.warn('Gemini Collider API call bypassed or failed, using algorithmic sonic collider:', err);
+    console.warn('Local AI collider parse bypassed, using algorithmic sonic collider:', err);
     return fallbackResult;
   }
 };
@@ -139,39 +224,52 @@ function generateFallbackSonicPrompt(chips: ColliderChip[], format: string): Pro
   const productions = chips.filter(c => c.category === 'production').map(c => c.label);
   const nuances = chips.filter(c => c.category === 'nuance').map(c => c.label);
 
-  const styleTags = [
+  const orderedLabels = [...chips]
+    .sort((a, b) => (b.energyWeight || 0.8) - (a.energyWeight || 0.8))
+    .map(c => c.label);
+
+  const styleTags = Array.from(new Set([
+    ...orderedLabels.slice(0, 8),
     ...genres.slice(0, 2),
     ...eras.slice(0, 1),
     ...rhythms.slice(0, 1),
     ...instruments.slice(0, 2),
     ...productions.slice(0, 2),
     ...nuances.slice(0, 1)
-  ];
+  ])).slice(0, 8);
 
-  const primaryGenre = genres[0] || 'Indie Rock';
-  const secondaryGenre = genres[1] || 'Samba';
-  const primaryEra = eras[0] || '90s Lo-Fi';
-  const leadInst = instruments[0] || 'Theremin Lead';
-  const prodFlair = productions[0] || 'Analog Tape Flutter';
+  const primaryStyle = orderedLabels[0] || genres[0] || 'Indie Rock';
+  const secondaryStyle = orderedLabels[1] || genres[1] || productions[0] || 'Analog Tape';
+  const remainingStyles = orderedLabels.slice(2);
+  const leadInst = instruments[0] || orderedLabels[2] || 'Analog Synth Lead';
+  const prodFlair = productions[0] || 'warm analog tape saturation';
 
-  const titleAdjectives = ['Quantum', 'Solar', 'Velvet', 'Midnight', 'Strangelet', 'Resonant', 'Subatomic', 'Bossa'];
-  const titleNouns = ['Collision', 'Horizon', 'Basement', 'Odyssey', 'Equation', 'Refraction', 'Transduction', 'Reverie'];
+  const titleAdjectives = ['Quantum', 'Solar', 'Velvet', 'Midnight', 'Strangelet', 'Resonant', 'Subatomic', 'Molten'];
+  const titleNouns = ['Collision', 'Horizon', 'Reactor', 'Odyssey', 'Equation', 'Refraction', 'Transduction', 'Overdrive'];
   const randomTitle = `${titleAdjectives[Math.floor(Math.random() * titleAdjectives.length)]} ${titleNouns[Math.floor(Math.random() * titleNouns.length)]}`;
 
-  const promptText = `${primaryGenre} collided with ${secondaryGenre}, filtered through ${primaryEra} aesthetic. Featuring prominent ${leadInst}, driving ${rhythms[0] || 'syncopated groove'}, ${prodFlair}, warm harmonic saturation, ${nuances[0] || 'mysterious dreamscape aura'}. Dynamic arrangement with rich melodic transitions.`;
+  const blendList = remainingStyles.length > 0 ? `, fused with ${remainingStyles.join(', ')}` : '';
+  const targetHint =
+    format === 'acestep'
+      ? 'Punchy stereo master, tight loop-ready groove, analog saturation, wide headroom.'
+      : format === 'yue2'
+        ? 'Cohesive full-song arrangement with dynamic transitions and expressive vocal space.'
+        : 'Dynamic arrangement with rich melodic transitions and detailed stereo depth.';
+
+  const promptText = `${primaryStyle} collided with ${secondaryStyle}${blendList}. Featuring ${leadInst}, ${rhythms[0] || 'driving groove'}, ${prodFlair}, ${nuances[0] || 'raw visceral intensity'}. ${targetHint}`;
 
   return {
     title: randomTitle,
     promptText: promptText,
     styleTags: styleTags.length > 0 ? styleTags : ['indie rock', 'samba', 'lo-fi', 'theremin', 'tape flutter'],
     tempoBpm: 116,
-    vibeDescription: `A high-energy collision merging ${primaryGenre} urgency with ${secondaryGenre} swing, drenched in ${primaryEra} analog grit.`,
+    vibeDescription: `A high-energy collision merging ${primaryStyle} character with ${secondaryStyle}${remainingStyles.length > 0 ? ` and ${remainingStyles[0]}` : ''}, sculpted for ${format.toUpperCase()}.`,
     structureBlueprint: [
-      { section: '[Intro]', description: `Subtle atmospheric drone with isolated ${leadInst} motifs and tape crackle` },
-      { section: '[Verse 1]', description: `Tight rhythm section enters with ${rhythms[0] || 'steady syncopated'} groove and dry rhythmic chords` },
-      { section: '[Chorus]', description: `Full dynamic burst, layered vocal melodies, soaring lead lines, wide stereo image` },
-      { section: '[Bridge / Drop]', description: `Sudden low-pass filter sweep and polyrhythmic breakdown, stripping back to bass and percussion` },
-      { section: '[Outro]', description: `Extended rhythmic vamp fading into acoustic room reflections and tape hiss` }
+      { section: '[Intro]', description: `Atmosphere built around ${primaryStyle} motif with subtle ${prodFlair}` },
+      { section: '[Verse 1]', description: `Tight rhythm pocket locks in with ${secondaryStyle} texture and focused instrumentation` },
+      { section: '[Chorus]', description: `Full-intensity collision combining ${orderedLabels.slice(0, 3).join(' + ')}, wide stereo projection` },
+      { section: '[Bridge / Drop]', description: `Filter sweep breakdown spotlighting ${leadInst} before slamming back into full energy` },
+      { section: '[Outro]', description: `Extended fade with resonant harmonic tails and tape saturation decay` }
     ],
     generatedAt: Date.now()
   };
@@ -188,7 +286,6 @@ export const generateLyricLabGemini = async (
 ): Promise<LyricLabOutput> => {
   const fallback = generateFallbackLyrics(themeA, themeB);
   try {
-    const client = getAI();
     const prompt = `
       You are the Lyric Lab lyricist at Strangelet Lab.
       Smash these two contrasting concepts together:
@@ -213,14 +310,18 @@ export const generateLyricLabGemini = async (
       Return ONLY valid JSON.
     `;
 
-    const response = await client.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
+    const res = await generateWithKoboldDetailed(prompt, {
+      maxTokens: 700,
+      temperature: 0.78
     });
 
-    const raw = response.text || '';
-    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleaned);
+    if (res.engineSource === 'offline_dojo') {
+      return fallback;
+    }
+
+    const cleaned = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : cleaned);
     return {
       title: parsed.title || fallback.title,
       concept: parsed.concept || fallback.concept,
@@ -231,7 +332,7 @@ export const generateLyricLabGemini = async (
       generatedAt: Date.now()
     };
   } catch (err) {
-    console.warn('Lyric Lab API bypassed, using algorithmic fallback:', err);
+    console.warn('Lyric Lab local inference bypassed, using algorithmic fallback:', err);
     return fallback;
   }
 };
@@ -311,7 +412,6 @@ export const reverseEngineerAndReimagineGemini = async (
   const fallback = generateFallbackDeconstruction(referenceSong, userTargetTopic);
 
   try {
-    const client = getAI();
     const prompt = `
       You are the Master Audio Deconstructor at Strangelet Lab.
       A user wants to reverse engineer the musical and production DNA of this reference:
@@ -344,14 +444,18 @@ export const reverseEngineerAndReimagineGemini = async (
       Return ONLY valid JSON.
     `;
 
-    const response = await client.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
+    const res = await generateWithKoboldDetailed(prompt, {
+      maxTokens: 700,
+      temperature: 0.72
     });
 
-    const raw = response.text || '';
-    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleaned);
+    if (res.engineSource === 'offline_dojo') {
+      return fallback;
+    }
+
+    const cleaned = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : cleaned);
 
     return {
       referenceSong: referenceSong,
@@ -363,7 +467,7 @@ export const reverseEngineerAndReimagineGemini = async (
       generatedAt: Date.now()
     };
   } catch (err) {
-    console.warn('Deconstructor API bypassed, using algorithmic fallback:', err);
+    console.warn('Deconstructor local inference bypassed, using algorithmic fallback:', err);
     return fallback;
   }
 };

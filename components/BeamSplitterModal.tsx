@@ -81,11 +81,12 @@ export const BeamSplitterModal: React.FC<BeamSplitterModalProps> = ({
   const playerRef = useRef<PrismAudioPlayer | null>(null);
   const isDraggingHandleRef = useRef<'start' | 'end' | null>(null);
 
-  // Instantiate audio player lazily
+  // Instantiate audio player lazily and dispose on unmount
   useEffect(() => {
     playerRef.current = new PrismAudioPlayer();
     return () => {
-      playerRef.current?.stopAll();
+      playerRef.current?.dispose();
+      playerRef.current = null;
     };
   }, []);
 
@@ -190,9 +191,9 @@ export const BeamSplitterModal: React.FC<BeamSplitterModalProps> = ({
 
   // User file upload handler
   const handleFileUpload = async (file: File) => {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    const ctx = new AudioCtx();
     try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioCtx();
       const arrayBuffer = await file.arrayBuffer();
       const decoded = await ctx.decodeAudioData(arrayBuffer);
 
@@ -210,6 +211,8 @@ export const BeamSplitterModal: React.FC<BeamSplitterModalProps> = ({
       if (splitRays.length > 0) setSelectedRayId(splitRays[0].id);
     } catch (err) {
       console.error('Beam Splitter file decode error:', err);
+    } finally {
+      ctx.close().catch(() => {});
     }
   };
 
@@ -536,7 +539,12 @@ export const BeamSplitterModal: React.FC<BeamSplitterModalProps> = ({
 
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
     const ctx = new AudioCtx();
-    const extractedLoop = extractLoopBuffer(ctx, audioBuffer, loopStartSec, loopEndSec, 5);
+    let extractedLoop: AudioBuffer;
+    try {
+      extractedLoop = extractLoopBuffer(ctx, audioBuffer, loopStartSec, loopEndSec, 5);
+    } finally {
+      ctx.close().catch(() => {});
+    }
     const wavBlob = audioBufferToWav(extractedLoop);
     const audioUrl = URL.createObjectURL(wavBlob);
 
@@ -583,7 +591,12 @@ export const BeamSplitterModal: React.FC<BeamSplitterModalProps> = ({
 
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
     const ctx = new AudioCtx();
-    const sliceBuf = extractSliceBuffer(ctx, audioBuffer, ray, 3);
+    let sliceBuf: AudioBuffer;
+    try {
+      sliceBuf = extractSliceBuffer(ctx, audioBuffer, ray, 3);
+    } finally {
+      ctx.close().catch(() => {});
+    }
     const wavBlob = audioBufferToWav(sliceBuf);
     const audioUrl = URL.createObjectURL(wavBlob);
 
@@ -613,13 +626,17 @@ export const BeamSplitterModal: React.FC<BeamSplitterModalProps> = ({
     let exportBuf: AudioBuffer;
     let fileName: string;
 
-    if (splitMode === 'loop') {
-      exportBuf = extractLoopBuffer(ctx, audioBuffer, loopStartSec, loopEndSec);
-      fileName = `${sourceName.replace('.wav', '')}_Prism_Loop_${activeLoopPresetBars}Bar.wav`;
-    } else {
-      const activeRay = rays.find(r => r.id === selectedRayId) || rays[0];
-      exportBuf = extractSliceBuffer(ctx, audioBuffer, activeRay);
-      fileName = `${sourceName.replace('.wav', '')}_Ray_${activeRay.index + 1}_${activeRay.hitType}.wav`;
+    try {
+      if (splitMode === 'loop') {
+        exportBuf = extractLoopBuffer(ctx, audioBuffer, loopStartSec, loopEndSec);
+        fileName = `${sourceName.replace('.wav', '')}_Prism_Loop_${activeLoopPresetBars}Bar.wav`;
+      } else {
+        const activeRay = rays.find(r => r.id === selectedRayId) || rays[0];
+        exportBuf = extractSliceBuffer(ctx, audioBuffer, activeRay);
+        fileName = `${sourceName.replace('.wav', '')}_Ray_${activeRay.index + 1}_${activeRay.hitType}.wav`;
+      }
+    } finally {
+      ctx.close().catch(() => {});
     }
 
     const blob = audioBufferToWav(exportBuf);
@@ -643,26 +660,31 @@ export const BeamSplitterModal: React.FC<BeamSplitterModalProps> = ({
     const ctx = new AudioCtx();
     const secondsPerBar = (60 / currentProjectBpm) * 4;
 
-    const newBinClips: ProjectBinClip[] = rays.map((ray, idx) => {
-      const sliceBuffer = extractSliceBuffer(ctx, audioBuffer, ray, snapZeroCrossing ? 3 : 0);
-      const wavBlob = audioBufferToWav(sliceBuffer);
-      const audioUrl = URL.createObjectURL(wavBlob);
-      const durationBars = Number((ray.durationSeconds / secondsPerBar).toFixed(3));
+    let newBinClips: ProjectBinClip[];
+    try {
+      newBinClips = rays.map((ray, idx) => {
+        const sliceBuffer = extractSliceBuffer(ctx, audioBuffer, ray, snapZeroCrossing ? 3 : 0);
+        const wavBlob = audioBufferToWav(sliceBuffer);
+        const audioUrl = URL.createObjectURL(wavBlob);
+        const durationBars = Number((ray.durationSeconds / secondsPerBar).toFixed(3));
 
-      return {
-        id: `bin-clip-beam-${Date.now()}-${ray.id}-${idx}`,
-        name: `${sourceName.replace('.wav', '')}_R${ray.index + 1}_${ray.hitType.toUpperCase()}`,
-        hitType: ray.hitType,
-        durationSeconds: Number(ray.durationSeconds.toFixed(3)),
-        durationBars,
-        audioUrl,
-        audioBuffer: sliceBuffer,
-        color: ray.color,
-        createdAt: Date.now(),
-        sourceTrack: sourceName,
-        keyShortcut: KEYBOARD_PAD_SHORTCUTS[idx % KEYBOARD_PAD_SHORTCUTS.length]
-      };
-    });
+        return {
+          id: `bin-clip-beam-${Date.now()}-${ray.id}-${idx}`,
+          name: `${sourceName.replace('.wav', '')}_R${ray.index + 1}_${ray.hitType.toUpperCase()}`,
+          hitType: ray.hitType,
+          durationSeconds: Number(ray.durationSeconds.toFixed(3)),
+          durationBars,
+          audioUrl,
+          audioBuffer: sliceBuffer,
+          color: ray.color,
+          createdAt: Date.now(),
+          sourceTrack: sourceName,
+          keyShortcut: KEYBOARD_PAD_SHORTCUTS[idx % KEYBOARD_PAD_SHORTCUTS.length]
+        };
+      });
+    } finally {
+      ctx.close().catch(() => {});
+    }
 
     if (onAddProjectBinClips) {
       onAddProjectBinClips(newBinClips);

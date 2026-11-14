@@ -82,14 +82,14 @@ export const AiMixStepModal: React.FC<AiMixStepModalProps> = ({
   appliedSteps,
   onRevertStep
 }) => {
-  if (!isOpen) return null;
-
   const koboldSettings = getStoredKoboldSettings();
   const [selectedTrackId, setSelectedTrackId] = useState<string>(tracks[0]?.id || 'master');
   const [selectedStepType, setSelectedStepType] = useState<AiMixStepType>('spectral_desheen');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [generatedStep, setGeneratedStep] = useState<AiMixStep | null>(null);
   const [stepAppliedSuccess, setStepAppliedSuccess] = useState<boolean>(false);
+
+  if (!isOpen) return null;
 
   const selectedTrack = tracks.find(t => t.id === selectedTrackId);
   const targetName = selectedTrackId === 'master' ? 'Stereo Master Bus' : (selectedTrack?.name || 'Selected Track');
@@ -143,7 +143,7 @@ export const AiMixStepModal: React.FC<AiMixStepModalProps> = ({
                   INCORPORATE AI MIX STEP // [KOBOLDCPP PIPELINE]
                 </h2>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/70 border border-emerald-600/40 text-emerald-300">
-                  QUINN 3.7
+                  GHOST ENGINE
                 </span>
               </div>
               <p className="text-xs text-[#8288AA]">
@@ -189,7 +189,7 @@ export const AiMixStepModal: React.FC<AiMixStepModalProps> = ({
                 <div className="text-[10px] text-[#6A7194] uppercase">Inference Engine</div>
                 <div className="text-white font-bold text-xs flex items-center gap-1.5 mt-0.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>KoboldCpp // Quinn 3.7</span>
+                  <span>{(koboldSettings.engine || 'koboldcpp').toUpperCase()} // GHOST DSP</span>
                 </div>
               </div>
               <span className="text-[10px] px-2 py-1 rounded bg-[#161B2E] border border-[#262E4C] text-cyan-300">

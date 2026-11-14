@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { midiLearnService } from '../services/midiLearnService';
 
 interface KnobProps {
   label: string;
@@ -7,12 +8,41 @@ interface KnobProps {
   max?: number;
   onChange: (val: number) => void;
   color?: string;
+  midiId?: string;
+  midiLabel?: string;
+  midiType?: 'knob' | 'pan';
+  midiTrackId?: string;
+  midiTrackName?: string;
 }
 
-const Knob: React.FC<KnobProps> = ({ label, value, min = 0, max = 1, onChange, color = '#FFD700' }) => {
+const Knob: React.FC<KnobProps> = ({
+  label,
+  value,
+  min = 0,
+  max = 1,
+  onChange,
+  color = '#FFD700',
+  midiId,
+  midiLabel,
+  midiType = 'knob',
+  midiTrackId,
+  midiTrackName
+}) => {
   const [isDragging, setIsDragging] = useState(false);
   const startY = useRef<number>(0);
   const startVal = useRef<number>(0);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  const resolvedMidiId =
+    midiId || `knob-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
+
+  useEffect(() => {
+    if (midiType === 'pan') return;
+    return midiLearnService.registerControl(resolvedMidiId, (mappedVal) => {
+      onChangeRef.current(Number(mappedVal.toFixed(3)));
+    });
+  }, [resolvedMidiId, midiType]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true);
@@ -52,7 +82,17 @@ const Knob: React.FC<KnobProps> = ({ label, value, min = 0, max = 1, onChange, c
   const rotation = -145 + (percentage * 290);
 
   return (
-    <div className="flex flex-col items-center select-none group">
+    <div
+      className="flex flex-col items-center select-none group"
+      data-midi-control="knob"
+      data-midi-id={resolvedMidiId}
+      data-midi-label={midiLabel || `${label} Knob`}
+      data-midi-type={midiType}
+      data-midi-min={min}
+      data-midi-max={max}
+      data-midi-track-id={midiTrackId}
+      data-midi-track-name={midiTrackName}
+    >
       <div 
         className="relative w-12 h-12 rounded-full border-2 border-[#333] bg-[#1E1E1E] cursor-ns-resize hover:border-[#555] transition-colors"
         onMouseDown={handleMouseDown}

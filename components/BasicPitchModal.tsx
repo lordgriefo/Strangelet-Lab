@@ -23,7 +23,8 @@ import {
   ArrowRight,
   ChevronRight,
   Activity,
-  Keyboard
+  Keyboard,
+  RefreshCw
 } from 'lucide-react';
 import { 
   Track, 
@@ -41,7 +42,13 @@ import {
   MultiStemTranscriptionItem,
   basicPitchSynth, 
   midiToNoteName, 
-  midiToFreq 
+  midiToFreq,
+  createStandardMidiFile,
+  requestWebMidiOutputPorts,
+  subscribeWebMidiPortChanges,
+  sendWebMidiNote,
+  sendWebMidiAllNotesOff,
+  WebMidiOutputPortInfo
 } from '../services/basicPitchService';
 import { playLaserBeamSound, playColliderInjectionSound } from '../lib/laserSound';
 import { MidiEditor } from './MidiEditor';
@@ -108,14 +115,66 @@ export const BasicPitchModal: React.FC<BasicPitchModalProps> = ({
   const [activeAuditionNote, setActiveAuditionNote] = useState<number | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
+  // Live Web MIDI Output State
+  const [midiOutPorts, setMidiOutPorts] = useState<WebMidiOutputPortInfo[]>([]);
+  const [midiOutSupported, setMidiOutSupported] = useState<boolean>(true);
+  const [selectedMidiOutId, setSelectedMidiOutId] = useState<string>('');
+  const [midiOutChannel, setMidiOutChannel] = useState<number>(initialStemCategory === 'drums' ? 10 : 1);
+  const [isRefreshingMidiOut, setIsRefreshingMidiOut] = useState<boolean>(false);
+  const [midiOutError, setMidiOutError] = useState<string | null>(null);
+
   const stopSequenceRef = useRef<(() => void) | null>(null);
   const playheadIntervalRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const selectedMidiOutRef = useRef<{ portId: string; channel: number }>({ portId: '', channel: 1 });
+
+  selectedMidiOutRef.current = { portId: selectedMidiOutId, channel: midiOutChannel };
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(null), 3500);
   };
+
+  const refreshMidiOutputPorts = async (showNotice = false) => {
+    setIsRefreshingMidiOut(true);
+    const res = await requestWebMidiOutputPorts();
+    setMidiOutSupported(res.supported);
+    setMidiOutPorts(res.ports);
+    setMidiOutError(res.error || null);
+    setSelectedMidiOutId(prev => (prev && !res.ports.some(p => p.id === prev) ? '' : prev));
+    setIsRefreshingMidiOut(false);
+    if (showNotice) {
+      if (res.error) {
+        showToast(res.error);
+      } else if (res.ports.length === 0) {
+        showToast('No external/virtual MIDI ports found. Start loopMIDI or IAC Driver and click Refresh.');
+      } else {
+        showToast(`Detected ${res.ports.length} Live Web MIDI Output port${res.ports.length === 1 ? '' : 's'}.`);
+      }
+    }
+  };
+
+  // Discover Web MIDI outputs and subscribe to hot-plug port changes
+  useEffect(() => {
+    let unsubscribe = () => {};
+    refreshMidiOutputPorts(false).then(() => {
+      unsubscribe = subscribeWebMidiPortChanges(() => {
+        refreshMidiOutputPorts(false);
+      });
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // Automatically align channel 10 for GM drums
+  useEffect(() => {
+    if (selectedStem === 'drums' || selectedInstrument.toLowerCase().includes('drum')) {
+      setMidiOutChannel(10);
+    } else if (midiOutChannel === 10) {
+      setMidiOutChannel(1);
+    }
+  }, [selectedStem, selectedInstrument]);
 
   // Run transcription automatically on mount or when stem changes
   useEffect(() => {
@@ -127,6 +186,9 @@ export const BasicPitchModal: React.FC<BasicPitchModalProps> = ({
     return () => {
       if (stopSequenceRef.current) stopSequenceRef.current();
       if (playheadIntervalRef.current) clearInterval(playheadIntervalRef.current);
+      if (selectedMidiOutRef.current.portId) {
+        sendWebMidiAllNotesOff(selectedMidiOutRef.current.portId, selectedMidiOutRef.current.channel);
+      }
     };
   }, []);
 
@@ -169,6 +231,9 @@ export const BasicPitchModal: React.FC<BasicPitchModalProps> = ({
         clearInterval(playheadIntervalRef.current);
         playheadIntervalRef.current = null;
       }
+      if (selectedMidiOutId) {
+        sendWebMidiAllNotesOff(selectedMidiOutId, midiOutChannel);
+      }
       setIsPlayingMidi(false);
       setPlayheadPosPercent(0);
       setActiveAuditionNote(null);
@@ -195,7 +260,12 @@ export const BasicPitchModal: React.FC<BasicPitchModalProps> = ({
       stopSequenceRef.current = basicPitchSynth.playSequence(
         transcriptionResult.notes,
         selectedInstrument,
-        selectedSong.bpm
+        selectedSong.bpm,
+        undefined,
+        undefined,
+        selectedMidiOutId
+          ? { outputPortId: selectedMidiOutId, channel: midiOutChannel }
+          : undefined
       );
     }
   };
@@ -203,6 +273,9 @@ export const BasicPitchModal: React.FC<BasicPitchModalProps> = ({
   const handleSingleNoteAudition = (pitch: number) => {
     setActiveAuditionNote(pitch);
     basicPitchSynth.playNote(pitch, selectedInstrument, 0.6, 95);
+    if (selectedMidiOutId) {
+      sendWebMidiNote(selectedMidiOutId, pitch, 95, 450, midiOutChannel);
+    }
     playLaserBeamSound('laser_select');
     setTimeout(() => setActiveAuditionNote(null), 400);
   };
@@ -313,14 +386,21 @@ export const BasicPitchModal: React.FC<BasicPitchModalProps> = ({
   };
 
   const handleDownloadMidiFile = () => {
-    if (!transcriptionResult?.midiDataUri) return;
+    if (!transcriptionResult || transcriptionResult.notes.length === 0) {
+      showToast('No MIDI notes available to export.');
+      return;
+    }
+    const raw = createStandardMidiFile(transcriptionResult.notes, selectedSong.bpm);
+    const blob = new Blob([raw], { type: 'audio/midi' });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = transcriptionResult.midiDataUri;
+    a.href = url;
     a.download = `${selectedSong.title.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${selectedStem}.mid`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    showToast(`Exported ${a.download} (Standard Type 0 MIDI)`);
+    URL.revokeObjectURL(url);
+    showToast(`Downloaded ${a.download} (${transcriptionResult.notes.length} notes, Standard Type 0 .MID)`);
     playLaserBeamSound('laser_curve');
   };
 
@@ -596,12 +676,91 @@ export const BasicPitchModal: React.FC<BasicPitchModalProps> = ({
 
                 <button
                   onClick={handleDownloadMidiFile}
-                  className="px-3 py-2 rounded-xl bg-[#11172A] border border-[#202C48] hover:border-cyan-400 text-cyan-300 text-xs font-bold flex items-center gap-1.5 transition-colors"
-                  title="Download standard .mid file for Ableton, FL Studio, Logic"
+                  disabled={!transcriptionResult || transcriptionResult.notes.length === 0}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 via-sky-500 to-emerald-400 hover:brightness-110 text-black text-xs font-extrabold flex items-center gap-1.5 shadow-[0_0_18px_rgba(6,182,212,0.35)] transition-all disabled:opacity-40 cursor-pointer"
+                  title="Download standard Type 0 .mid file for Ableton, FL Studio, Logic, or Reaper"
                 >
-                  <Download size={13} />
-                  <span>Export .MID</span>
+                  <Download size={14} />
+                  <span>Download .MID File</span>
                 </button>
+              </div>
+            </div>
+
+            {/* Live Web MIDI Output Bar */}
+            <div className="px-3.5 py-2.5 rounded-2xl bg-[#090D1A] border border-[#182138] flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-cyan-300">
+                  <Radio size={14} className={selectedMidiOutId ? 'text-emerald-400 animate-pulse' : 'text-cyan-400'} />
+                  <span>Live Web MIDI Output</span>
+                </div>
+                <select
+                  aria-label="Live Web MIDI Output"
+                  value={selectedMidiOutId}
+                  onChange={e => {
+                    const nextPort = e.target.value;
+                    if (selectedMidiOutId && selectedMidiOutId !== nextPort) {
+                      sendWebMidiAllNotesOff(selectedMidiOutId, midiOutChannel);
+                    }
+                    setSelectedMidiOutId(nextPort);
+                    const portObj = midiOutPorts.find(p => p.id === nextPort);
+                    if (portObj) {
+                      showToast(`Live Web MIDI Output routed to "${portObj.name}" (Ch ${midiOutChannel})`);
+                    } else {
+                      showToast('Routed to Internal WebAudio Synth Only');
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-[#11172A] border border-[#243252] hover:border-cyan-400/70 text-xs font-bold text-white focus:outline-none focus:border-cyan-400 min-w-[220px]"
+                >
+                  <option value="">Internal WebAudio Synth Only</option>
+                  {midiOutPorts.map(port => (
+                    <option key={port.id} value={port.id}>
+                      {port.name} ({port.manufacturer})
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  aria-label="MIDI Output Channel"
+                  value={midiOutChannel}
+                  onChange={e => setMidiOutChannel(parseInt(e.target.value, 10) || 1)}
+                  className="px-2.5 py-1.5 rounded-xl bg-[#11172A] border border-[#243252] text-xs font-bold text-cyan-200 focus:outline-none focus:border-cyan-400"
+                  title="Target MIDI Channel (1–16)"
+                >
+                  {Array.from({ length: 16 }).map((_, idx) => {
+                    const ch = idx + 1;
+                    return (
+                      <option key={ch} value={ch}>
+                        Ch {ch}{ch === 10 ? ' (GM Drums)' : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+
+                <button
+                  onClick={() => refreshMidiOutputPorts(true)}
+                  disabled={isRefreshingMidiOut}
+                  className="px-2.5 py-1.5 rounded-xl bg-[#11172A] border border-[#202C48] hover:border-cyan-400 text-[#A0AEC0] hover:text-cyan-300 text-[11px] font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  title="Scan for virtual MIDI ports (loopMIDI, IAC Driver) and hardware MIDI outputs"
+                >
+                  <RefreshCw size={12} className={isRefreshingMidiOut ? 'animate-spin text-cyan-400' : ''} />
+                  <span>Scan Ports</span>
+                </button>
+              </div>
+
+              <div className="text-[10px] flex items-center gap-2">
+                {selectedMidiOutId ? (
+                  <span className="px-2 py-1 rounded-lg bg-emerald-950/70 border border-emerald-500/40 text-emerald-300 font-bold">
+                    LIVE OUT: {midiOutPorts.find(p => p.id === selectedMidiOutId)?.name || 'Port Active'} • CH {midiOutChannel}
+                  </span>
+                ) : !midiOutSupported ? (
+                  <span className="text-amber-300/90">Web MIDI unavailable in this browser</span>
+                ) : midiOutError ? (
+                  <span className="text-amber-300/90">{midiOutError}</span>
+                ) : midiOutPorts.length === 0 ? (
+                  <span className="text-[#64748B]">No virtual/hardware MIDI ports detected (loopMIDI / IAC ready)</span>
+                ) : (
+                  <span className="text-cyan-300/80 font-bold">{midiOutPorts.length} MIDI port{midiOutPorts.length === 1 ? '' : 's'} ready</span>
+                )}
               </div>
             </div>
 

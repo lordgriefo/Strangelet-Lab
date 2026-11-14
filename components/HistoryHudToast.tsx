@@ -25,11 +25,12 @@ export const HistoryHudToast: React.FC = () => {
       });
     });
 
-    // Listen for auto-save
+    // Listen for auto-save and manual snapshot saves
     const unsubscribeAutoSave = projectAutoSave.subscribe((payload) => {
+      const label = payload.source === 'manual' ? 'Project snapshot saved' : 'Project auto-saved';
       setToast({
         id: `toast-${Date.now()}`,
-        message: `Project auto-saved to localStorage (${payload.trackCount} tracks, ${payload.tempo} BPM)`,
+        message: `${label} (${payload.trackCount} tracks, ${payload.tempo} BPM)`,
         type: 'save',
         timestamp: Date.now()
       });

@@ -434,7 +434,7 @@ export function convertPresetToChamberChips(preset: SonicPreset): ColliderChip[]
       label: tag,
       category: idx % 2 === 0 ? 'instrument' : 'production',
       sidebarGroup: idx % 2 === 0 ? 'beam_a' : 'beam_b',
-      color: idx % 2 === 0 ? 'text-purple-400 bg-purple-950/60 border-purple-500/50' : 'text-amber-400 bg-amber-950/60 border-amber-500/50',
+      color: idx % 2 === 0 ? '#A855F7' : '#F59E0B',
       description: `Sonic layer: ${tag}`,
       energyWeight: 0.75,
       tags: [tag]

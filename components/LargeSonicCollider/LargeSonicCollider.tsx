@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { 
   Zap, 
   Feather, 
@@ -17,23 +17,24 @@ import {
   X,
   ChevronRight,
   Disc,
-  Play,
   Activity,
   Save,
-  Sliders
+  Sliders,
+  Plus,
+  RotateCcw
 } from 'lucide-react';
 
-import { SonicSector } from './SonicSector';
-import { LyricLab } from './LyricLab';
-import { SongDeconstructor } from './SongDeconstructor';
-import { StrangeArchive } from './StrangeArchive';
-import { SunoMasteringStudio } from '../SunoMasteringStudio';
+const SonicSector = lazy(() => import('./SonicSector').then(m => ({ default: m.SonicSector })));
+const LyricLab = lazy(() => import('./LyricLab').then(m => ({ default: m.LyricLab })));
+const SongDeconstructor = lazy(() => import('./SongDeconstructor').then(m => ({ default: m.SongDeconstructor })));
+const StrangeArchive = lazy(() => import('./StrangeArchive').then(m => ({ default: m.StrangeArchive })));
+const SunoMasteringStudio = lazy(() => import('../SunoMasteringStudio').then(m => ({ default: m.SunoMasteringStudio })));
 import { ArchiveItem, ColliderChip, SavedCollision, PromptOutputResult, LyricLabOutput } from '../../types';
 import { INITIAL_ARCHIVE_ITEMS } from '../../lib/sonicColliderData';
 import { playLaserBeamSound, playColliderInjectionSound } from '../../lib/laserSound';
-import { SonicColliderD3Visualizer } from './SonicColliderD3Visualizer';
-import { SaveCollisionModal } from './SaveCollisionModal';
-import { SavedCollisionsModal } from './SavedCollisionsModal';
+const SonicColliderD3Visualizer = lazy(() => import('./SonicColliderD3Visualizer').then(m => ({ default: m.SonicColliderD3Visualizer })));
+const SaveCollisionModal = lazy(() => import('./SaveCollisionModal').then(m => ({ default: m.SaveCollisionModal })));
+const SavedCollisionsModal = lazy(() => import('./SavedCollisionsModal').then(m => ({ default: m.SavedCollisionsModal })));
 import { 
   calculatePhysicsConstants, 
   DEFAULT_SAVED_COLLISIONS 
@@ -53,24 +54,48 @@ export type ColliderTab = 'sonic' | 'lyrics' | 'deconstruct' | 'archive' | 'mast
 const STORAGE_KEY = 'strangelet_lab_archive';
 const SAVED_COLLISIONS_STORAGE_KEY = 'strangelet_lab_saved_collisions';
 
+export interface MatrixBeamRequest {
+  id: number;
+  preset: SonicPreset;
+  action: 'append' | 'replace';
+}
+
 export interface LargeSonicColliderProps {
   onOpenAiMixStep?: () => void;
   onOpenKoboldSettings?: () => void;
+  onSendPromptToAceStep?: (promptText: string, bpm?: number) => void;
+  onSendPromptToYue2?: (promptText: string, bpm?: number) => void;
 }
 
 export const LargeSonicCollider: React.FC<LargeSonicColliderProps> = ({
   onOpenAiMixStep,
-  onOpenKoboldSettings
+  onOpenKoboldSettings,
+  onSendPromptToAceStep,
+  onSendPromptToYue2
 }) => {
   const [activeTab, setActiveTab] = useState<ColliderTab>('sonic');
   
   // Preset Matrix State (services/sonicData.ts)
   const [presetMode, setPresetMode] = useState<SonicMode>('sonic');
-  const [selectedCategory, setSelectedCategory] = useState<string>('Suno Genre Templates');
-  const [selectedPresetId, setSelectedPresetId] = useState<string>('sonic-cyber-darkwave');
-  const [activeLoadedPreset, setActiveLoadedPreset] = useState<SonicPreset | null>(CURATED_SONIC_PRESETS[0]);
+  const [selectedCategory, setSelectedCategory] = useState<string>(() => {
+    const cats = getPresetCategories('sonic');
+    return cats[0] || 'Suno Instrument Stacks';
+  });
+  const [selectedPresetId, setSelectedPresetId] = useState<string>(() => {
+    const cats = getPresetCategories('sonic');
+    const firstCat = cats[0] || 'Suno Instrument Stacks';
+    const presets = getPresetsForCategory('sonic', firstCat);
+    return presets[0]?.id || '';
+  });
+  const [activeLoadedPreset, setActiveLoadedPreset] = useState<SonicPreset | null>(() => {
+    const cats = getPresetCategories('sonic');
+    const firstCat = cats[0] || 'Suno Instrument Stacks';
+    const presets = getPresetsForCategory('sonic', firstCat);
+    return presets[0] || CURATED_SONIC_PRESETS[0];
+  });
+  const [matrixBeamRequest, setMatrixBeamRequest] = useState<MatrixBeamRequest | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [showVisualizer, setShowVisualizer] = useState<boolean>(true);
+  const [showVisualizer, setShowVisualizer] = useState<boolean>(false);
 
   // Physics-based Collision Energy State (0.5 to 14.0 TeV)
   const [collisionEnergy, setCollisionEnergy] = useState<number>(8.4);
@@ -170,19 +195,31 @@ export const LargeSonicCollider: React.FC<LargeSonicColliderProps> = ({
     playLaserBeamSound('laser_select');
   };
 
-  // Apply chosen preset to active sector
-  const handleApplyPreset = () => {
+  // Beam or Replace chosen Matrix item into the active Collider sector
+  const handleBeamIntoCollider = (action: 'append' | 'replace' = 'append') => {
     const presets = getPresetsForCategory(presetMode, selectedCategory);
     const preset = presets.find(p => p.id === selectedPresetId) || presets[0];
     if (!preset) return;
 
     setActiveLoadedPreset(preset);
+    setMatrixBeamRequest({
+      id: Date.now(),
+      preset,
+      action
+    });
     switchTab(preset.mode);
     playColliderInjectionSound();
 
-    const destName = preset.mode === 'sonic' ? 'Sonic Sector Particle Chamber' : 'Lyric Lab Concept Vectors';
-    setToastMessage(`⚡ Loaded "${preset.name}" into ${destName}!`);
-    setTimeout(() => setToastMessage(null), 3500);
+    if (preset.mode === 'sonic') {
+      setToastMessage(
+        action === 'append'
+          ? `⚡ Beamed "${preset.name}" into Collider Chamber! Stack more styles or click COLLIDE.`
+          : `⚡ Replaced Collider Chamber with "${preset.name}". Add more styles or click COLLIDE.`
+      );
+    } else {
+      setToastMessage(`⚡ Loaded "${preset.name}" into Lyric Lab Concept Vectors!`);
+    }
+    setTimeout(() => setToastMessage(null), 4000);
   };
 
   // Pick random preset
@@ -191,11 +228,16 @@ export const LargeSonicCollider: React.FC<LargeSonicColliderProps> = ({
     setSelectedCategory(randomPreset.category);
     setSelectedPresetId(randomPreset.id);
     setActiveLoadedPreset(randomPreset);
+    setMatrixBeamRequest({
+      id: Date.now(),
+      preset: randomPreset,
+      action: 'replace'
+    });
     switchTab(randomPreset.mode);
     playLaserBeamSound('laser_midi');
 
-    const destName = randomPreset.mode === 'sonic' ? 'Sonic Sector Particle Chamber' : 'Lyric Lab Concept Vectors';
-    setToastMessage(`✨ Randomized: "${randomPreset.name}" loaded into ${destName}!`);
+    const destName = randomPreset.mode === 'sonic' ? 'Sonic Sector Chamber' : 'Lyric Lab Concept Vectors';
+    setToastMessage(`✨ Randomized: "${randomPreset.name}" beamed into ${destName}!`);
     setTimeout(() => setToastMessage(null), 3500);
   };
 
@@ -318,113 +360,108 @@ export const LargeSonicCollider: React.FC<LargeSonicColliderProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-[#0E1017] text-white overflow-hidden select-none">
-      {/* LSC Sub-Navigation Bar: Core Sectors */}
-      <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 px-6 py-3 border-b border-[#202438] bg-[#121420]">
-        <div className="flex items-center gap-3">
+      {/* LSC Sub-Navigation Bar: Compact Core Sectors */}
+      <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-2 px-4 py-1.5 border-b border-[#202438] bg-[#121420]">
+        <div className="flex items-center gap-2.5">
           <div className="relative flex items-center justify-center">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500/20 via-purple-500/20 to-amber-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.25)]">
-              <Orbit className="w-5 h-5 animate-[spin_12s_linear_infinite]" />
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-cyan-500/20 via-purple-500/20 to-amber-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.2)]">
+              <Orbit className="w-4 h-4 animate-[spin_12s_linear_infinite]" />
             </div>
-            <span className="absolute -bottom-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-[#121420]" />
+            <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#121420]" />
           </div>
 
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-base font-bold tracking-wider text-white uppercase">
-                LARGE SONIC COLLIDER <span className="text-cyan-400 font-mono text-xs">// [LSC-27KM]</span>
-              </h1>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30">
-                PROMPT PHYSICS & SACRED GEOMETRY
-              </span>
-            </div>
-            <p className="text-xs text-[#8E92B0]">
-              Modular quantum sound accelerator, cut-up lyric laboratory, song reverse engineer, and Strangelet archive vault.
-            </p>
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-bold tracking-wider text-white uppercase">
+              LARGE SONIC COLLIDER <span className="text-cyan-400 font-mono text-[11px]">// [LSC-27KM]</span>
+            </h1>
+            <span className="hidden xl:inline text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30">
+              PROMPT PHYSICS &amp; SACRED GEOMETRY
+            </span>
           </div>
         </div>
 
         {/* The Sector Tabs */}
-        <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[#090B12] border border-[#23273D]">
+        <div className="flex items-center gap-1 p-0.5 rounded-lg bg-[#090B12] border border-[#23273D]">
           <button
             onClick={() => switchTab('sonic')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all ${
+            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1.5 transition-all ${
               activeTab === 'sonic'
-                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-[0_0_12px_rgba(6,182,212,0.3)]'
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-[0_0_10px_rgba(6,182,212,0.3)]'
                 : 'text-[#7B82A6] hover:text-white hover:bg-[#161928]'
             }`}
           >
-            <Zap className="w-3.5 h-3.5 text-cyan-300" />
+            <Zap className="w-3 h-3 text-cyan-300" />
             <span>1. Sonic Sector</span>
           </button>
 
           <button
             onClick={() => switchTab('lyrics')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all ${
+            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1.5 transition-all ${
               activeTab === 'lyrics'
-                ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-[0_0_12px_rgba(168,85,247,0.3)]'
+                ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-[0_0_10px_rgba(168,85,247,0.3)]'
                 : 'text-[#7B82A6] hover:text-white hover:bg-[#161928]'
             }`}
           >
-            <Feather className="w-3.5 h-3.5 text-purple-300" />
+            <Feather className="w-3 h-3 text-purple-300" />
             <span>2. Lyric Lab</span>
           </button>
 
           <button
             onClick={() => switchTab('deconstruct')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all ${
+            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1.5 transition-all ${
               activeTab === 'deconstruct'
-                ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-[0_0_12px_rgba(245,158,11,0.3)]'
+                ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-[0_0_10px_rgba(245,158,11,0.3)]'
                 : 'text-[#7B82A6] hover:text-white hover:bg-[#161928]'
             }`}
           >
-            <Binary className="w-3.5 h-3.5 text-amber-300" />
-            <span>3. Song Deconstructor</span>
+            <Binary className="w-3 h-3 text-amber-300" />
+            <span>3. Deconstructor</span>
           </button>
 
           <button
             onClick={() => switchTab('archive')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all ${
+            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1.5 transition-all ${
               activeTab === 'archive'
-                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-[0_0_10px_rgba(16,185,129,0.3)]'
                 : 'text-[#7B82A6] hover:text-white hover:bg-[#161928]'
             }`}
           >
-            <Archive className="w-3.5 h-3.5 text-emerald-300" />
-            <span>4. Strange Archive</span>
-            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-black/40 text-emerald-300 border border-emerald-500/30">
+            <Archive className="w-3 h-3 text-emerald-300" />
+            <span>4. Archive</span>
+            <span className="text-[9px] font-mono px-1 rounded-full bg-black/40 text-emerald-300 border border-emerald-500/30">
               {archiveItems.length}
             </span>
           </button>
 
           <button
             onClick={() => switchTab('mastering')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all ${
+            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1.5 transition-all ${
               activeTab === 'mastering'
-                ? 'bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-[0_0_12px_rgba(244,63,94,0.3)]'
+                ? 'bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-[0_0_10px_rgba(244,63,94,0.3)]'
                 : 'text-[#7B82A6] hover:text-white hover:bg-[#161928]'
             }`}
           >
-            <Sparkles className="w-3.5 h-3.5 text-rose-300" />
-            <span>5. Anti-Sheen Mastering</span>
+            <Sparkles className="w-3 h-3 text-rose-300" />
+            <span>5. Mastering</span>
           </button>
         </div>
       </div>
 
-      {/* Preset Selector Matrix & Collision Energy Control Bar */}
-      <div className="flex-shrink-0 bg-[#0A0C14] border-b border-[#1C2033] px-6 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-inner">
+      {/* Preset Selector Matrix & Collision Energy Control Bar (Compact Single-Line Priority) */}
+      <div className="flex-shrink-0 bg-[#0A0C14] border-b border-[#1C2033] px-4 py-1.5 flex flex-wrap items-center justify-between gap-2 shadow-inner">
         {/* Mode Toggle & Category/Preset */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-1.5 text-xs font-mono text-[#8288A8]">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1 text-[11px] font-mono text-[#8288A8]">
             <SlidersHorizontal className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="font-bold tracking-wider uppercase text-white hidden sm:inline">MATRIX</span>
+            <span className="font-bold tracking-wider uppercase text-white hidden xl:inline">MATRIX</span>
           </div>
 
-          <div className="flex items-center p-0.5 rounded-lg bg-[#141724] border border-[#242940]">
+          <div className="flex items-center p-0.5 rounded-md bg-[#141724] border border-[#242940]">
             <button
               onClick={() => handleToggleMode('sonic')}
-              className={`px-3 py-1 rounded-md text-xs font-mono font-medium flex items-center gap-1.5 transition-all ${
+              className={`px-2 py-0.5 rounded text-[11px] font-mono font-medium flex items-center gap-1 transition-all ${
                 presetMode === 'sonic'
-                  ? 'bg-cyan-600 text-white shadow-[0_0_12px_rgba(6,182,212,0.4)] font-bold'
+                  ? 'bg-cyan-600 text-white shadow-[0_0_10px_rgba(6,182,212,0.35)] font-bold'
                   : 'text-[#7A809E] hover:text-white'
               }`}
               title="Switch to Sonic Sector presets"
@@ -435,9 +472,9 @@ export const LargeSonicCollider: React.FC<LargeSonicColliderProps> = ({
 
             <button
               onClick={() => handleToggleMode('lyrics')}
-              className={`px-3 py-1 rounded-md text-xs font-mono font-medium flex items-center gap-1.5 transition-all ${
+              className={`px-2 py-0.5 rounded text-[11px] font-mono font-medium flex items-center gap-1 transition-all ${
                 presetMode === 'lyrics'
-                  ? 'bg-purple-600 text-white shadow-[0_0_12px_rgba(168,85,247,0.4)] font-bold'
+                  ? 'bg-purple-600 text-white shadow-[0_0_10px_rgba(168,85,247,0.35)] font-bold'
                   : 'text-[#7A809E] hover:text-white'
               }`}
               title="Switch to Lyric Lab presets"
@@ -448,12 +485,12 @@ export const LargeSonicCollider: React.FC<LargeSonicColliderProps> = ({
           </div>
 
           {/* Category Dropdown */}
-          <div className="min-w-[150px]">
+          <div className="w-[140px] lg:w-[165px]">
             <select
               value={selectedCategory}
               onChange={e => handleCategoryChange(e.target.value)}
-              className="w-full px-2.5 py-1.5 bg-[#121522] border border-[#262B44] rounded-lg text-xs font-mono text-white focus:outline-none focus:border-cyan-500/60 cursor-pointer truncate"
-              title="Preset Category from sonicData.ts"
+              className="w-full px-2 py-1 bg-[#121522] border border-[#262B44] rounded-md text-[11px] font-mono text-white focus:outline-none focus:border-cyan-500/60 cursor-pointer truncate"
+              title="1. Choose a musical category (e.g. Metal, Instruments, Suno Instrument Stacks)"
             >
               {categoriesForMode.map(cat => (
                 <option key={cat} value={cat} className="bg-[#121420] text-white">
@@ -463,15 +500,15 @@ export const LargeSonicCollider: React.FC<LargeSonicColliderProps> = ({
             </select>
           </div>
 
-          {/* Preset / Module Dropdown */}
-          <div className="min-w-[170px]">
+          {/* Preset / Style / Instrument Dropdown */}
+          <div className="w-[155px] lg:w-[185px]">
             <select
               value={selectedPresetId}
               onChange={e => setSelectedPresetId(e.target.value)}
-              className={`w-full px-2.5 py-1.5 bg-[#121522] border border-[#262B44] rounded-lg text-xs font-mono focus:outline-none cursor-pointer truncate ${
+              className={`w-full px-2 py-1 bg-[#121522] border border-[#262B44] rounded-md text-[11px] font-mono focus:outline-none cursor-pointer truncate ${
                 presetMode === 'sonic' ? 'text-cyan-200 focus:border-cyan-500/60' : 'text-purple-200 focus:border-purple-500/60'
               }`}
-              title="Select specific preset or configuration"
+              title="2. Choose a specific style, subgenre, sound, or instrument to beam into the Collider"
             >
               {presetsForCategory.map(preset => (
                 <option key={preset.id} value={preset.id} className="bg-[#121420] text-white">
@@ -480,16 +517,43 @@ export const LargeSonicCollider: React.FC<LargeSonicColliderProps> = ({
               ))}
             </select>
           </div>
+
+          {/* Direct Action Buttons right beside the Matrix dropdowns */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => handleBeamIntoCollider('append')}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-bold flex items-center gap-1 transition-all shadow-md active:scale-95 ${
+                presetMode === 'sonic'
+                  ? 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-[0_0_12px_rgba(6,182,212,0.3)]'
+                  : 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white shadow-[0_0_12px_rgba(168,85,247,0.3)]'
+              }`}
+              title={
+                presetMode === 'sonic'
+                  ? 'Add this selected style, sound, or instrument into the Collider Chamber without erasing what is already there'
+                  : 'Load this lyrical style preset into the Lyric Lab'
+              }
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{presetMode === 'sonic' ? 'Beam into Collider' : 'Load Concept'}</span>
+            </button>
+
+            {presetMode === 'sonic' && (
+              <button
+                onClick={() => handleBeamIntoCollider('replace')}
+                className="px-2 py-1 rounded-md bg-[#141828] hover:bg-[#1E243B] text-[#8E95B8] hover:text-cyan-200 border border-[#262B44] text-[11px] font-mono flex items-center gap-1 transition-colors"
+                title="Clear the current chamber and load ONLY this selected item"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span className="hidden 2xl:inline">Replace</span>
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Physics-Based Collision Energy Slider with Constant Indicators */}
-        <div className="flex items-center gap-3 p-1.5 rounded-xl bg-[#0E121E] border border-[#222942] flex-wrap">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5 text-amber-400" />
-              <span>Collision Energy:</span>
-            </span>
-
+        {/* Compact Energy & Actions Cluster */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-[#0E121E] border border-[#222942]">
+            <Activity className="w-3 h-3 text-amber-400" />
             <input
               type="range"
               min="0.5"
@@ -497,139 +561,101 @@ export const LargeSonicCollider: React.FC<LargeSonicColliderProps> = ({
               step="0.1"
               value={collisionEnergy}
               onChange={e => setCollisionEnergy(parseFloat(e.target.value))}
-              className={`w-24 md:w-32 h-1.5 rounded cursor-pointer ${
+              className={`w-16 md:w-20 h-1 rounded cursor-pointer ${
                 presetMode === 'sonic' ? 'accent-cyan-400 bg-[#162740]' : 'accent-purple-400 bg-[#301640]'
               }`}
-              title={`Hadron Collision Energy: ${collisionEnergy.toFixed(1)} TeV`}
+              title={`Hadron Collision Energy: ${collisionEnergy.toFixed(1)} TeV (M: ×${physics.massConstant}m₀, V: ×${physics.velocityConstant}c, G: ×${physics.gravityConstant}G₀)`}
             />
-
-            <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold border ${
+            <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${
               presetMode === 'sonic' 
-                ? 'bg-cyan-950 text-cyan-300 border-cyan-500/40 shadow-[0_0_10px_rgba(6,182,212,0.25)]' 
-                : 'bg-purple-950 text-purple-300 border-purple-500/40 shadow-[0_0_10px_rgba(168,85,247,0.25)]'
+                ? 'bg-cyan-950 text-cyan-300 border-cyan-500/40' 
+                : 'bg-purple-950 text-purple-300 border-purple-500/40'
             }`}>
-              ⚡ {collisionEnergy.toFixed(1)} TeV
+              ⚡{collisionEnergy.toFixed(1)}T
             </span>
           </div>
 
-          {/* Quick Energy Step Pills */}
-          <div className="hidden xl:flex items-center gap-1 text-[10px] font-mono">
-            {[3.5, 7.0, 10.5, 14.0].map(val => (
-              <button
-                key={val}
-                onClick={() => setCollisionEnergy(val)}
-                className={`px-1.5 py-0.5 rounded border transition-colors ${
-                  Math.abs(collisionEnergy - val) < 0.2
-                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 font-bold'
-                    : 'bg-[#151928] text-[#71789A] border-[#22273F] hover:text-white'
-                }`}
-                title={`Set collision beam energy to ${val} TeV`}
-              >
-                {val === 14.0 ? '14T MAX' : `${val}T`}
-              </button>
-            ))}
-          </div>
-
-          {/* Micro Physics Constants Badges */}
-          <div className="hidden lg:flex items-center gap-1.5 text-[10px] font-mono text-[#7D84A6] pl-2 border-l border-[#1F253C]">
-            <span>M: <strong className="text-amber-400">×{physics.massConstant}m₀</strong></span>
-            <span>V: <strong className="text-cyan-400">×{physics.velocityConstant}c</strong></span>
-            <span>G: <strong className="text-purple-400">×{physics.gravityConstant}G₀</strong></span>
-          </div>
-        </div>
-
-        {/* Right: Collision Saving, Saved Library, and Reactor Visualizer Toggles */}
-        <div className="flex items-center gap-2">
-          {/* Save Collision Button */}
           <button
             onClick={() => handleOpenSaveCollisionModal()}
-            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-all shadow-md active:scale-95 text-white ${
+            className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-bold flex items-center gap-1 transition-all shadow-sm active:scale-95 text-white ${
               presetMode === 'sonic'
-                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 shadow-[0_0_12px_rgba(6,182,212,0.3)]'
-                : 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 shadow-[0_0_12px_rgba(168,85,247,0.3)]'
+                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500'
+                : 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500'
             }`}
             title="Save current collision parameters, energy, and chamber particles into your collider library"
           >
-            <Save className="w-3.5 h-3.5" />
-            <span>Save Collision</span>
+            <Save className="w-3 h-3" />
+            <span>Save</span>
           </button>
 
-          {/* Saved Collisions Library */}
           <button
             onClick={() => setShowSavedCollisionsModal(true)}
-            className="px-3 py-1.5 rounded-lg bg-[#141829] hover:bg-[#1E2338] text-amber-300 hover:text-white border border-[#282F4E] text-xs font-mono flex items-center gap-1.5 transition-colors shadow-sm"
+            className="px-2 py-1 rounded-md bg-[#141829] hover:bg-[#1E2338] text-amber-300 hover:text-white border border-[#282F4E] text-[11px] font-mono flex items-center gap-1 transition-colors"
             title="View, search, and restore saved collisions"
           >
-            <Archive className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline">Saved</span>
-            <span className="px-1.5 py-0.2 rounded-full bg-black/50 text-[10px] text-amber-300 border border-amber-500/30">
+            <Archive className="w-3 h-3 text-amber-400" />
+            <span className="px-1 rounded-full bg-black/50 text-[10px] text-amber-300 border border-amber-500/30">
               {savedCollisions.length}
             </span>
           </button>
 
-          {/* Incorporate AI Mix Step Trigger */}
           {onOpenAiMixStep && (
             <button
               onClick={onOpenAiMixStep}
-              className="px-3 py-1.5 rounded-lg bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/50 text-cyan-300 text-xs font-mono font-bold flex items-center gap-1.5 transition-colors shadow-sm"
-              title="Incorporate an AI Step into the Mix via KoboldCpp / Quinn 3.7"
+              className="px-2 py-1 rounded-md bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/50 text-cyan-300 text-[11px] font-mono font-bold flex items-center gap-1 transition-colors"
+              title="Incorporate an AI Step into the Mix via Ghost in the Machine"
             >
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden xl:inline">AI Mix Step</span>
+              <Zap className="w-3 h-3 text-amber-400" />
+              <span className="hidden 2xl:inline">AI Mix</span>
             </button>
           )}
 
           <button
             onClick={handleRandomPreset}
-            className="px-2.5 py-1.5 rounded-lg bg-[#141826] hover:bg-[#1E2338] text-purple-300 hover:text-white border border-[#262B44] text-xs font-mono flex items-center gap-1.5 transition-colors"
+            className="px-2 py-1 rounded-md bg-[#141826] hover:bg-[#1E2338] text-purple-300 hover:text-white border border-[#262B44] text-[11px] font-mono flex items-center gap-1 transition-colors"
             title="Pick a random preset from this category"
           >
-            <Wand2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Random</span>
+            <Wand2 className="w-3 h-3" />
+            <span className="hidden xl:inline">Random</span>
           </button>
 
           <button
             onClick={() => setShowVisualizer(prev => !prev)}
-            className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono flex items-center gap-1.5 transition-all ${
+            className={`px-2 py-1 rounded-md border text-[11px] font-mono flex items-center gap-1 transition-all ${
               showVisualizer
                 ? presetMode === 'sonic'
                   ? 'bg-cyan-950/70 border-cyan-500/50 text-cyan-300 shadow-[0_0_8px_rgba(6,182,212,0.25)]'
                   : 'bg-purple-950/70 border-purple-500/50 text-purple-300 shadow-[0_0_8px_rgba(168,85,247,0.25)]'
                 : 'bg-[#141826] hover:bg-[#1E2338] text-[#8E92B0] hover:text-white border-[#262B44]'
             }`}
-            title="Toggle Dynamic D3.js Reactor Visualization Panel"
+            title="Toggle Extra D3.js Reactor Visualization Strip above the chamber"
           >
-            <Activity className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Reactor Visualizer</span>
-          </button>
-
-          <button
-            onClick={handleApplyPreset}
-            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-all shadow-md active:scale-95 ${
-              presetMode === 'sonic'
-                ? 'bg-[#152338] hover:bg-[#1D3250] text-cyan-300 border border-cyan-500/50'
-                : 'bg-[#281538] hover:bg-[#391D50] text-purple-300 border border-purple-500/50'
-            }`}
-            title="Load this preset into the active collider sector"
-          >
-            <Play className="w-3 h-3 fill-current" />
-            <span>Load Preset</span>
+            <Activity className="w-3 h-3" />
+            <span className="hidden lg:inline">Reactor</span>
           </button>
         </div>
       </div>
 
       {/* Dynamic D3.js Visualization Panel: Particle Physics (Sonic) vs Geometric Flow (Lyrics) */}
       {showVisualizer && (
-        <SonicColliderD3Visualizer
-          mode={presetMode}
-          category={selectedCategory}
-          preset={activeLoadedPreset}
-          collisionEnergy={collisionEnergy}
-          onChangeCollisionEnergy={setCollisionEnergy}
-          onOpenSaveCollision={() => handleOpenSaveCollisionModal()}
-          savedCollisionsCount={savedCollisions.length}
-          onOpenSavedCollisions={() => setShowSavedCollisionsModal(true)}
-        />
+        <Suspense
+          fallback={
+            <div className="h-44 flex items-center justify-center bg-[#060914] border-b border-[#1D233A] text-xs font-mono text-cyan-400/70">
+              Initializing D3 Reactor Visualizer...
+            </div>
+          }
+        >
+          <SonicColliderD3Visualizer
+            mode={presetMode}
+            category={selectedCategory}
+            preset={activeLoadedPreset}
+            collisionEnergy={collisionEnergy}
+            onChangeCollisionEnergy={setCollisionEnergy}
+            onOpenSaveCollision={() => handleOpenSaveCollisionModal()}
+            savedCollisionsCount={savedCollisions.length}
+            onOpenSavedCollisions={() => setShowSavedCollisionsModal(true)}
+          />
+        </Suspense>
       )}
 
       {/* Toast Notification Ribbon */}
@@ -646,84 +672,100 @@ export const LargeSonicCollider: React.FC<LargeSonicColliderProps> = ({
       )}
 
       {/* Active Tab Viewport */}
-      <div className="flex-1 p-4 lg:p-6 overflow-hidden min-h-0">
-        {activeTab === 'sonic' && (
-          <SonicSector
-            onSaveToArchive={handleSaveToArchive}
-            onOpenArchive={() => switchTab('archive')}
-            activePreset={activeLoadedPreset?.mode === 'sonic' ? activeLoadedPreset : null}
-            onClearActivePreset={() => setActiveLoadedPreset(null)}
-            collisionEnergy={collisionEnergy}
-            externalChips={restoredChamberChips}
-            onSaveCollisionClick={(chips, res) => handleOpenSaveCollisionModal(chips, res)}
-            onOpenSavedCollisions={() => setShowSavedCollisionsModal(true)}
-          />
-        )}
+      <div className="flex-1 p-2 lg:p-3 overflow-hidden min-h-0">
+        <Suspense
+          fallback={
+            <div className="h-full flex items-center justify-center bg-[#070A12] rounded-xl border border-[#1B2238] text-xs font-mono text-[#94A3B8]">
+              Loading Collider Sector...
+            </div>
+          }
+        >
+          {activeTab === 'sonic' && (
+            <SonicSector
+              onSaveToArchive={handleSaveToArchive}
+              onOpenArchive={() => switchTab('archive')}
+              beamRequest={matrixBeamRequest}
+              onClearActivePreset={() => setActiveLoadedPreset(null)}
+              collisionEnergy={collisionEnergy}
+              externalChips={restoredChamberChips}
+              onSaveCollisionClick={(chips, res) => handleOpenSaveCollisionModal(chips, res)}
+              onOpenSavedCollisions={() => setShowSavedCollisionsModal(true)}
+              onSendPromptToAceStep={onSendPromptToAceStep}
+              onSendPromptToYue2={onSendPromptToYue2}
+              onOpenKoboldSettings={onOpenKoboldSettings}
+            />
+          )}
 
-        {activeTab === 'lyrics' && (
-          <LyricLab
-            onSaveToArchive={handleSaveToArchive}
-            onOpenArchive={() => switchTab('archive')}
-            activePreset={activeLoadedPreset?.mode === 'lyrics' ? activeLoadedPreset : null}
-            onClearActivePreset={() => setActiveLoadedPreset(null)}
-            collisionEnergy={collisionEnergy}
-            externalThemeA={restoredThemeA || undefined}
-            externalThemeB={restoredThemeB || undefined}
-            onSaveCollisionClick={(tA, tB, res) => handleOpenSaveCollisionModal(undefined, undefined, tA, tB, res)}
-            onOpenSavedCollisions={() => setShowSavedCollisionsModal(true)}
-          />
-        )}
+          {activeTab === 'lyrics' && (
+            <LyricLab
+              onSaveToArchive={handleSaveToArchive}
+              onOpenArchive={() => switchTab('archive')}
+              activePreset={activeLoadedPreset?.mode === 'lyrics' ? activeLoadedPreset : null}
+              onClearActivePreset={() => setActiveLoadedPreset(null)}
+              collisionEnergy={collisionEnergy}
+              externalThemeA={restoredThemeA || undefined}
+              externalThemeB={restoredThemeB || undefined}
+              onSaveCollisionClick={(tA, tB, res) => handleOpenSaveCollisionModal(undefined, undefined, tA, tB, res)}
+              onOpenSavedCollisions={() => setShowSavedCollisionsModal(true)}
+            />
+          )}
 
-        {activeTab === 'deconstruct' && (
-          <SongDeconstructor
-            onSaveToArchive={handleSaveToArchive}
-            onOpenArchive={() => switchTab('archive')}
-            onLoadIntoChamber={() => switchTab('sonic')}
-          />
-        )}
+          {activeTab === 'deconstruct' && (
+            <SongDeconstructor
+              onSaveToArchive={handleSaveToArchive}
+              onOpenArchive={() => switchTab('archive')}
+              onLoadIntoChamber={() => switchTab('sonic')}
+            />
+          )}
 
-        {activeTab === 'archive' && (
-          <StrangeArchive
-            items={archiveItems}
-            onDeleteItem={handleDeleteArchiveItem}
-            onToggleStar={handleToggleStar}
-            onRestoreToChamber={handleRestoreToChamber}
-            onSelectTab={switchTab}
-            onImportItems={handleImportItems}
-          />
-        )}
+          {activeTab === 'archive' && (
+            <StrangeArchive
+              items={archiveItems}
+              onDeleteItem={handleDeleteArchiveItem}
+              onToggleStar={handleToggleStar}
+              onRestoreToChamber={handleRestoreToChamber}
+              onSelectTab={switchTab}
+              onImportItems={handleImportItems}
+            />
+          )}
 
-        {activeTab === 'mastering' && (
-          <SunoMasteringStudio />
-        )}
+          {activeTab === 'mastering' && (
+            <SunoMasteringStudio />
+          )}
+        </Suspense>
       </div>
 
-      {/* Save Collision Modal */}
-      <SaveCollisionModal
-        isOpen={showSaveCollisionModal}
-        onClose={() => setShowSaveCollisionModal(false)}
-        onSave={handleSaveCollision}
-        mode={presetMode}
-        collisionEnergy={collisionEnergy}
-        category={selectedCategory}
-        presetId={selectedPresetId}
-        presetName={activeLoadedPreset?.name}
-        chips={saveModalData.chips}
-        themeA={saveModalData.themeA}
-        themeB={saveModalData.themeB}
-        promptResult={saveModalData.promptResult}
-        lyricResult={saveModalData.lyricResult}
-      />
+      {/* Save & Saved Collisions Modals */}
+      <Suspense fallback={null}>
+        {showSaveCollisionModal && (
+          <SaveCollisionModal
+            isOpen={showSaveCollisionModal}
+            onClose={() => setShowSaveCollisionModal(false)}
+            onSave={handleSaveCollision}
+            mode={presetMode}
+            collisionEnergy={collisionEnergy}
+            category={selectedCategory}
+            presetId={selectedPresetId}
+            presetName={activeLoadedPreset?.name}
+            chips={saveModalData.chips}
+            themeA={saveModalData.themeA}
+            themeB={saveModalData.themeB}
+            promptResult={saveModalData.promptResult}
+            lyricResult={saveModalData.lyricResult}
+          />
+        )}
 
-      {/* Saved Collisions Library Modal */}
-      <SavedCollisionsModal
-        isOpen={showSavedCollisionsModal}
-        onClose={() => setShowSavedCollisionsModal(false)}
-        savedCollisions={savedCollisions}
-        onRestoreCollision={handleRestoreCollision}
-        onDeleteCollision={handleDeleteSavedCollision}
-        onToggleStarCollision={handleToggleStarCollision}
-      />
+        {showSavedCollisionsModal && (
+          <SavedCollisionsModal
+            isOpen={showSavedCollisionsModal}
+            onClose={() => setShowSavedCollisionsModal(false)}
+            savedCollisions={savedCollisions}
+            onRestoreCollision={handleRestoreCollision}
+            onDeleteCollision={handleDeleteSavedCollision}
+            onToggleStarCollision={handleToggleStarCollision}
+          />
+        )}
+      </Suspense>
     </div>
   );
 };

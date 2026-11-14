@@ -41,7 +41,8 @@ import {
   STORAGE_KEY_ACTIVE_PRESET_ID
 } from '../lib/goldPathPresets';
 import { playLaserBeamSound, playColliderInjectionSound } from '../lib/laserSound';
-import { masterAudioBus } from '../lib/masterBus';
+import { masterAudioBus, ReferenceMatchResult } from '../lib/masterBus';
+import { ReferenceMatcheringDeck } from './ReferenceMatcheringDeck';
 
 interface GoldPathProps {
   onRunPipeline?: (config: GoldPathPreset) => void;
@@ -67,7 +68,7 @@ export const GoldPath: React.FC<GoldPathProps> = ({ onRunPipeline, onOpenBatchVi
   const [isModified, setIsModified] = useState<boolean>(false);
 
   // Reference Track & Processing State
-  const [referenceFile, setReferenceFile] = useState<File | null>(null);
+  const [matchResult, setMatchResult] = useState<ReferenceMatchResult | null>(() => masterAudioBus.getReferenceMatchState().match);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -81,8 +82,9 @@ export const GoldPath: React.FC<GoldPathProps> = ({ onRunPipeline, onOpenBatchVi
   const [abSlot, setAbSlot] = useState<'A' | 'B'>('A');
   const [bMode, setBMode] = useState<'dry' | 'saved_preset'>('dry');
 
-  // File import ref
+  // File import ref & bus sync guard
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const skipNextBusSyncRef = useRef<boolean>(false);
 
   // Active preset object
   const activePreset = presets.find(p => p.id === activePresetId) || presets[0] || FACTORY_GOLD_PATH_PRESETS[0];
@@ -124,8 +126,12 @@ export const GoldPath: React.FC<GoldPathProps> = ({ onRunPipeline, onOpenBatchVi
     applyAbSlot(abSlot === 'A' ? 'B' : 'A');
   };
 
-  // Sync chain changes to Master Audio Bus (when in slot A)
+  // Sync chain changes to Master Audio Bus (when in slot A), preserving full 6-band Matchering calibration when just applied
   useEffect(() => {
+    if (skipNextBusSyncRef.current) {
+      skipNextBusSyncRef.current = false;
+      return;
+    }
     if (abSlot === 'A') {
       syncGoldPathToMasterBus({
         ...activePreset,
@@ -135,6 +141,31 @@ export const GoldPath: React.FC<GoldPathProps> = ({ onRunPipeline, onOpenBatchVi
       });
     }
   }, [currentParams, currentStages, masterIntensity, activePreset, abSlot]);
+
+  useEffect(() => {
+    return masterAudioBus.subscribeReferenceMatch(state => {
+      setMatchResult(state.match);
+    });
+  }, []);
+
+  const handleReferenceMatchApplied = (result: ReferenceMatchResult) => {
+    skipNextBusSyncRef.current = true;
+    setMatchResult(result);
+    setAbSlot('A');
+    setCurrentStages(prev => ({ ...prev, matchering: true }));
+    setCurrentParams(prev => ({
+      ...prev,
+      lowCutHz: result.calibratedLowCutHz,
+      highCutHz: result.calibratedHighCutHz,
+      deMudGainDb: Math.max(-6, Math.min(1, result.eqAdjustmentsDb.lowMid)),
+      presenceAirDb: Math.max(
+        -2,
+        Math.min(5, Math.round((result.eqAdjustmentsDb.presence * 0.65 + result.eqAdjustmentsDb.air * 0.35) * 10) / 10)
+      ),
+      referenceProfile: result.fileName
+    }));
+    setIsModified(true);
+  };
 
   // Load a preset by ID
   const handleSelectPreset = (presetId: string) => {
@@ -225,16 +256,21 @@ export const GoldPath: React.FC<GoldPathProps> = ({ onRunPipeline, onOpenBatchVi
     showToast(`Updated preset "${activePreset.name}" with current settings.`);
   };
 
-  // Delete User Preset
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+  // Delete User Preset (In-App Two-Step Confirmation)
   const handleDeletePreset = (id: string, name: string) => {
-    if (window.confirm(`Are you sure you want to delete user preset "${name}"?`)) {
-      const updated = deleteUserGoldPathPreset(id);
-      setPresets(updated);
-      const fallback = updated[0] || FACTORY_GOLD_PATH_PRESETS[0];
-      handleSelectPreset(fallback.id);
-      playLaserBeamSound('laser_erase');
-      showToast(`Deleted preset "${name}".`);
+    if (pendingDeleteId !== id) {
+      setPendingDeleteId(id);
+      return;
     }
+    setPendingDeleteId(null);
+    const updated = deleteUserGoldPathPreset(id);
+    setPresets(updated);
+    const fallback = updated[0] || FACTORY_GOLD_PATH_PRESETS[0];
+    handleSelectPreset(fallback.id);
+    playLaserBeamSound('laser_erase');
+    showToast(`Deleted preset "${name}".`);
   };
 
   // Export Active Preset as JSON file
@@ -285,7 +321,7 @@ export const GoldPath: React.FC<GoldPathProps> = ({ onRunPipeline, onOpenBatchVi
         playColliderInjectionSound();
         showToast(`Imported preset: "${imported.name}"!`);
       } catch (err: any) {
-        alert(err.message || 'Failed to import preset file.');
+        showToast(err.message || 'Failed to import preset file.');
       }
     };
     reader.readAsText(file);
@@ -444,13 +480,32 @@ export const GoldPath: React.FC<GoldPathProps> = ({ onRunPipeline, onOpenBatchVi
                   <span className="hidden sm:inline">Update</span>
                 </button>
 
-                <button
-                  onClick={() => handleDeletePreset(activePreset.id, activePreset.name)}
-                  className="p-1.5 rounded-xl bg-red-950/50 border border-red-500/40 text-red-400 hover:text-white hover:bg-red-900 transition-colors"
-                  title="Delete this user preset"
-                >
-                  <Trash2 size={13} />
-                </button>
+                {pendingDeleteId === activePreset.id ? (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleDeletePreset(activePreset.id, activePreset.name)}
+                      className="px-2 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 border border-red-400 text-white text-xs font-bold flex items-center gap-1 transition-colors"
+                      title={`Confirm delete "${activePreset.name}"`}
+                    >
+                      <Trash2 size={12} />
+                      <span>Confirm</span>
+                    </button>
+                    <button
+                      onClick={() => setPendingDeleteId(null)}
+                      className="px-2 py-1.5 rounded-xl bg-[#141B2D] border border-[#253254] text-[#9AA5C4] hover:text-white text-xs font-bold transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => handleDeletePreset(activePreset.id, activePreset.name)}
+                    className="p-1.5 rounded-xl bg-red-950/50 border border-red-500/40 text-red-400 hover:text-white hover:bg-red-900 transition-colors"
+                    title="Delete this user preset"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
               </>
             )}
 
@@ -575,6 +630,14 @@ export const GoldPath: React.FC<GoldPathProps> = ({ onRunPipeline, onOpenBatchVi
           </div>
         </div>
       </div>
+
+      {/* ========================================================================= */}
+      {/* PERMANENT REFERENCE AUDIO TRACK (MATCHERING) DECK                         */}
+      {/* ========================================================================= */}
+      <ReferenceMatcheringDeck
+        onMatchApplied={handleReferenceMatchApplied}
+        onToast={showToast}
+      />
 
       {/* ========================================================================= */}
       {/* MAIN CHAIN ARCHITECTURE: PIPELINE STAGES & INTENSITY CONTROLLER           */}
@@ -853,30 +916,17 @@ export const GoldPath: React.FC<GoldPathProps> = ({ onRunPipeline, onOpenBatchVi
             </span>
           </div>
 
-          {/* Reference Audio Dropzone */}
-          <div className="w-full">
-            <label className="flex flex-col items-center justify-center gap-2.5 h-28 w-full bg-[#050711] border-2 border-dashed border-[#202947] hover:border-[#FFD700] rounded-xl transition-all cursor-pointer group p-3 text-center">
-              <input 
-                type="file" 
-                accept="audio/*" 
-                className="hidden" 
-                onChange={(e) => {
-                  if (e.target.files?.[0]) {
-                    setReferenceFile(e.target.files[0]);
-                    showToast(`Loaded reference track: ${e.target.files[0].name}`);
-                  }
-                }} 
-              />
-              <Upload size={24} className="text-[#64748B] group-hover:text-[#FFD700] transition-colors" />
-              <div className="flex flex-col items-center">
-                <span className="text-xs font-bold text-white truncate max-w-[200px]">
-                  {referenceFile ? referenceFile.name : "Drop Reference Track"}
-                </span>
-                <span className="text-[10px] text-[#64748B]">
-                  {referenceFile ? `${(referenceFile.size / (1024 * 1024)).toFixed(1)} MB` : "Matchering Target Curve"}
-                </span>
-              </div>
-            </label>
+          {/* Compact Matchering Calibration Status Card */}
+          <div className="w-full p-3.5 rounded-xl bg-[#050711] border border-[#202947] space-y-2 text-center">
+            <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-white">
+              <Sparkles size={14} className={matchResult ? 'text-emerald-400' : 'text-[#FFD700]'} />
+              <span>{matchResult ? 'FFT Matchering Active' : 'Matchering Ready'}</span>
+            </div>
+            <p className="text-[11px] text-[#7E88AA] truncate">
+              {matchResult
+                ? `${matchResult.fileName} (${matchResult.levelMatchTrimDb >= 0 ? '+' : ''}${matchResult.levelMatchTrimDb.toFixed(1)} dB match)`
+                : 'Drop a .wav/.mp3 on the Matchering Deck above to auto-calibrate the 6-band EQ.'}
+            </p>
           </div>
 
           {/* Process Master Button */}

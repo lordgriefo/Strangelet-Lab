@@ -39,10 +39,17 @@ import {
   CircleDot,
   Flame,
   Radio,
-  Users
+  Users,
+  FolderKanban
 } from 'lucide-react';
 import { View, Track, ProjectSession } from '../types';
 import { playLaserBeamSound } from '../lib/laserSound';
+import {
+  projectAutoSave,
+  AutoSaveSettings,
+  AUTOSAVE_INTERVAL_PRESETS,
+  formatAutoSaveInterval
+} from '../services/projectAutoSaveService';
 
 export interface DawMenuBarProps {
   currentView: View;
@@ -65,7 +72,7 @@ export interface DawMenuBarProps {
   lynchianMode?: boolean;
   onToggleLynchianMode?: () => void;
   onOpenLiveRecorder?: () => void;
-  onOpenBeatmapper?: () => void;
+  onOpenChronoMap?: () => void;
   onOpenBeamSplitter?: () => void;
   onOpenBasicPitch?: () => void;
   onOpenGhostBuddy?: () => void;
@@ -89,6 +96,8 @@ export interface DawMenuBarProps {
   onOpenCollabWorkspace?: () => void;
   collabSessionCode?: string | null;
   collabMemberCount?: number;
+  onOpenYue2Generator?: () => void;
+  onOpenVstWrapperHost?: (pluginId?: string) => void;
 }
 
 type MenuKey = 'file' | 'edit' | 'view' | 'track' | 'ai' | 'export' | 'help' | null;
@@ -114,7 +123,7 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
   lynchianMode,
   onToggleLynchianMode,
   onOpenLiveRecorder,
-  onOpenBeatmapper,
+  onOpenChronoMap,
   onOpenBeamSplitter,
   onOpenBasicPitch,
   onOpenGhostBuddy,
@@ -137,10 +146,18 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
   onToggleAutoArm,
   onOpenCollabWorkspace,
   collabSessionCode,
-  collabMemberCount
+  collabMemberCount,
+  onOpenYue2Generator,
+  onOpenVstWrapperHost
 }) => {
   const [openMenu, setOpenMenu] = useState<MenuKey>(null);
+  const [autoSaveSettings, setAutoSaveSettings] = useState<AutoSaveSettings>(() => projectAutoSave.getSettings());
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const unsubscribe = projectAutoSave.subscribeSettings(setAutoSaveSettings);
+    return unsubscribe;
+  }, []);
 
   // Close menus on outside click or Escape
   useEffect(() => {
@@ -220,6 +237,16 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
             </button>
 
             <button
+              onClick={() => executeAction(() => setView(View.TEMPLATE_GALLERY))}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-[#DDD] hover:text-white hover:bg-[#1E2640] transition-colors"
+            >
+              <span className="flex items-center gap-2">
+                <FolderKanban size={14} className="text-[#00F0FF]" />
+                <span>Template Gallery (JSON)...</span>
+              </span>
+            </button>
+
+            <button
               onClick={() => executeAction(onManualSave)}
               className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-[#DDD] hover:text-white hover:bg-[#1E2640] transition-colors"
             >
@@ -239,9 +266,47 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
                   <RotateCcw size={14} className="text-emerald-400" />
                   <span>Restore Auto-Save Backup...</span>
                 </span>
-                <span className="text-[10px] text-emerald-400 font-bold">60s</span>
+                <span className={`text-[10px] font-bold ${autoSaveSettings.enabled ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {autoSaveSettings.enabled ? formatAutoSaveInterval(autoSaveSettings.intervalSeconds) : 'OFF'}
+                </span>
               </button>
             )}
+
+            {/* Auto-Save Toggle & Duration Quick Picker */}
+            <div className="mx-1.5 my-1 p-2 rounded-lg bg-[#080B14] border border-[#1B243A] flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8]">
+                  Auto-Save Schedule
+                </span>
+                <button
+                  type="button"
+                  onClick={() => projectAutoSave.setEnabled(!autoSaveSettings.enabled)}
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border transition-all cursor-pointer ${
+                    autoSaveSettings.enabled
+                      ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/60'
+                      : 'bg-[#161923] text-[#94A3B8] border-[#334155] hover:text-white'
+                  }`}
+                >
+                  {autoSaveSettings.enabled ? 'ON' : 'OFF'}
+                </button>
+              </div>
+              <div className={`grid grid-cols-6 gap-1 ${autoSaveSettings.enabled ? '' : 'opacity-50'}`}>
+                {AUTOSAVE_INTERVAL_PRESETS.map((presetSec) => (
+                  <button
+                    key={presetSec}
+                    type="button"
+                    onClick={() => projectAutoSave.setIntervalSeconds(presetSec)}
+                    className={`py-0.5 rounded text-[9px] font-bold border transition-all cursor-pointer ${
+                      autoSaveSettings.intervalSeconds === presetSec
+                        ? 'bg-[#00F0FF]/20 border-[#00F0FF] text-[#00F0FF]'
+                        : 'bg-[#0E1422] border-[#1E293B] text-[#94A3B8] hover:text-white'
+                    }`}
+                  >
+                    {formatAutoSaveInterval(presetSec)}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <div className="h-[1px] bg-[#1E2438] my-1" />
 
@@ -410,6 +475,18 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
             </button>
 
             <button
+              onClick={() => executeAction(() => setView(View.TEMPLATE_GALLERY))}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-colors ${
+                currentView === View.TEMPLATE_GALLERY ? 'bg-[#1C2542] text-[#00F0FF] font-bold' : 'text-[#DDD] hover:text-white hover:bg-[#1E2640]'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <FolderKanban size={14} className="text-[#FF8C00]" />
+                <span>Template Gallery (Routing &amp; VSTs)</span>
+              </span>
+            </button>
+
+            <button
               onClick={() => executeAction(() => setView(View.MIDI_EDITOR))}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-colors ${
                 currentView === View.MIDI_EDITOR ? 'bg-[#1C2542] text-[#00F0FF] font-bold' : 'text-[#DDD] hover:text-white hover:bg-[#1E2640]'
@@ -574,12 +651,12 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
             </button>
 
             <button
-              onClick={() => executeAction(onOpenBeatmapper)}
+              onClick={() => executeAction(onOpenChronoMap)}
               className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-[#DDD] hover:text-white hover:bg-[#1E2640] transition-colors"
             >
               <span className="flex items-center gap-2">
                 <Compass size={14} className="text-[#FFD700]" />
-                <span>Chrono-Pin Tempo & Beat Mapper</span>
+                <span>ChronoMap &amp; ChronoPins Tempo Engine</span>
               </span>
             </button>
 
@@ -602,6 +679,21 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
                 <span>Basic Pitch (Audio-to-MIDI)</span>
               </span>
             </button>
+
+            {onOpenVstWrapperHost && (
+              <button
+                onClick={() => executeAction(() => onOpenVstWrapperHost())}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-amber-300 hover:text-white hover:bg-amber-950/40 transition-colors font-bold"
+              >
+                <span className="flex items-center gap-2">
+                  <Sliders size={14} className="text-amber-400" />
+                  <span>VST3 / CLAP Wrapper Host Rack...</span>
+                </span>
+                <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-600/40">
+                  DSP STAGE
+                </span>
+              </button>
+            )}
 
             <div className="h-[1px] bg-[#1E2438] my-1" />
 
@@ -647,12 +739,27 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
             >
               <span className="flex items-center gap-2">
                 <Bot size={15} className="text-amber-400 animate-pulse" />
-                <span>👻 Ghost in the Machine (Resident AI)</span>
+                <span>👻 Ghost in the Machine (Mad Scientist)</span>
               </span>
-              <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-600/50 font-bold">Qwen 4B</span>
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-600/50 font-bold">DSP LAB AI</span>
             </button>
 
             <div className="h-[1px] bg-[#1E2438] my-1" />
+
+            {onOpenYue2Generator && (
+              <button
+                onClick={() => executeAction(onOpenYue2Generator)}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-pink-300 hover:text-white hover:bg-pink-950/40 transition-colors font-bold"
+              >
+                <span className="flex items-center gap-2">
+                  <Sparkles size={14} className="text-pink-400 animate-pulse" />
+                  <span>YuE 2.0 Full-Song & Multi-Stem Generator</span>
+                </span>
+                <span className="text-[9px] px-1.5 py-0.2 rounded bg-pink-950 text-pink-300 border border-pink-600/50">
+                  DUAL-TRACK
+                </span>
+              </button>
+            )}
 
             <button
               onClick={() => executeAction(onOpenAceStepDesigner)}
@@ -694,6 +801,21 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
                 <span>Faust DSP Toy Lab & VST Generator</span>
               </span>
             </button>
+
+            {onOpenVstWrapperHost && (
+              <button
+                onClick={() => executeAction(() => onOpenVstWrapperHost())}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-[#DDD] hover:text-white hover:bg-[#1E2640] transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <Sliders size={14} className="text-amber-400" />
+                  <span>VST Host Wrapper Layer & Stage Matrix</span>
+                </span>
+                <span className="text-[9px] px-1 rounded bg-amber-950 text-amber-300 border border-amber-700/50">
+                  VST3/CLAP
+                </span>
+              </button>
+            )}
 
             <button
               onClick={() => executeAction(onOpenSfzLibrary)}
@@ -859,7 +981,7 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
             >
               <span className="flex items-center gap-2">
                 <Bot size={14} className="text-amber-400" />
-                <span>Consult Strangelet Guru Sensei</span>
+                <span>Consult Ghost (Mad Scientist)</span>
               </span>
             </button>
 

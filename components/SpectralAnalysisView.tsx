@@ -312,7 +312,7 @@ export const SpectralAnalysisView: React.FC<SpectralAnalysisViewProps> = ({
 
   // Initialize Web Audio Analyzer
   const getAudioContext = useCallback(() => {
-    if (!audioContextRef.current && typeof window !== 'undefined') {
+    if ((!audioContextRef.current || audioContextRef.current.state === 'closed') && typeof window !== 'undefined') {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       audioContextRef.current = new AudioCtx();
     }
@@ -802,6 +802,18 @@ export const SpectralAnalysisView: React.FC<SpectralAnalysisViewProps> = ({
       if (rafIdRef.current) {
         cancelAnimationFrame(rafIdRef.current);
       }
+      if (gainNodeRef.current) {
+        try { gainNodeRef.current.disconnect(); } catch (_) {}
+        gainNodeRef.current = null;
+      }
+      analyserRef.current = null;
+      leftAnalyserRef.current = null;
+      rightAnalyserRef.current = null;
+      channelSplitterRef.current = null;
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close().catch(() => {});
+      }
+      audioContextRef.current = null;
     };
   }, [stopAuditionAudio]);
 

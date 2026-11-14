@@ -78,7 +78,7 @@ export const UserGuideModal: React.FC<UserGuideModalProps> = ({
     playColliderInjectionSound();
     try {
       const blob = await generateOfflineManualPdf({
-        version: 'v2.4.0',
+        version: 'v2.5.0',
         onProgress: (percent, status) => {
           setPdfProgress(`${status} (${percent}%)`);
         }
@@ -87,14 +87,14 @@ export const UserGuideModal: React.FC<UserGuideModalProps> = ({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'Strangelet_Lab_User_Field_Manual_v2.4.0.pdf';
+      a.download = 'Strangelet_Lab_User_Field_Manual_v2.5.0.pdf';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
       playLaserBeamSound('laser_curve');
-      setToastMsg('Downloaded official offline PDF manual (Strangelet_Lab_User_Field_Manual_v2.4.0.pdf)');
+      setToastMsg('Downloaded official offline PDF manual (Strangelet_Lab_User_Field_Manual_v2.5.0.pdf)');
       setTimeout(() => setToastMsg(null), 4500);
     } catch (err: any) {
       setToastMsg(`PDF Generation Error: ${err?.message || 'Failed to compile PDF'}`);
@@ -118,7 +118,7 @@ export const UserGuideModal: React.FC<UserGuideModalProps> = ({
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Strangelet Lab — Official User Field Manual (v2.4.0)</title>
+  <title>Strangelet Lab — Official User Field Manual (v2.5.0)</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #111; max-width: 850px; margin: 40px auto; padding: 0 20px; }
     h1 { font-size: 26px; border-bottom: 2px solid #333; padding-bottom: 8px; margin-top: 0; }
@@ -136,50 +136,42 @@ export const UserGuideModal: React.FC<UserGuideModalProps> = ({
 </head>
 <body>
   <h1>Strangelet Lab — Official User Field Manual</h1>
-  <div class="badge">v2.4.0 AIR-GAPPED OFFLINE PRINT EDITION</div>
-  <p><em>The ultimate offline guide for quantum synthesis, Faust DSP, mastering, the Ghost & Quinn duo, and Ace-Step diffusion.</em></p>
+  <div class="badge">v2.5.0 AIR-GAPPED OFFLINE PRINT EDITION</div>
+  <p><em>The complete offline guide for Pure Timeline & Mixer views, Snapshots menu, Reference Matchering, Faust DSP Workbench, Automation & Macros, MIDI Quantize, and GHOST.</em></p>
   
   <h2>Table of Contents</h2>
   <ul>
-    <li>1. Architecture & Global Signal Flow</li>
+    <li>1. Architecture & Workspace Views (Pure Timeline / Timeline / Mixer Only / Split + Snapshots Menu)</li>
     <li>2. Large Sonic Collider (LSC) Quantum Physics Engine</li>
-    <li>3. Gold Path 6-Stage Mastering Suite & A/B Reference</li>
+    <li>3. Gold Path 6-Stage Mastering Suite, A/B Console & FFT Reference Matchering</li>
     <li>4. Software Dojo & AI Training Scrolls</li>
     <li>5. Local AI Hub Setup (Kobold.cpp / Ollama / LM Studio)</li>
     <li>6. Beam Splitter Multiband Crossovers</li>
     <li>7. Suno AI De-Glaze & Audio Restoration</li>
-    <li>8. Faust WebAudio Real-Time DSP Compiler</li>
-    <li>9. Spotify Basic Pitch Polyphonic Audio-to-MIDI</li>
+    <li>8. Faust DSP Workbench (12 Models, Idea Board & Prompt-to-Toy)</li>
+    <li>9. Spotify Basic Pitch & Global MIDI Quantize + Swing</li>
     <li>10. Master Keyboard Shortcuts</li>
-    <li>11. The Buddy Duo: Ghost (Llama 3.1) & Quinn (Qwen 3) Co-Op Mode</li>
-    <li>12. Guided Quantum Workflows & Production Templates</li>
+    <li>11. GHOST (The Ghost in the Machine) — Studio Mentor & DSP Architect</li>
+    <li>12. Global VST Browser, Parameter Automation & Macro Engine</li>
     <li>13. SFZ Open Library & Community Sample Exchange</li>
     <li>14. Ace-Step 1.5 LoRA Lending Library</li>
   </ul>
 
-  <h2>11. The Buddy Duo: Ghost & Quinn Tag-Team</h2>
+  <h2>1. Pure Timeline, Snapshots Menu & Mixer Views</h2>
   <div class="card">
-    <strong>Ghost (Male • Llama 3.1 8B):</strong> The literal Ghost in the Machine. Analog tube sage with legendary studio lore (Lee Scratch Perry tape ceremonies, Prince LinnDrum detuning, Kevin Shields guitar walls, Trevor Horn compression). Soulful, warm, and eccentric.<br/><br/>
-    <strong>Quinn (Female • Qwen 3 / 2.5 7B):</strong> Precision DSP Architect. High-order mathematical spectral frequency analysis, Linkwitz-Riley crossovers, Faust JIT compiler, and 8.5kHz de-sheen surgery.<br/><br/>
-    <strong>Duo Team Dynamic:</strong> Both buddies converse simultaneously as a tag-team. Ghost delivers analog vibe; Quinn calculates the exact mathematical parameters. Their souls and XP persist independently across all model swaps (6GB laptop to 16GB rig).
+    <strong>4-Way View Toggle:</strong> Switch between <em>Pure Timeline</em> (full-height distraction-free arrangement with slim micro-transport), <em>Timeline</em> (timeline + side panels & transport), <em>Mixer Only</em> (tall studio faders), and <em>Split</em>. Press <strong>Tab</strong> to toggle between your active timeline view and Mixer Only.<br/><br/>
+    <strong>Snapshots Menu Button:</strong> Click <strong>SNAPSHOTS</strong> in the Mixer header to open the 8-slot capture/recall/rename menu and A/B comparator without crowding the timeline.
   </div>
 
-  <h2>12. The Quantum Alchemist Pipeline</h2>
+  <h2>3. FFT Reference Matchering (Gold Path Mastering)</h2>
   <div class="card">
-    <ol>
-      <li><strong>Prompt Genesis in LSC:</strong> Accelerate Hadron beam to 8.4 TeV and collide sonic concepts.</li>
-      <li><strong>Ace-Step 1.5 Neural Diffusion:</strong> Inject collision prompt into Ace-Step, borrow an active LoRA, and generate bar-synced stems.</li>
-      <li><strong>Mixer Ingestion:</strong> Route stems with 1 click to the multitrack console with pre-calibrated -14 LUFS headroom.</li>
-      <li><strong>Guitar Overdub & Groove Humanizing:</strong> Arm live guitar input; apply Gaussian timing micro-jitter (±12ms) and dynamic velocity drift.</li>
-      <li><strong>Beam Splitter & Devine Machine:</strong> Split frequencies into 3 bands and trigger Devine Machine Burroughsian reel cut-up slice reversals.</li>
-    </ol>
+    Drop any <code>.wav</code> or <code>.mp3</code> song onto the <strong>Drop Reference Audio Track (Matchering)</strong> zone. Web Audio FFT computes its Sub, Low-Mid, Mid, Presence, and Air contour and auto-calibrates the 6-band Parametric EQ. Click <strong>Audition Reference Track</strong> for level-matched comparison.
   </div>
 
-  <h2>13. SFZ Open Library</h2>
-  <p>The open-source multi-velocity sample library allows loading instruments (1973 Rhodes Mk I, Juno-106 Chorus Pad, Spitfire Chamber Cello, Model D Moog Bass, LinnDrum LM-1) with real WebAudio audition, .sfz downloads, and local community sample publishing.</p>
-
-  <h2>14. Ace-Step LoRA Lending Library</h2>
-  <p>Borrow and stack diffusion adapters (Cassette Degradation Tape Haze, Golden-Era SP-1200 12-Bit, 80s Minneapolis Funk, Dark Ambient Drone, Devine Matrix Glitch). LoRA triggers are auto-injected into prompts.</p>
+  <h2>11. GHOST (The Ghost in the Machine)</h2>
+  <div class="card">
+    <strong>GHOST</strong> is Strangelet Lab's sole audio mentor, DSP architect, and partner. Before answering, GHOST inspects your live BPM, time signature, active track count (Audio vs. MIDI), active Gold Path preset, and Reference Matchering status—delivering concise, practical Hz/kHz & knob-level engineering advice.
+  </div>
 </body>
 </html>
     `;
@@ -195,29 +187,31 @@ export const UserGuideModal: React.FC<UserGuideModalProps> = ({
   const handleDownloadMarkdown = () => {
     playLaserBeamSound('laser_audio');
     const mdContent = `# Strangelet Lab — Official User Field Manual (Offline Edition)
-Version: v2.4.0 AIR-GAPPED OFFLINE BUNDLE
+Version: v2.5.0 AIR-GAPPED OFFLINE BUNDLE
 
-## 1. Architecture & Overview
-Strangelet Lab is an offline, air-gapped quantum digital audio workstation and DSP laboratory.
+## 1. Architecture, Views & Snapshots Menu
+- **4-Way Layout Switcher:** Switch between **Pure Timeline** (edge-to-edge full-height timeline + slim micro-transport), **Timeline**, **Mixer Only**, and **Split**. Press **Tab** to flip between your active timeline view and Mixer Only.
+- **Snapshots Dropdown Menu:** Click **SNAPSHOTS** in the Mixer header for 8 save/recall/rename slots and instant A/B mix comparison without taking vertical timeline space.
+- **Native Hardware Cursor:** Zero-latency OS pointer for instant 60fps fader and timeline response.
 
-## 11. The Buddy Duo: Ghost & Quinn Tag-Team
-- **Ghost (Male • Llama 3.1 8B):** Analog tube sage, legendary producer lore, tape warmth, and groove instinct.
-- **Quinn (Female • Qwen 3 7B):** Precision spectral frequency architect, Linkwitz-Riley crossovers, Faust JIT compiler.
-- **Duo Co-Op Mode:** Both buddies banter and collaborate as a tag-team in the terminal.
-- **Soul Persistence:** Buddy XP, level, and memories are decoupled from the raw weights and persist seamlessly when swapping from 6GB to 16GB VRAM hardware!
+## 3. Gold Path Mastering & FFT Reference Matchering
+- Drop a reference .wav/.mp3 track onto **Drop Reference Audio Track (Matchering)** to analyze its 5-band FFT spectrum (Sub, Low-Mid, Mid, Presence, Air) and auto-calibrate the 6-band Parametric EQ.
+- Toggle **Audition Reference Track** for level-matched A/B comparison.
 
-## 12. The Quantum Alchemist Pipeline
-1. Collide prompt in the Large Sonic Collider (LSC).
-2. Diffuse multi-stem song bed in Ace-Step 1.5.
-3. Ingest stems into multitrack mixer console.
-4. Plug in live guitar and engage Gaussian groove humanizing.
-5. Send through Beam Splitter 3-band crossovers and Devine Machine Burroughsian tape slicing.
+## 8. Faust DSP Workbench (12 Models, Idea Board & Prompt-to-Toy)
+- Includes 12 boutique preset toys (including VHS 1985 Chorus & Pitch Drift, Deep Cavern Shimmer Reverb, Cassette Head Magnetic Saturator, Barberpole Infinite Phaser, and FM Glass Bell Synth).
+- **Idea Board / Cookbook Tab:** Browse models by tags ([Time & Warble], [Grit & Crunch], [Space & Dimension], [Physical Modeling], [Sci-Fi Glitch]) with plain-English explanations.
+- **Prompt-to-Toy Recipes:** Click quick recipe chips to have GHOST assemble and compile live Faust DSP code.
 
-## 13. SFZ Open Library
-Includes 1973 Vintage Rhodes Mk I Stage 73, Juno-106 Analog Chorus Pad, Spitfire Chamber Cello, Model D Moog Bass, and LinnDrum LM-1. Supports sharing and downloading open-format .sfz files.
+## 11. GHOST (The Ghost in the Machine)
+- Sole audio mentor, DSP architect, and studio partner.
+- Inspects live BPM, time signature, track count (Audio/MIDI), Gold Path preset, and Matchering state before responding with concise Hz/kHz and knob-specific advice.
+- Soul XP, rank, and studio habits persist across local GGUF model swaps via \`buddyEvolutionCore\`.
 
-## 14. Ace-Step LoRA Lending Library
-Borrow and stack up to 3 diffusion adapters (Cassette Tape Degradation, Golden-Era SP-1200 12-Bit, 80s Minneapolis Funk, Dark Ambient Drone, Drill 808 Warp).
+## 12. Global VST Browser, Macro Engine & MIDI Quantize
+- **Global VST Browser:** Scans project tracks for Faust/VST plugins and provides unified Parameter Automation lanes directly on the timeline.
+- **Macro Engine:** Records sequences of fader, pan, and VST tweaks into MIDI-triggerable Performance Macros or bakes them to timeline automation.
+- **Global MIDI Quantize:** Snap selected MIDI clips or notes to 1/4, 1/8, 1/16, or 1/32 grids with adjustable Swing % humanization.
 `;
 
     const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8' });
@@ -232,18 +226,18 @@ Borrow and stack up to 3 diffusion adapters (Cassette Tape Degradation, Golden-E
   };
 
   const navItems = [
-    { id: 'overview' as GuideSection, label: '1. Architecture & Overview', icon: BookOpen, tag: 'Core' },
+    { id: 'overview' as GuideSection, label: '1. Architecture, Views & Snapshots', icon: BookOpen, tag: 'Core' },
     { id: 'collider' as GuideSection, label: '2. Large Sonic Collider', icon: Atom, tag: 'Physics' },
-    { id: 'gold_path' as GuideSection, label: '3. Gold Path & A/B Mastering', icon: ShieldCheck, tag: 'Mastering' },
-    { id: 'dojo_ai' as GuideSection, label: '4. Software Dojo & Training', icon: Sparkles, tag: 'Knowledge' },
+    { id: 'gold_path' as GuideSection, label: '3. Gold Path & Matchering', icon: ShieldCheck, tag: 'Mastering' },
+    { id: 'dojo_ai' as GuideSection, label: '4. Software Dojo & Scrolls', icon: Sparkles, tag: 'Knowledge' },
     { id: 'hub_setup' as GuideSection, label: '5. Local Hub (Kobold/Ollama)', icon: Cpu, tag: 'Setup' },
     { id: 'beam_splitter' as GuideSection, label: '6. Beam Splitter & Crossovers', icon: Split, tag: 'DSP' },
     { id: 'suno_deglaze' as GuideSection, label: '7. Suno AI De-Glaze Studio', icon: Flame, tag: 'Restore' },
-    { id: 'faust_dsp' as GuideSection, label: '8. Faust WebAudio Lab', icon: Terminal, tag: 'WASM' },
-    { id: 'basic_pitch' as GuideSection, label: '9. Spotify Audio-to-MIDI', icon: Zap, tag: 'Polyphonic' },
+    { id: 'faust_dsp' as GuideSection, label: '8. Faust Workbench (12 Toys)', icon: Terminal, tag: 'WASM' },
+    { id: 'basic_pitch' as GuideSection, label: '9. Basic Pitch & MIDI Quantize', icon: Zap, tag: 'MIDI' },
     { id: 'shortcuts' as GuideSection, label: '10. Hotkeys & Shortcuts', icon: Keyboard, tag: 'Controls' },
-    { id: 'buddy_duo' as GuideSection, label: '11. Buddy Duo (Ghost & Quinn)', icon: Bot, tag: 'AI Team' },
-    { id: 'workflows' as GuideSection, label: '12. Quantum Workflows & Templates', icon: Workflow, tag: 'Pipelines' },
+    { id: 'buddy_duo' as GuideSection, label: '11. GHOST (Ghost in the Machine)', icon: Bot, tag: 'AI Mentor' },
+    { id: 'workflows' as GuideSection, label: '12. VST Browser, Macros & Workflows', icon: Workflow, tag: 'Automation' },
     { id: 'sfz_library' as GuideSection, label: '13. SFZ Open Library & Sharing', icon: Music, tag: 'Samples' },
     { id: 'lora_library' as GuideSection, label: '14. Ace-Step LoRA Library', icon: Layers, tag: 'Diffusion' },
   ];
@@ -267,7 +261,7 @@ Borrow and stack up to 3 diffusion adapters (Cassette Tape Degradation, Golden-E
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold text-white tracking-wide">Strangelet Lab — Official User Field Manual</h2>
                 <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800">
-                  v2.4.0 OFFLINE AIR-GAPPED
+                  v2.5.0 OFFLINE AIR-GAPPED
                 </span>
               </div>
               <p className="text-xs text-[#7E8B9B]">Complete operational manual for quantum audio synthesis, Faust DSP, mastering, and local AI helpers</p>
@@ -418,11 +412,11 @@ Borrow and stack up to 3 diffusion adapters (Cassette Tape Degradation, Golden-E
                       <h4 className="text-sm font-bold text-white flex items-center gap-2">
                         Download Offline PDF Field Manual
                         <span className="text-[10px] px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-500/40 font-mono">
-                          v2.4.0
+                          v2.5.0
                         </span>
                       </h4>
                       <p className="text-xs text-[#9EADC8]">
-                        Complete 17-chapter printable field manual. Keep a copy on your desktop or studio tablet for zero-internet air-gapped sessions.
+                        Complete 13-chapter printable PDF manual covering Pure Timeline, Snapshots Menu, Reference Matchering, Faust 12-Model Lab, VST Automation, Macros, MIDI Quantize, and GHOST.
                       </p>
                     </div>
                   </div>
@@ -443,7 +437,7 @@ Borrow and stack up to 3 diffusion adapters (Cassette Tape Degradation, Golden-E
                       <Atom size={14} /> 100% Client-Side DSP
                     </div>
                     <p className="text-xs text-[#8E9CB2]">
-                      Runs entirely within the browser via Web Audio API, Web Workers, and WebAssembly. No audio data ever leaves your device.
+                      Runs entirely within the browser via Web Audio API, Web Workers, and WebAssembly with a zero-latency native hardware cursor.
                     </p>
                   </div>
                   <div className="bg-[#101626] border border-[#1E293B] p-4 rounded-xl">
@@ -451,26 +445,26 @@ Borrow and stack up to 3 diffusion adapters (Cassette Tape Degradation, Golden-E
                       <Cpu size={14} /> Air-Gapped AI Hub
                     </div>
                     <p className="text-xs text-[#8E9CB2]">
-                      Direct REST connection to Kobold.cpp, Ollama, and LM Studio. Zero internet connection required for high-speed local inference.
+                      Direct REST connection to Kobold.cpp, Ollama, and LM Studio powering GHOST with live studio session awareness.
                     </p>
                   </div>
                   <div className="bg-[#101626] border border-[#1E293B] p-4 rounded-xl">
                     <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-wider mb-2">
-                      <ShieldCheck size={14} /> Gold Path Chain
+                      <ShieldCheck size={14} /> Gold Path & Matchering
                     </div>
                     <p className="text-xs text-[#8E9CB2]">
-                      Broadcast-grade mastering suite featuring Linear-Phase EQ, Mid/Side stereo processing, tape warmth, and real-time A/B auditioning.
+                      Broadcast-grade 6-stage mastering chain with FFT Reference Matchering auto-EQ, tape warmth, and level-matched A/B auditioning.
                     </p>
                   </div>
                 </div>
 
                 <div className="space-y-3">
-                  <h4 className="text-sm font-bold text-white">How the Views Work Together</h4>
+                  <h4 className="text-sm font-bold text-white">Workspace Views & Auto-Mix Snapshots Menu</h4>
                   <ul className="text-xs text-[#9EADC8] space-y-2 list-disc pl-5">
-                    <li><strong className="text-white">Arrangement Timeline:</strong> Record, slice, loop, and cross-fade multi-track audio and MIDI clips.</li>
-                    <li><strong className="text-white">Collider:</strong> Send audio stems into the particle chamber to induce relativistic grain synthesis.</li>
-                    <li><strong className="text-white">Beam Splitter:</strong> Decompose a track into Mid/Side or Transient/Tonal streams for targeted processing.</li>
-                    <li><strong className="text-white">Gold Path Mastering:</strong> Put the final polish, stereo width, and loudness on your master output.</li>
+                    <li><strong className="text-white">Pure Timeline:</strong> Edge-to-edge full-height arrangement timeline with a single slim micro-transport bar (Play/Stop/Rec/Loop/BPM, +Audio/+MIDI, and Snapshots), hiding mixer strips and sidebars.</li>
+                    <li><strong className="text-white">Timeline / Mixer Only / Split:</strong> Switch between full-height Timeline + Tools, tall Mixer Console strips, or Split dual-pane layout. Press <code className="text-cyan-300">Tab</code> to cycle Timeline &lt;-&gt; Mixer Only.</li>
+                    <li><strong className="text-white">SNAPSHOTS Menu Button:</strong> Compact header button opens the 8-slot Auto-Mix Snapshot menu (save, recall, rename, and A/B compare) without consuming vertical timeline space.</li>
+                    <li><strong className="text-white">Collider, Beam Splitter & Gold Path:</strong> Send stems to relativistic hadron synthesis, split crossovers, and calibrate your master against reference tracks.</li>
                   </ul>
                 </div>
               </div>
@@ -554,13 +548,13 @@ Borrow and stack up to 3 diffusion adapters (Cassette Tape Degradation, Golden-E
                 </div>
 
                 <div className="bg-[#121E24] border border-emerald-600/40 p-4 rounded-xl space-y-2">
-                  <span className="font-bold text-emerald-300 uppercase tracking-wider text-[11px] block">Using the A/B Switcher</span>
+                  <span className="font-bold text-emerald-300 uppercase tracking-wider text-[11px] block">Real-Time FFT Reference Matchering & A/B Switcher</span>
                   <p className="text-xs text-[#8FB59F]">
-                    Click the <strong>[A / B]</strong> toggle button in the Mastering panel or press the corresponding hotkey to instantly compare:
+                    Drop any commercial <code>.wav</code> or <code>.mp3</code> track onto the permanent <strong>Drop Reference Audio Track (Matchering)</strong> zone:
                   </p>
                   <ul className="text-xs text-[#A3C9B4] list-disc pl-5 space-y-1">
-                    <li><strong className="text-emerald-200">State A:</strong> The full Gold Path mastered audio with all modules enabled.</li>
-                    <li><strong className="text-emerald-200">State B:</strong> The raw unprocessed dry signal (or a captured reference preset) with gain compensation to prevent loudness bias.</li>
+                    <li><strong className="text-emerald-200">5-Band FFT Analysis:</strong> Computes Sub, Low-Mid, Mid, Presence, and Air energy against your master bus and auto-calibrates the 6-band Parametric EQ.</li>
+                    <li><strong className="text-emerald-200">Audition Reference Track:</strong> Toggle instantaneously between your Gold Path master and the level-matched reference track to prevent loudness bias.</li>
                   </ul>
                 </div>
 
@@ -585,35 +579,19 @@ Borrow and stack up to 3 diffusion adapters (Cassette Tape Degradation, Golden-E
                 <div className="border-b border-[#1E293B] pb-4">
                   <h3 className="text-xl font-bold text-white flex items-center gap-2">
                     <Sparkles className="text-amber-400" />
-                    4. Software Dojo & The Three AI Buddies
+                    4. Software Dojo & GHOST Intelligence
                   </h3>
                   <p className="text-sm text-[#8E9CB2] mt-1">
-                    Training local LLMs in the software ways of Strangelet Lab
+                    Training local LLMs in the DSP and studio architecture of Strangelet Lab
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-[#14120B] border border-amber-900/60 p-4 rounded-xl">
-                    <div className="text-amber-400 font-bold text-xs uppercase mb-1">🥋 Strangelet Guru</div>
-                    <div className="text-[10px] text-amber-500 font-mono mb-2">AUDIO NINJA SENSEI</div>
-                    <p className="text-xs text-[#B5A58A]">
-                      Master of acoustic science, phase coherence, Faust DSP coding, and Gold Path recipes. Gives disciplined, actionable guidance.
-                    </p>
-                  </div>
-                  <div className="bg-[#0D141F] border border-cyan-900/60 p-4 rounded-xl">
-                    <div className="text-cyan-400 font-bold text-xs uppercase mb-1">🦙 Llama 3.x / Qwen</div>
-                    <div className="text-[10px] text-cyan-500 font-mono mb-2">STUDIO CO-PRODUCER</div>
-                    <p className="text-xs text-[#8EA2BE]">
-                      Energetic creative partner. Suggests drum grooves, melodic themes, chord voicings, and song arrangement transitions.
-                    </p>
-                  </div>
-                  <div className="bg-[#150E24] border border-purple-900/60 p-4 rounded-xl">
-                    <div className="text-purple-400 font-bold text-xs uppercase mb-1">👻 Quinn 3.7</div>
-                    <div className="text-[10px] text-purple-500 font-mono mb-2">GHOST IN THE MACHINE</div>
-                    <p className="text-xs text-[#AE99C9]">
-                      Cryptic, spectral poet. Analyzes hidden frequencies, subtle phasing anomalies, and surreal granular soundbed ideas.
-                    </p>
-                  </div>
+                <div className="bg-[#150E24] border border-purple-700/60 p-4 rounded-xl">
+                  <div className="text-purple-300 font-bold text-xs uppercase mb-1">GHOST — The Ghost in the Machine</div>
+                  <div className="text-[10px] text-amber-400 font-mono mb-2">SOLE AUDIO MENTOR, DSP ARCHITECT & PARTNER</div>
+                  <p className="text-xs text-[#C5B8DB]">
+                    GHOST inspects your live BPM, time signature, active tracks (Audio vs. MIDI), Gold Path preset, and Reference Matchering status before responding with concise, hyper-practical Hz/kHz & knob-level studio guidance or custom Faust DSP code.
+                  </p>
                 </div>
 
                 <div className="space-y-3">
@@ -759,15 +737,19 @@ Borrow and stack up to 3 diffusion adapters (Cassette Tape Degradation, Golden-E
                 <div className="border-b border-[#1E293B] pb-4">
                   <h3 className="text-xl font-bold text-white flex items-center gap-2">
                     <Terminal className="text-emerald-400" />
-                    8. Faust DSP WebAudio Lab
+                    8. Faust DSP Workbench (12 Models, Idea Board & Prompt-to-Toy)
                   </h3>
                   <p className="text-sm text-[#8E9CB2] mt-1">
-                    Live WebAssembly audio compiler right inside the workstation
+                    Live WebAssembly DSP compiler, visual Cookbook, and GHOST Prompt-to-Toy synthesis
                   </p>
                 </div>
                 <p className="text-xs text-[#A2B1CC]">
-                  Write pure functional Faust code directly in Strangelet Lab. The engine compiles your code to WebAssembly in milliseconds, mounting your custom oscillators, reverbs, or filters onto any track or FX slot.
+                  Write functional Faust code compiled in milliseconds, pick from 12 boutique preset toys (including <strong>VHS 1985 Chorus &amp; Pitch Drift</strong>, <strong>Deep Cavern Shimmer Reverb</strong>, <strong>Cassette Head Magnetic Saturator</strong>, <strong>Barberpole Infinite Phaser</strong>, and <strong>FM Glass Bell Synth</strong>), or browse the <strong>Idea Board / Cookbook</strong> tab organized by sonic tags.
                 </p>
+                <div className="bg-[#0E1726] border border-[#1E293B] p-3.5 rounded-xl text-xs text-[#9EADC8] space-y-1.5">
+                  <div className="font-bold text-emerald-300">Prompt-to-Toy One-Click Recipes</div>
+                  <p>Click quick chips such as <em>Underwater Muffled Reverb</em>, <em>Broken AM Radio</em>, <em>Laser Gun Zap</em>, or <em>Dub Siren</em> to populate the prompt and automatically have GHOST assemble and compile custom Faust DSP code in real time.</p>
+                </div>
                 <div className="bg-[#090E16] border border-[#1C273C] p-3 rounded-lg font-mono text-[11px] text-emerald-300">
                   <pre>
 {`import("stdfaust.lib");
@@ -779,20 +761,20 @@ process = os.sawtooth(freq) * gate;`}
               </div>
             )}
 
-            {/* 9. BASIC PITCH */}
+            {/* 9. BASIC PITCH & MIDI QUANTIZE */}
             {activeSection === 'basic_pitch' && (
               <div className="space-y-6">
                 <div className="border-b border-[#1E293B] pb-4">
                   <h3 className="text-xl font-bold text-white flex items-center gap-2">
                     <Zap className="text-amber-400" />
-                    9. Spotify Basic Pitch Transcriber
+                    9. Spotify Basic Pitch &amp; Global MIDI Quantize + Swing
                   </h3>
                   <p className="text-sm text-[#8E9CB2] mt-1">
-                    Polyphonic neural audio-to-MIDI transcription
+                    Polyphonic audio-to-MIDI transcription and groove quantization
                   </p>
                 </div>
                 <p className="text-xs text-[#A2B1CC]">
-                  Drop audio recordings (guitars, piano chords, humming, baseline stems) directly into the Basic Pitch tool to convert raw audio into high-precision MIDI sequences. The transcribed notes can then be assigned to SFZ soundbanks or exported.
+                  Drop audio recordings (guitars, piano chords, humming, bass stems) into Basic Pitch to transcribe polyphonic MIDI sequences. Then open <strong>MIDI QUANTIZE</strong> in the Mixer header to snap selected MIDI clips or notes to <code>1/4</code>, <code>1/8</code>, <code>1/16</code>, or <code>1/32</code> grids with adjustable <strong>Swing %</strong> humanization, Quantize Strength, live preview, and non-destructive timing restore.
                 </p>
               </div>
             )}
@@ -862,7 +844,7 @@ process = os.sawtooth(freq) * gate;`}
                       </tr>
                       <tr>
                         <td className="px-4 py-2 font-bold text-cyan-300">Tab</td>
-                        <td className="px-4 py-2">Toggle Timeline & Mixer</td>
+                        <td className="px-4 py-2">Cycle Active Timeline View (Pure Timeline / Timeline) &lt;-&gt; Mixer Only</td>
                         <td className="px-4 py-2 text-[#64748B]">Workspace</td>
                       </tr>
                       <tr>
@@ -872,7 +854,7 @@ process = os.sawtooth(freq) * gate;`}
                       </tr>
                       <tr>
                         <td className="px-4 py-2 font-bold text-cyan-300">Esc</td>
-                        <td className="px-4 py-2">Close Modal / Reset Selection</td>
+                        <td className="px-4 py-2">Close Modal / Popover Menu / Reset Selection</td>
                         <td className="px-4 py-2 text-[#64748B]">Modals</td>
                       </tr>
                     </tbody>
@@ -881,77 +863,69 @@ process = os.sawtooth(freq) * gate;`}
               </div>
             )}
 
-            {/* 11. BUDDY DUO: GHOST & QUINN */}
+            {/* 11. GHOST (THE GHOST IN THE MACHINE) */}
             {activeSection === 'buddy_duo' && (
               <div className="space-y-6">
                 <div className="border-b border-[#1E293B] pb-4">
                   <h3 className="text-xl font-bold text-white flex items-center gap-2">
                     <Bot className="text-purple-400" />
-                    11. The AI Helper Duo: Ghost & Quinn Tag-Team
+                    11. GHOST (The Ghost in the Machine)
                   </h3>
                   <p className="text-sm text-[#8E9CB2] mt-1">
-                    Persistent personalities, eccentric studio lore, and co-op dialogue across all model swaps
+                    Your sole resident audio mentor, DSP architect, and studio partner across all model swaps
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="p-4 rounded-xl bg-gradient-to-tr from-[#1B100B] to-[#0F0C16] border border-orange-500/40 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">👻</span>
-                      <h4 className="font-bold text-white text-sm">Ghost (Male • Llama 3.1 8B)</h4>
-                    </div>
-                    <p className="text-xs text-[#C8B89E] leading-relaxed">
-                      The literal Ghost in the Machine. Analog tube sage, reel-to-reel tape bias enthusiast, and walking encyclopedia of legendary inside-game studio stories (Lee Scratch Perry tape ceremonies, Prince LinnDrum tuning, Kevin Shields MBV guitar walls, Trevor Horn compression). Soulful, warm, and eccentric.
-                    </p>
+                <div className="p-4 rounded-xl bg-gradient-to-tr from-[#1B100B] to-[#0B1522] border border-amber-500/40 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-bold text-white text-sm">GHOST — Analog Sage &amp; Precision DSP Architect</h4>
                   </div>
-
-                  <div className="p-4 rounded-xl bg-gradient-to-tr from-[#0B1522] to-[#0A101D] border border-cyan-500/40 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">⚡</span>
-                      <h4 className="font-bold text-white text-sm">Quinn (Female • Qwen 3 / 2.5 7B)</h4>
-                    </div>
-                    <p className="text-xs text-[#9EC4DC] leading-relaxed">
-                      Precision DSP Architect. High-order mathematical spectral analysis, Linkwitz-Riley 24dB crossover calculations, Faust JIT compiler bytecode generator, and surgical 8.5kHz de-sheen master. Crisp, brilliant, and analytical.
-                    </p>
-                  </div>
+                  <p className="text-xs text-[#C8C0B4] leading-relaxed">
+                    GHOST combines studio lore, tape &amp; gain-staging instinct, and exact Faust DSP engineering. Before answering, GHOST automatically inspects your live session telemetry—BPM, time signature, active track count (Audio vs. MIDI), Gold Path preset, and Matchering status—to give concise 2–4 sentence answers referencing exact Hz/kHz frequencies and Strangelet Lab knobs.
+                  </p>
                 </div>
 
                 <div className="p-4 rounded-xl bg-[#121626] border border-[#232F4C] space-y-2 text-xs text-[#A2B1CC]">
                   <h4 className="font-bold text-white text-sm flex items-center gap-2">
-                    <span>👥 Duo Co-Op Mode & Soul Persistence</span>
+                    <span>Soul Persistence Across Model Upgrades</span>
                   </h4>
                   <p>
-                    When "Duo Team" mode is selected, Ghost and Quinn converse together in tag-team banter—Ghost provides instinctive analog mojo while Quinn delivers the exact mathematical formulas. Crucially, the <strong>Buddy Soul Core</strong> (XP, Level, persistent memories, and studio quirks) is stored separately from the raw model weights, meaning you can swap from a 3B model on a 6GB laptop to a 14B model on a 16GB rig without losing their memory or personality!
+                    The <strong>Buddy Soul Core</strong> (XP, Rank, and persistent studio habits) is decoupled from local GGUF weights, so upgrading from a 3B model on a 6GB laptop to a 14B model on a 16GB rig preserves GHOST's entire memory.
                   </p>
                 </div>
 
                 <div className="p-4 rounded-xl bg-[#14121F] border border-purple-500/30 space-y-2 text-xs text-[#A2B1CC]">
                   <h4 className="font-bold text-white text-sm flex items-center gap-2 text-purple-300">
-                    <span>🛡️ Movable Widget & Screen Real Estate Controls</span>
+                    <span>Movable Widget &amp; Screen Real Estate Controls</span>
                   </h4>
                   <p>
-                    Never let the floating helper block your master faders or meters! You have full control over the widget:
+                    Dock GHOST to the sidebar or float it in any corner, fold it into a compact badge, or dismiss it completely and toggle anytime with <strong>Alt + G</strong>.
                   </p>
-                  <ul className="list-disc list-inside space-y-1 text-[#C4D0E5]">
-                    <li><strong>⇄ Move Corner:</strong> Move the widget between Bottom-Right, Bottom-Left, Top-Left, or Top-Right with 1 click.</li>
-                    <li><strong>▾ Fold / Minimize:</strong> Collapse the badge into an ultra-discrete 32px glowing orb that takes virtually zero space.</li>
-                    <li><strong>✕ Hide:</strong> Completely dismiss the floating widget from the canvas. Re-open it anytime via the <strong>Ghost Buddy</strong> button in the top bar or with the <strong>Alt + G</strong> hotkey!</li>
-                  </ul>
                 </div>
               </div>
             )}
 
-            {/* 12. GUIDED WORKFLOWS & TEMPLATES */}
+            {/* 12. VST BROWSER, MACROS & WORKFLOWS */}
             {activeSection === 'workflows' && (
               <div className="space-y-6">
                 <div className="border-b border-[#1E293B] pb-4">
                   <h3 className="text-xl font-bold text-white flex items-center gap-2">
                     <Workflow className="text-purple-400" />
-                    12. Guided Quantum Workflows & Production Templates
+                    12. Global VST Browser, Macro Engine &amp; Guided Workflows
                   </h3>
                   <p className="text-sm text-[#8E9CB2] mt-1">
-                    Plotted-out production pipelines connecting the LSC, Ace-Step, Mixer, Groove Humanizer, and Devine Machine
+                    Unified plugin parameter automation, MIDI-triggered Performance Macros, and production pipelines
                   </p>
+                </div>
+
+                <div className="p-4 rounded-xl bg-[#12182B] border border-pink-500/30 space-y-2 text-xs text-[#A2B1CC]">
+                  <h4 className="font-bold text-white text-sm text-pink-300">
+                    Global VST Browser &amp; Macro Engine
+                  </h4>
+                  <ul className="list-disc list-inside space-y-1.5">
+                    <li><strong>Global VST Browser:</strong> Scans tracks for active Faust/VST plugins and provides a unified Parameter Automation lane list so you can draw envelopes directly on the timeline.</li>
+                    <li><strong>Macro Engine:</strong> Records live VST tweaks, volume moves, and panning sweeps as reusable Performance Macros triggered by MIDI controller buttons or baked straight to track automation lanes.</li>
+                  </ul>
                 </div>
 
                 <div className="p-4 rounded-xl bg-[#101424] border border-purple-500/30 space-y-3">
@@ -962,8 +936,8 @@ process = os.sawtooth(freq) * gate;`}
                     <li><strong>LSC Prompt Genesis:</strong> Collide sonic particles in the Large Sonic Collider (e.g. 88 BPM Boom-Bap Drums + Detuned Rhodes + Reese Sub).</li>
                     <li><strong>Ace-Step 1.5 Diffusion:</strong> Inject the prompt into Ace-Step 1.5 Loop Designer, select stems, and diffuse.</li>
                     <li><strong>Mixer Multitrack Ingestion:</strong> Route stems with 1 click into the multitrack console with pre-calibrated headroom.</li>
-                    <li><strong>Live Guitar In & Humanizing:</strong> Arm the live input channel and engage the Groove Humanizer for natural Gaussian timing jitter (±12ms).</li>
-                    <li><strong>Beam Splitter & Devine Machine Slicing:</strong> Isolate frequencies with 3-band crossovers and trigger Devine Machine Burroughsian reel cut-ups with reverse slices!</li>
+                    <li><strong>Live Guitar In &amp; Quantize/Humanizing:</strong> Arm the live input channel, record or refine MIDI with Global MIDI Quantize + Swing %, and save mix states in the SNAPSHOTS menu.</li>
+                    <li><strong>Beam Splitter &amp; Gold Path Matchering:</strong> Isolate frequency bands and match commercial loudness/tonal balance via FFT Reference Matchering.</li>
                   </ol>
                 </div>
 

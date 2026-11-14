@@ -29,7 +29,13 @@ import {
   Gauge,
   Disc,
   ShieldCheck,
-  Zap
+  Zap,
+  Server,
+  Wifi,
+  WifiOff,
+  RefreshCw,
+  Settings2,
+  Square
 } from 'lucide-react';
 import { 
   AceStepGenerationConfig, 
@@ -45,7 +51,14 @@ import {
   generateAceStepLoop, 
   generateAceStepSongBed,
   ACESTEP_LOOP_PRESETS, 
-  STEM_COLORS 
+  STEM_COLORS,
+  DEFAULT_COMFYUI_ENDPOINT,
+  AceStepComfyConfig,
+  AceStepComfyConnectionStatus,
+  AceStepComfyProgress,
+  getComfyUiConfig,
+  saveComfyUiConfig,
+  checkComfyUiConnection
 } from '../services/aceStepEngine';
 import { getAceStepPromptIdea } from '../services/koboldCppService';
 import { playLaserBeamSound, playColliderInjectionSound } from '../lib/laserSound';
@@ -63,6 +76,7 @@ interface AceStepLoopDesignerProps {
   onNavigateToMixer?: () => void;
   onApplySongBedToMixer?: (songBed: AceStepSongBedResult) => void;
   initialStemType?: AceStepStemType;
+  initialPrompt?: string;
 }
 
 const STEM_OPTIONS: { id: AceStepStemType; label: string; desc: string }[] = [
@@ -93,12 +107,20 @@ export const AceStepLoopDesigner: React.FC<AceStepLoopDesignerProps> = ({
   onNavigateToCollider,
   onNavigateToMixer,
   onApplySongBedToMixer,
-  initialStemType = 'bass'
+  initialStemType = 'bass',
+  initialPrompt
 }) => {
   const [stemType, setStemType] = useState<AceStepStemType>(initialStemType);
   const [prompt, setPrompt] = useState<string>(
-    'Driving 16th-note Roland TB-303 square wave acid bassline with resonant low-pass filter squelch, accent envelope, analog drive'
+    initialPrompt ||
+      'Driving 16th-note Roland TB-303 square wave acid bassline with resonant low-pass filter squelch, accent envelope, analog drive'
   );
+  useEffect(() => {
+    if (initialPrompt && initialPrompt.trim()) {
+      setPrompt(initialPrompt);
+      setStemType('full_loop');
+    }
+  }, [initialPrompt]);
   const [durationBars, setDurationBars] = useState<number>(4);
   const [bpm, setBpm] = useState<number>(projectBpm);
   const [keyRoot, setKeyRoot] = useState<string>('F#');
@@ -141,6 +163,15 @@ export const AceStepLoopDesigner: React.FC<AceStepLoopDesignerProps> = ({
   const [armedTrackName, setArmedTrackName] = useState<string>('🎸 Guitar / Live Overdub (Armed)');
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Local ComfyUI API Connector State
+  const [comfyConfig, setComfyConfig] = useState<AceStepComfyConfig>(() => getComfyUiConfig());
+  const [comfyStatus, setComfyStatus] = useState<AceStepComfyConnectionStatus | null>(null);
+  const [isCheckingComfy, setIsCheckingComfy] = useState<boolean>(false);
+  const [showComfySettings, setShowComfySettings] = useState<boolean>(false);
+  const [comfyProgress, setComfyProgress] = useState<AceStepComfyProgress | null>(null);
+  const [autoRouteComfyToTrack, setAutoRouteComfyToTrack] = useState<boolean>(true);
 
   // Sync project BPM when changed
   useEffect(() => {
@@ -280,11 +311,92 @@ export const AceStepLoopDesigner: React.FC<AceStepLoopDesignerProps> = ({
 
   const showToast = (msg: string) => {
     setNotification(msg);
-    setTimeout(() => setNotification(null), 3000);
+    setTimeout(() => setNotification(null), 3500);
+  };
+
+  const handlePingComfyUi = async (urlOverride?: string) => {
+    setIsCheckingComfy(true);
+    try {
+      const status = await checkComfyUiConnection(urlOverride ?? comfyConfig.endpointUrl);
+      setComfyStatus(status);
+      return status;
+    } finally {
+      setIsCheckingComfy(false);
+    }
+  };
+
+  const handleToggleComfyUi = async () => {
+    const nextEnabled = !comfyConfig.enabled;
+    const updated = saveComfyUiConfig({
+      ...comfyConfig,
+      enabled: nextEnabled
+    });
+    setComfyConfig(updated);
+    playLaserBeamSound('laser_select');
+
+    if (nextEnabled) {
+      const status = await handlePingComfyUi(updated.endpointUrl);
+      if (status.online) {
+        showToast(`Connected to local ComfyUI (${status.deviceName || updated.endpointUrl})`);
+      } else {
+        showToast('ComfyUI offline — built-in algorithmic synthesizer fallback armed');
+      }
+    } else {
+      showToast('Switched to built-in Ace-Step algorithmic synthesizer');
+    }
+  };
+
+  const handleUpdateComfyField = <K extends keyof AceStepComfyConfig>(
+    key: K,
+    value: AceStepComfyConfig[K]
+  ) => {
+    const updated = saveComfyUiConfig({
+      ...comfyConfig,
+      [key]: value
+    });
+    setComfyConfig(updated);
+  };
+
+  const handleAbortGeneration = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsGenerating(false);
+    setComfyProgress(null);
+    showToast('Generation request aborted');
+  };
+
+  const routeLoopToAudioTracks = (result: AceStepLoopResult) => {
+    const clip: Clip = {
+      id: `clip-acestep-${Date.now()}`,
+      name: result.name,
+      startBar: 0,
+      durationBars: result.durationBars,
+      audioUrl: result.audioUrl,
+      waveformSnippet: result.waveformSnippet
+    };
+
+    if (targetTrackId && onAddClipToTrack && tracks.some(t => t.id === targetTrackId)) {
+      onAddClipToTrack(targetTrackId, clip);
+      return true;
+    }
+    if (onAddTrackWithClip) {
+      onAddTrackWithClip(result.name, clip);
+      return true;
+    }
+    return false;
   };
 
   const handleGenerate = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsGenerating(true);
+    setComfyProgress(null);
     playColliderInjectionSound();
 
     try {
@@ -297,10 +409,19 @@ export const AceStepLoopDesigner: React.FC<AceStepLoopDesignerProps> = ({
         scale,
         diffusionSteps,
         guidanceScale,
-        useTapeWarmth
+        useTapeWarmth,
+        useComfyUi: comfyConfig.enabled,
+        comfyEndpointUrl: comfyConfig.endpointUrl
       };
 
-      const result = await generateAceStepLoop(config);
+      const result = await generateAceStepLoop(config, {
+        comfyConfig,
+        signal: controller.signal,
+        onProgress: (progress) => {
+          setComfyProgress(progress);
+        }
+      });
+
       setCurrentLoop(result);
       setHistory(prev => [result, ...prev.slice(0, 7)]);
       setIsPlaying(true);
@@ -313,18 +434,38 @@ export const AceStepLoopDesigner: React.FC<AceStepLoopDesignerProps> = ({
       }, 100);
 
       playLaserBeamSound('laser_curve');
-      showToast(`Ace-Step 1.5 synthesized ${result.name} perfectly synced to ${bpm} BPM!`);
-    } catch (err) {
+
+      if (result.engineSource === 'comfyui') {
+        if (autoRouteComfyToTrack && routeLoopToAudioTracks(result)) {
+          showToast(`ComfyUI rendered & imported ${result.name} directly into audio track!`);
+        } else {
+          showToast(`ComfyUI rendered ${result.name} (${result.durationSeconds}s) ready to load!`);
+        }
+      } else if (result.usedFallback) {
+        showToast(`ComfyUI offline — synthesized ${result.name} via built-in algorithmic fallback!`);
+      } else {
+        showToast(`Ace-Step 1.5 synthesized ${result.name} perfectly synced to ${bpm} BPM!`);
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return;
       console.error('Ace-Step generation error:', err);
       showToast('Generation failed. Check audio context.');
     } finally {
       setIsGenerating(false);
+      abortControllerRef.current = null;
     }
   };
 
   // Full Song Bed Synthesis Handler
   const handleGenerateSongBed = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsGenerating(true);
+    setComfyProgress(null);
     playColliderInjectionSound();
 
     try {
@@ -340,18 +481,33 @@ export const AceStepLoopDesigner: React.FC<AceStepLoopDesignerProps> = ({
         useTapeWarmth
       };
 
-      const result = await generateAceStepSongBed(config);
+      const result = await generateAceStepSongBed(config, {
+        comfyConfig,
+        signal: controller.signal,
+        onProgress: (progress) => {
+          setComfyProgress(progress);
+        }
+      });
       setCurrentSongBed(result);
       if (result.stems[0]) {
         setCurrentLoop(result.stems[0]);
       }
       playLaserBeamSound('laser_curve');
-      showToast(`Ace-Step 1.5 generated full ${result.totalBars}-bar Song Bed with ${result.stems.length} stems!`);
-    } catch (err) {
+      const comfyCount = result.stems.filter(s => s.engineSource === 'comfyui').length;
+      if (comfyCount > 0) {
+        showToast(`ComfyUI rendered ${comfyCount}/${result.stems.length} stems for ${result.totalBars}-bar Song Bed!`);
+      } else if (comfyConfig.enabled) {
+        showToast(`ComfyUI offline — algorithmic fallback synthesized ${result.stems.length} stems!`);
+      } else {
+        showToast(`Ace-Step 1.5 generated full ${result.totalBars}-bar Song Bed with ${result.stems.length} stems!`);
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return;
       console.error('Song bed generation error:', err);
       showToast('Failed to generate song bed.');
     } finally {
       setIsGenerating(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -572,6 +728,178 @@ export const AceStepLoopDesigner: React.FC<AceStepLoopDesignerProps> = ({
         </button>
       </div>
 
+      {/* Local ComfyUI API Connector Bar */}
+      <div className="px-6 py-2.5 border-b border-[#182035] bg-[#0A0E19] flex flex-col gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={handleToggleComfyUi}
+              className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                comfyConfig.enabled
+                  ? 'bg-emerald-950/60 border-emerald-400/60 text-emerald-200 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
+                  : 'bg-[#101626] border-[#222B45] text-[#8D98BA] hover:text-white hover:border-[#344269]'
+              }`}
+              title="Toggle optional connection to local ComfyUI API endpoint (/prompt & /history)"
+            >
+              <Server className={`w-3.5 h-3.5 ${comfyConfig.enabled ? 'text-emerald-400' : 'text-[#64748B]'}`} />
+              <span>LOCAL COMFYUI CONNECTOR: {comfyConfig.enabled ? 'ON' : 'OFF'}</span>
+              <span
+                className={`w-7 h-3.5 rounded-full relative transition-colors inline-flex items-center px-0.5 ${
+                  comfyConfig.enabled ? 'bg-emerald-500' : 'bg-[#26314E]'
+                }`}
+              >
+                <span
+                  className={`w-2.5 h-2.5 rounded-full bg-white transition-transform ${
+                    comfyConfig.enabled ? 'translate-x-3.5' : 'translate-x-0'
+                  }`}
+                />
+              </span>
+            </button>
+
+            {/* Endpoint status indicator */}
+            {comfyConfig.enabled ? (
+              <div className="flex items-center gap-2 text-[11px]">
+                <span className="text-[#7F87A7] font-mono">{comfyConfig.endpointUrl}</span>
+                {comfyStatus?.online ? (
+                  <span className="px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 font-bold flex items-center gap-1 text-[10px]">
+                    <Wifi className="w-3 h-3" />
+                    <span>ONLINE{comfyStatus.deviceName ? ` • ${comfyStatus.deviceName}` : ''}</span>
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded bg-amber-950/70 border border-amber-500/40 text-amber-300 font-bold flex items-center gap-1 text-[10px]">
+                    <WifiOff className="w-3 h-3" />
+                    <span>{comfyStatus ? 'OFFLINE — SYNTH FALLBACK READY' : 'UNCHECKED — FALLBACK ARMED'}</span>
+                  </span>
+                )}
+              </div>
+            ) : (
+              <span className="text-[11px] text-[#697298]">
+                Engine: <strong className="text-cyan-300">Built-In Algorithmic Synthesizer</strong> (Zero-config instant DSP)
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {comfyConfig.enabled && (
+              <button
+                type="button"
+                onClick={() => handlePingComfyUi()}
+                disabled={isCheckingComfy}
+                className="px-2.5 py-1 rounded-lg bg-[#141C30] hover:bg-[#1C2744] border border-[#253256] text-[11px] font-bold text-cyan-300 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3 h-3 ${isCheckingComfy ? 'animate-spin' : ''}`} />
+                <span>{isCheckingComfy ? 'Pinging...' : 'Test Endpoint'}</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setShowComfySettings(prev => !prev)}
+              className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                showComfySettings
+                  ? 'bg-cyan-950/60 border-cyan-500/50 text-cyan-300'
+                  : 'bg-[#12182B] border-[#212A45] text-[#8D98BA] hover:text-white'
+              }`}
+            >
+              <Settings2 className="w-3 h-3" />
+              <span>Endpoint Config</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Expandable ComfyUI Endpoint Configuration */}
+        {showComfySettings && (
+          <div className="p-3 rounded-xl bg-[#070A12] border border-[#1E2642] grid grid-cols-1 md:grid-cols-12 gap-3 items-end text-xs">
+            <div className="md:col-span-5 space-y-1">
+              <label className="text-[10px] text-[#7A83A8] uppercase font-bold block">
+                ComfyUI Local API Endpoint URL
+              </label>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={comfyConfig.endpointUrl}
+                  onChange={(e) => handleUpdateComfyField('endpointUrl', e.target.value)}
+                  placeholder={DEFAULT_COMFYUI_ENDPOINT}
+                  className="flex-1 px-2.5 py-1.5 rounded-lg bg-[#101626] border border-[#232D4B] text-white font-mono text-xs focus:outline-none focus:border-emerald-400"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleUpdateComfyField('endpointUrl', DEFAULT_COMFYUI_ENDPOINT)}
+                  className="px-2 py-1 rounded-lg bg-[#141B2E] border border-[#232D4B] text-[10px] text-[#9DA7CB] hover:text-white cursor-pointer"
+                  title="Reset to default http://127.0.0.1:8188"
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+
+            <div className="md:col-span-4 space-y-1">
+              <label className="text-[10px] text-[#7A83A8] uppercase font-bold block">
+                ACE-Step 1.5 Checkpoint / GGUF
+              </label>
+              <input
+                type="text"
+                value={comfyConfig.checkpointName}
+                onChange={(e) => handleUpdateComfyField('checkpointName', e.target.value)}
+                placeholder="acestep_v1.5_q8_0.gguf"
+                className="w-full px-2.5 py-1.5 rounded-lg bg-[#101626] border border-[#232D4B] text-white font-mono text-xs focus:outline-none focus:border-emerald-400"
+              />
+            </div>
+
+            <div className="md:col-span-3 flex items-center justify-between md:justify-end gap-2 pb-1">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={autoRouteComfyToTrack}
+                  onChange={(e) => setAutoRouteComfyToTrack(e.target.checked)}
+                  className="rounded accent-emerald-400 w-3.5 h-3.5"
+                />
+                <span className="text-[11px] font-bold text-emerald-300">
+                  Auto-Add to Track
+                </span>
+              </label>
+            </div>
+          </div>
+        )}
+
+        {/* Active ComfyUI / Generation Progress Strip */}
+        {isGenerating && comfyProgress && (
+          <div className="p-2.5 rounded-xl bg-[#070B14] border border-cyan-500/30 space-y-1.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <div className="flex items-center gap-2">
+                <RotateCw className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+                <span className="font-bold text-white uppercase text-[10px] px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40">
+                  {comfyProgress.phase.replace('_', ' ')}
+                </span>
+                <span className="text-[#B7C2E2] truncate max-w-xl">{comfyProgress.message}</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-cyan-300 font-bold">{comfyProgress.progressPercent}%</span>
+                <button
+                  type="button"
+                  onClick={handleAbortGeneration}
+                  className="px-2 py-0.5 rounded bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <Square className="w-2.5 h-2.5 fill-red-300" />
+                  <span>Abort</span>
+                </button>
+              </div>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-[#11182B] overflow-hidden">
+              <div
+                className={`h-full transition-all duration-300 ${
+                  comfyProgress.usedFallback
+                    ? 'bg-gradient-to-r from-amber-500 to-cyan-400'
+                    : 'bg-gradient-to-r from-emerald-400 to-cyan-400'
+                }`}
+                style={{ width: `${Math.max(5, Math.min(100, comfyProgress.progressPercent))}%` }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Main Workspace Body */}
       {designerMode === 'loop' ? (
         <div className="flex-1 p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0">
@@ -665,7 +993,7 @@ export const AceStepLoopDesigner: React.FC<AceStepLoopDesignerProps> = ({
                     className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-600/30 to-purple-600/30 hover:from-amber-600/50 hover:to-purple-600/50 border border-amber-500/40 text-amber-200 text-[10px] font-bold flex items-center gap-1.5 transition-all shadow-[0_0_10px_rgba(245,158,11,0.2)]"
                   >
                     <Bot className="w-3.5 h-3.5 text-amber-300" />
-                    <span>Ask Ghost & Quinn for Prompt</span>
+                    <span>Ask Ghost for Prompt</span>
                   </button>
                 </div>
               </div>
@@ -801,18 +1129,28 @@ export const AceStepLoopDesigner: React.FC<AceStepLoopDesignerProps> = ({
               disabled={isGenerating || !prompt.trim()}
               className="w-full py-3.5 rounded-2xl font-bold text-sm uppercase tracking-wider text-black transition-all flex items-center justify-center gap-2.5 shadow-[0_0_25px_rgba(0,240,255,0.35)] disabled:opacity-50 cursor-pointer"
               style={{
-                background: `linear-gradient(135deg, ${activeColor}, #00F0FF)`
+                background: comfyConfig.enabled
+                  ? 'linear-gradient(135deg, #10B981, #00F0FF)'
+                  : `linear-gradient(135deg, ${activeColor}, #00F0FF)`
               }}
             >
               {isGenerating ? (
                 <>
                   <RotateCw className="w-5 h-5 animate-spin" />
-                  <span>Synthesizing with Ace-Step 1.5 GGUF...</span>
+                  <span>
+                    {comfyConfig.enabled
+                      ? (comfyProgress?.message || 'Posting to ComfyUI /prompt & Polling /history...')
+                      : 'Synthesizing with Ace-Step 1.5 GGUF...'}
+                  </span>
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-5 h-5" />
-                  <span>GENERATE LOOP WITH ACE-STEP 1.5 GGUF</span>
+                  {comfyConfig.enabled ? <Server className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
+                  <span>
+                    {comfyConfig.enabled
+                      ? 'GENERATE VIA LOCAL COMFYUI (WITH SYNTH FALLBACK)'
+                      : 'GENERATE LOOP WITH ACE-STEP 1.5 GGUF'}
+                  </span>
                 </>
               )}
             </button>
@@ -823,16 +1161,35 @@ export const AceStepLoopDesigner: React.FC<AceStepLoopDesignerProps> = ({
             {/* Active Audio Waveform Monitor */}
             <div className="p-5 rounded-2xl bg-[#0B0F1C] border border-[#1E2642] flex flex-col justify-between flex-1 shadow-lg min-h-[300px]">
               <div>
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-3 gap-2">
                   <span className="text-[11px] font-bold text-[#9DA7CB] uppercase tracking-wider flex items-center gap-2">
                     <Activity className="w-4 h-4 text-cyan-400" />
                     <span>Synthesized Loop Telemetry</span>
                   </span>
-                  {currentLoop && (
-                    <span className="text-[10px] px-2 py-0.5 rounded font-bold" style={{ backgroundColor: `${currentLoop.color}22`, color: currentLoop.color }}>
-                      {currentLoop.stemType.toUpperCase()}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-1.5">
+                    {currentLoop && (
+                      <span
+                        className={`text-[9px] px-2 py-0.5 rounded font-bold border ${
+                          currentLoop.engineSource === 'comfyui'
+                            ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
+                            : currentLoop.usedFallback
+                              ? 'bg-amber-950/80 border-amber-500/50 text-amber-300'
+                              : 'bg-cyan-950/80 border-cyan-500/40 text-cyan-300'
+                        }`}
+                      >
+                        {currentLoop.engineSource === 'comfyui'
+                          ? 'COMFYUI 1.5'
+                          : currentLoop.usedFallback
+                            ? 'SYNTH FALLBACK'
+                            : 'ALGORITHMIC SYNTH'}
+                      </span>
+                    )}
+                    {currentLoop && (
+                      <span className="text-[10px] px-2 py-0.5 rounded font-bold" style={{ backgroundColor: `${currentLoop.color}22`, color: currentLoop.color }}>
+                        {currentLoop.stemType.toUpperCase()}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {currentLoop ? (

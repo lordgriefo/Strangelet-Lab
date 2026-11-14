@@ -1,22 +1,32 @@
 import { Track } from '../types';
 import { playLaserBeamSound, playColliderInjectionSound } from '../lib/laserSound';
 
+export type MidiControlTargetType = 'volume' | 'pan' | 'fader' | 'knob' | 'button' | 'toggle';
+
 export interface MidiControlMapping {
-  id: string; // e.g. `${trackId}-volume` or `${trackId}-pan`
-  targetType: 'volume' | 'pan';
-  trackId: string;
-  trackName: string;
+  id: string; // e.g. `${trackId}-volume`, `master-gain`, `transport-play`, or DOM control id
+  targetType: MidiControlTargetType;
+  controlLabel?: string; // Human-readable UI control label
+  trackId?: string;
+  trackName?: string;
   channel: number; // 1-16 or -1 (any channel)
   ccNumber: number; // 0-127
+  minValue?: number;
+  maxValue?: number;
+  domSelector?: string;
   controllerName?: string;
   createdAt: number;
 }
 
 export interface MidiLearningTarget {
   id: string;
-  targetType: 'volume' | 'pan';
-  trackId: string;
-  trackName: string;
+  targetType: MidiControlTargetType;
+  controlLabel?: string;
+  trackId?: string;
+  trackName?: string;
+  minValue?: number;
+  maxValue?: number;
+  domSelector?: string;
 }
 
 export interface MidiDeviceStatus {
@@ -31,16 +41,26 @@ export interface MidiDeviceStatus {
   };
 }
 
+export type MidiControlHandler = (
+  normalizedValue: number,
+  rawCcValue: number,
+  mapping: MidiControlMapping
+) => void;
+
 const STORAGE_KEY = 'strangelet_midi_mappings_v1';
 
 class MidiLearnService {
   private mappings = new Map<string, MidiControlMapping>();
   private learningTarget: MidiLearningTarget | null = null;
+  private isLearnModeActive: boolean = false;
   private midiAccess: any = null;
-  private isInitialized = false;
   private changeListeners = new Set<(mappings: MidiControlMapping[]) => void>();
   private statusListeners = new Set<(status: MidiDeviceStatus) => void>();
+  private learnModeListeners = new Set<(active: boolean, learningTarget: MidiLearningTarget | null) => void>();
   private valueChangeListeners = new Set<(mapping: MidiControlMapping, normalizedValue: number) => void>();
+  private rawMessageListeners = new Set<(channel: number, ccNumber: number, value: number, deviceName?: string) => void>();
+  private registeredControls = new Map<string, MidiControlHandler>();
+  private lastCcValues = new Map<string, number>();
 
   private status: MidiDeviceStatus = {
     isSupported: false,
@@ -89,7 +109,6 @@ class MidiLearnService {
     try {
       // @ts-ignore
       this.midiAccess = await navigator.requestMIDIAccess({ sysex: false });
-      this.isInitialized = true;
       this.updateConnectedDevices();
 
       // Listen for input device connect/disconnect
@@ -148,14 +167,18 @@ class MidiLearnService {
     if (!data || data.length < 3) return;
 
     const status = data[0];
-    const data1 = data[1]; // CC Number
-    const data2 = data[2]; // CC Value (0-127)
+    const data1 = data[1]; // CC Number or Note
+    const data2 = data[2]; // CC Value / Velocity (0-127)
 
     // Check if it's a Control Change (CC) message: 0xB0 - 0xBF (Channels 1-16)
     if ((status & 0xF0) === 0xB0) {
       const channel = (status & 0x0F) + 1;
       const ccNumber = data1;
       const value = data2;
+
+      const ccKey = `${channel}:${ccNumber}`;
+      const prevValue = this.lastCcValues.get(ccKey) ?? 0;
+      this.lastCcValues.set(ccKey, value);
 
       this.status.lastReceivedEvent = {
         channel,
@@ -164,14 +187,21 @@ class MidiLearnService {
         timestamp: Date.now()
       };
       this.notifyStatus();
+      this.rawMessageListeners.forEach(listener => listener(channel, ccNumber, value, deviceName));
 
-      // Case 1: In MIDI Learn Mode - waiting for user to twist knob/fader
+      // Case 1: Waiting for user to touch a hardware knob/fader to bind selected UI control
       if (this.learningTarget) {
+        const target = this.learningTarget;
+        this.learningTarget = null;
         this.assignMapping({
-          id: this.learningTarget.id,
-          targetType: this.learningTarget.targetType,
-          trackId: this.learningTarget.trackId,
-          trackName: this.learningTarget.trackName,
+          id: target.id,
+          targetType: target.targetType,
+          controlLabel: target.controlLabel || target.trackName || target.id,
+          trackId: target.trackId,
+          trackName: target.trackName,
+          minValue: target.minValue,
+          maxValue: target.maxValue,
+          domSelector: target.domSelector,
           channel,
           ccNumber,
           controllerName: deviceName,
@@ -179,22 +209,41 @@ class MidiLearnService {
         });
 
         playColliderInjectionSound();
-        this.learningTarget = null;
+        this.notifyLearnMode();
         return;
       }
 
-      // Case 2: Standard Control Execution - look up mapped target
+      // Case 2: Standard Control Execution - look up mapped target(s)
       for (const mapping of this.mappings.values()) {
         if (mapping.ccNumber === ccNumber && (mapping.channel === -1 || mapping.channel === channel)) {
-          let normalizedValue: number;
-          if (mapping.targetType === 'volume') {
-            // Map 0-127 to 0.0-1.0 linear volume
-            normalizedValue = Math.max(0, Math.min(1, value / 127));
-          } else {
-            // Map 0-127 to -1.0 to +1.0 stereo pan
-            normalizedValue = Math.max(-1, Math.min(1, (value / 63.5) - 1.0));
+          if (mapping.targetType === 'button' || mapping.targetType === 'toggle') {
+            // Rising edge threshold trigger (prevents rapid repeat firing when turning a CC dial above 64)
+            const isRisingEdge = prevValue < 64 && value >= 64;
+            if (!isRisingEdge) continue;
+
+            const directHandler = this.registeredControls.get(mapping.id);
+            if (directHandler) {
+              directHandler(1, value, mapping);
+            }
+            this.valueChangeListeners.forEach(listener => listener(mapping, 1));
+            continue;
           }
 
+          let normalizedValue: number;
+          if (mapping.targetType === 'pan') {
+            // Map 0-127 to -1.0 to +1.0 stereo pan (64 center)
+            normalizedValue = value === 64 ? 0 : Math.max(-1, Math.min(1, (value / 63.5) - 1.0));
+          } else {
+            const minV = mapping.minValue ?? 0;
+            const maxV = mapping.maxValue ?? 1;
+            const t = Math.max(0, Math.min(1, value / 127));
+            normalizedValue = minV + t * (maxV - minV);
+          }
+
+          const directHandler = this.registeredControls.get(mapping.id);
+          if (directHandler) {
+            directHandler(normalizedValue, value, mapping);
+          }
           this.valueChangeListeners.forEach(listener => listener(mapping, normalizedValue));
         }
       }
@@ -210,19 +259,55 @@ class MidiLearnService {
     this.handleMidiMessage({ data }, 'Virtual Hardware Rack');
   }
 
+  public getLearnModeActive(): boolean {
+    return this.isLearnModeActive;
+  }
+
+  public setLearnModeActive(active: boolean) {
+    this.isLearnModeActive = active;
+    if (!active) {
+      this.learningTarget = null;
+    }
+    this.notifyLearnMode();
+    this.notifyChange();
+  }
+
+  public toggleLearnMode(): boolean {
+    const next = !this.isLearnModeActive;
+    this.setLearnModeActive(next);
+    playLaserBeamSound('laser_select');
+    return next;
+  }
+
   public startLearning(target: MidiLearningTarget) {
+    this.isLearnModeActive = true;
     this.learningTarget = target;
     playLaserBeamSound('laser_select');
+    this.notifyLearnMode();
     this.notifyChange();
   }
 
   public cancelLearning() {
     this.learningTarget = null;
+    this.notifyLearnMode();
     this.notifyChange();
   }
 
   public getLearningTarget(): MidiLearningTarget | null {
     return this.learningTarget;
+  }
+
+  public registerControl(id: string, handler: MidiControlHandler): () => void {
+    this.registeredControls.set(id, handler);
+    return () => {
+      if (this.registeredControls.get(id) === handler) {
+        this.registeredControls.delete(id);
+      }
+    };
+  }
+
+  public hasRegisteredControl(id: string): boolean {
+    return this.registeredControls.has(id);
   }
 
   public assignMapping(mapping: MidiControlMapping) {
@@ -264,6 +349,7 @@ class MidiLearnService {
       this.mappings.set(`${trk.id}-volume`, {
         id: `${trk.id}-volume`,
         targetType: 'volume',
+        controlLabel: `${trk.name} Volume Fader`,
         trackId: trk.id,
         trackName: trk.name,
         channel: 1,
@@ -276,6 +362,7 @@ class MidiLearnService {
       this.mappings.set(`${trk.id}-pan`, {
         id: `${trk.id}-pan`,
         targetType: 'pan',
+        controlLabel: `${trk.name} Pan Knob`,
         trackId: trk.id,
         trackName: trk.name,
         channel: 1,
@@ -301,9 +388,20 @@ class MidiLearnService {
     return () => this.statusListeners.delete(listener);
   }
 
+  public subscribeLearnMode(listener: (active: boolean, learningTarget: MidiLearningTarget | null) => void): () => void {
+    this.learnModeListeners.add(listener);
+    listener(this.isLearnModeActive, this.learningTarget);
+    return () => this.learnModeListeners.delete(listener);
+  }
+
   public onControlValueChange(listener: (mapping: MidiControlMapping, normalizedValue: number) => void): () => void {
     this.valueChangeListeners.add(listener);
     return () => this.valueChangeListeners.delete(listener);
+  }
+
+  public onRawMidiMessage(listener: (channel: number, ccNumber: number, value: number, deviceName?: string) => void): () => void {
+    this.rawMessageListeners.add(listener);
+    return () => this.rawMessageListeners.delete(listener);
   }
 
   private notifyChange() {
@@ -314,6 +412,10 @@ class MidiLearnService {
   private notifyStatus() {
     const s = this.getStatus();
     this.statusListeners.forEach(fn => fn(s));
+  }
+
+  private notifyLearnMode() {
+    this.learnModeListeners.forEach(fn => fn(this.isLearnModeActive, this.learningTarget));
   }
 }
 

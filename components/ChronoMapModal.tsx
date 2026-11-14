@@ -26,23 +26,24 @@ import {
   Clock,
   HelpCircle
 } from 'lucide-react';
-import { Track, Clip, ChronoPin, BeatmapResult, TimelineMarker } from '../types';
+import { Track, Clip, ChronoPin, ChronoMapResult, TimelineMarker } from '../types';
 import { 
   analyzeAudioBuffer, 
   createSyntheticDemoAudio, 
   calculateBpmFromPins, 
   playMetronomeClick,
-  BeatmapAnalysisOutput 
-} from '../lib/beatmapperEngine';
+  ChronoMapAnalysisOutput 
+} from '../lib/chronoMapEngine';
 import { playLaserBeamSound, getAudioContext } from '../lib/laserSound';
 import { audioService } from '../services/audioService';
+import { warpBufferWithChronoPins } from '../lib/audioDspEditor';
 
-interface BeatmapperModalProps {
+interface ChronoMapModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentProjectBpm: number;
   tracks: Track[];
-  onApplyBeatmap: (result: {
+  onApplyChronoMap: (result: {
     trackName: string;
     bpm: number;
     setProjectBpm: boolean;
@@ -57,15 +58,15 @@ interface BeatmapperModalProps {
   initialTrackId?: string;
 }
 
-export const BeatmapperModal: React.FC<BeatmapperModalProps> = ({
+export const ChronoMapModal: React.FC<ChronoMapModalProps> = ({
   isOpen,
   onClose,
   currentProjectBpm,
   tracks,
-  onApplyBeatmap,
+  onApplyChronoMap,
   initialTrackId
 }) => {
-  // Wizard Steps: 1: Source & Downbeat, 2: Chrono-Pins & Measure Grid, 3: Metronome Audition & Sync
+  // Wizard Steps: 1: Source & Downbeat, 2: ChronoPins & Measure Grid, 3: Metronome Audition & Sync
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
 
   // Audio Source State
@@ -74,9 +75,10 @@ export const BeatmapperModal: React.FC<BeatmapperModalProps> = ({
   const [audioFileUrl, setAudioFileUrl] = useState<string>('');
   const [selectedExistingTrackId, setSelectedExistingTrackId] = useState<string>(initialTrackId || '');
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Analysis State
-  const [analysis, setAnalysis] = useState<BeatmapAnalysisOutput | null>(null);
+  const [analysis, setAnalysis] = useState<ChronoMapAnalysisOutput | null>(null);
   const [userBpm, setUserBpm] = useState<number>(126);
   const [chronoPins, setChronoPins] = useState<ChronoPin[]>([]);
   const [selectedPinId, setSelectedPinId] = useState<string>('pin-downbeat-1-1');
@@ -91,6 +93,7 @@ export const BeatmapperModal: React.FC<BeatmapperModalProps> = ({
 
   // Session Application Options
   const [adoptAsProjectBpm, setAdoptAsProjectBpm] = useState<boolean>(true);
+  const [latchSlowSections, setLatchSlowSections] = useState<boolean>(true);
   const [plantTimelineMarkers, setPlantTimelineMarkers] = useState<boolean>(true);
   const [insertAsNewTrack, setInsertAsNewTrack] = useState<boolean>(true);
 
@@ -157,7 +160,7 @@ export const BeatmapperModal: React.FC<BeatmapperModalProps> = ({
         setSelectedPinId(result.chronoPins[0]?.id || '');
         setPlayheadTime(result.downbeatSeconds);
       } catch (err) {
-        console.error('Beatmapper analysis error:', err);
+        console.error('ChronoMap analysis error:', err);
       } finally {
         setIsAnalyzing(false);
       }
@@ -175,6 +178,7 @@ export const BeatmapperModal: React.FC<BeatmapperModalProps> = ({
   // Load from File Upload
   const handleFileUpload = async (file: File) => {
     stopPlayback();
+    setErrorMessage(null);
     setIsAnalyzing(true);
     try {
       const ctx = getCtx();
@@ -186,7 +190,7 @@ export const BeatmapperModal: React.FC<BeatmapperModalProps> = ({
       playLaserBeamSound('laser_curve');
     } catch (err) {
       console.error('Failed to decode uploaded audio', err);
-      alert('Could not decode audio file. Please choose a valid WAV, MP3, or OGG file.');
+      setErrorMessage('Could not decode audio file. Please choose a valid WAV, MP3, or OGG file.');
       setIsAnalyzing(false);
     }
   };
@@ -695,23 +699,36 @@ export const BeatmapperModal: React.FC<BeatmapperModalProps> = ({
   };
 
   // -------------------------------------------------------------
-  // Apply Beatmap to Project Session
+  // Apply ChronoMap to Project Session (with ChronoPin Tempo-Latch Warp)
   // -------------------------------------------------------------
   const handleApplyToProject = () => {
     if (!audioBuffer) return;
 
-    const downbeat = downbeatPin?.timeSeconds || 0;
-    const barSeconds = (60 / userBpm) * 4;
-    const totalBars = Math.max(1, Math.round((audioBuffer.duration - downbeat) / barSeconds));
+    const targetBpm = adoptAsProjectBpm ? userBpm : currentProjectBpm;
+    let finalBuffer = audioBuffer;
+    let finalPins = chronoPins;
 
-    onApplyBeatmap({
+    if (latchSlowSections && chronoPins.length > 1) {
+      const ctx = audioContextRef.current || getAudioContext();
+      if (ctx) {
+        const warped = warpBufferWithChronoPins(ctx, audioBuffer, chronoPins, targetBpm, true);
+        finalBuffer = warped.buffer;
+        finalPins = warped.warpedPins;
+      }
+    }
+
+    const downbeat = finalPins.find(p => p.isDownbeat)?.timeSeconds ?? (downbeatPin?.timeSeconds || 0);
+    const barSeconds = (60 / targetBpm) * 4;
+    const totalBars = Math.max(1, Math.round((finalBuffer.duration - downbeat) / barSeconds));
+
+    onApplyChronoMap({
       trackName: sourceName.replace(/\.[^/.]+$/, ''),
-      bpm: userBpm,
+      bpm: targetBpm,
       setProjectBpm: adoptAsProjectBpm,
       plantTimelineMarkers: plantTimelineMarkers,
-      audioBuffer,
+      audioBuffer: finalBuffer,
       audioUrl: audioFileUrl,
-      chronoPins,
+      chronoPins: finalPins,
       targetTrackId: insertAsNewTrack ? undefined : selectedExistingTrackId,
       downbeatSeconds: downbeat,
       totalBars
@@ -727,7 +744,7 @@ export const BeatmapperModal: React.FC<BeatmapperModalProps> = ({
     <div className="fixed inset-0 z-[9990] flex items-center justify-center p-3 md:p-6 bg-black/85 backdrop-blur-md animate-fade-in select-none">
       <div className="relative w-full max-w-5xl bg-[#080B14] border-2 border-[#00F0FF]/40 rounded-2xl shadow-[0_0_50px_rgba(0,240,255,0.25)] flex flex-col max-h-[92vh] overflow-hidden">
         
-        {/* Chrono-Pin Header Banner */}
+        {/* ChronoMap Header Banner */}
         <div className="px-5 py-3.5 bg-gradient-to-r from-[#0D1426] via-[#121B33] to-[#0A0E1A] border-b border-[#00F0FF]/30 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-[#00F0FF]/15 border border-[#00F0FF] flex items-center justify-center shadow-[0_0_12px_#00F0FF]">
@@ -737,11 +754,11 @@ export const BeatmapperModal: React.FC<BeatmapperModalProps> = ({
               <div className="flex items-center gap-2">
                 <span className="text-xs font-mono font-bold uppercase tracking-widest text-[#FFD700]">STRANGELET LAB // AUDIO INTELLIGENCE</span>
                 <span className="text-[10px] px-1.5 py-0.2 rounded bg-[#00F0FF]/20 text-[#00F0FF] border border-[#00F0FF]/40 font-mono font-bold">
-                  CHRONO-PIN ENGINE
+                  CHRONOMAP ENGINE
                 </span>
               </div>
               <h2 className="text-lg font-black text-white font-mono tracking-tight flex items-center gap-2">
-                CHRONO-PIN TEMPO MAPPER & TIME ANCHOR
+                CHRONOMAP &amp; CHRONOPINS TEMPO ENGINE
               </h2>
             </div>
           </div>
@@ -782,6 +799,17 @@ export const BeatmapperModal: React.FC<BeatmapperModalProps> = ({
 
         {/* Workspace Body */}
         <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
+          {errorMessage && (
+            <div className="px-3.5 py-2.5 rounded-xl bg-red-950/70 border border-red-500/50 text-red-200 text-xs font-mono flex items-center justify-between">
+              <span>{errorMessage}</span>
+              <button
+                onClick={() => setErrorMessage(null)}
+                className="text-red-300 hover:text-white ml-3"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
           
           {/* Top Audio Source Selector Ribbon */}
           <div className="p-3 rounded-xl bg-[#0D1222] border border-[#1E293B] flex flex-wrap items-center justify-between gap-3">
@@ -1234,7 +1262,7 @@ export const BeatmapperModal: React.FC<BeatmapperModalProps> = ({
               TIMECODE & MULTITRACK SYNCHRONIZATION SETTINGS
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-[#CBD5E1]">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-[#CBD5E1]">
               <label className="flex items-start gap-2.5 p-2.5 rounded-lg bg-[#05070E] border border-[#1E293B] cursor-pointer hover:border-[#00F0FF]/50 transition-all">
                 <input
                   type="checkbox"
@@ -1245,7 +1273,22 @@ export const BeatmapperModal: React.FC<BeatmapperModalProps> = ({
                 <div>
                   <div className="font-bold text-[#00F0FF]">Adopt Track BPM as Project Master Tempo</div>
                   <div className="text-[11px] text-[#64748B] mt-0.5">
-                    Updates session tempo from {currentProjectBpm} BPM to <span className="text-[#FFD700] font-bold">{userBpm.toFixed(2)} BPM</span> so all existing/future tracks match.
+                    Updates session tempo from {currentProjectBpm} BPM to <span className="text-[#FFD700] font-bold">{userBpm.toFixed(2)} BPM</span>.
+                  </div>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-2.5 p-2.5 rounded-lg bg-[#05070E] border border-[#1E293B] cursor-pointer hover:border-emerald-500/50 transition-all">
+                <input
+                  type="checkbox"
+                  checked={latchSlowSections}
+                  onChange={(e) => setLatchSlowSections(e.target.checked)}
+                  className="mt-0.5 accent-[#10B981]"
+                />
+                <div>
+                  <div className="font-bold text-emerald-400">Latch Drifting Measures via ChronoPins</div>
+                  <div className="text-[11px] text-[#64748B] mt-0.5">
+                    Warps any slowed-down or rushing sections between ChronoPins smoothly back into project time (pitch-locked).
                   </div>
                 </div>
               </label>
@@ -1258,9 +1301,9 @@ export const BeatmapperModal: React.FC<BeatmapperModalProps> = ({
                   className="mt-0.5 accent-[#A855F7]"
                 />
                 <div>
-                  <div className="font-bold text-[#A855F7]">Plant Chrono-Pins into Timeline Ruler</div>
+                  <div className="font-bold text-[#A855F7]">Plant ChronoPins into Timeline Ruler</div>
                   <div className="text-[11px] text-[#64748B] mt-0.5">
-                    Places visual Chrono-Pin anchor flags directly along the multitrack measure ruler.
+                    Places ChronoPin anchor flags on the measure ruler and attaches pins directly onto the clip.
                   </div>
                 </div>
               </label>
@@ -1288,7 +1331,7 @@ export const BeatmapperModal: React.FC<BeatmapperModalProps> = ({
               className="px-5 py-2.5 rounded-xl text-xs font-mono font-black text-black bg-gradient-to-r from-[#00F0FF] via-[#38BDF8] to-[#10B981] hover:brightness-110 shadow-[0_0_25px_rgba(0,240,255,0.4)] flex items-center gap-2 transition-all cursor-pointer select-none"
             >
               <Check size={16} />
-              <span>APPLY BEATMAP & LOCK PROJECT BPM</span>
+              <span>APPLY CHRONOMAP &amp; LOCK PROJECT BPM</span>
             </button>
           </div>
         </div>

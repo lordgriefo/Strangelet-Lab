@@ -125,7 +125,7 @@ export const ColliderChamberCanvas: React.FC<ColliderChamberCanvasProps> = ({
 
       const cx = width / 2;
       const cy = height / 2;
-      const baseRadius = Math.min(width, height) * 0.38;
+      const baseRadius = Math.min(width, height) * 0.37;
 
       globalRotation += isAccelerating ? 0.03 : 0.005;
 
@@ -343,7 +343,7 @@ export const ColliderChamberCanvas: React.FC<ColliderChamberCanvasProps> = ({
   }, [isAccelerating, isColliding]);
 
   return (
-    <div className="relative w-full h-full min-h-[300px] flex items-center justify-center overflow-hidden rounded-xl bg-gradient-to-b from-[#0A0A10] via-[#0E0F18] to-[#08080C] border border-[#202235]">
+    <div className="relative w-full h-full min-h-[260px] flex items-center justify-center overflow-hidden rounded-xl bg-gradient-to-b from-[#0A0A10] via-[#0E0F18] to-[#08080C] border border-[#202235]">
       <canvas ref={canvasRef} className="w-full h-full block" />
 
       {/* Optical Vignette Overlay */}

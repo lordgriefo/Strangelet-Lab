@@ -465,6 +465,22 @@ export class PrismAudioPlayer {
     });
     this.activeSources.clear();
   }
+
+  public dispose() {
+    this.stopAll();
+    if (this.filterNode) {
+      try { this.filterNode.disconnect(); } catch (_) {}
+      this.filterNode = null;
+    }
+    if (this.masterGain) {
+      try { this.masterGain.disconnect(); } catch (_) {}
+      this.masterGain = null;
+    }
+    if (this.ctx && this.ctx.state !== 'closed') {
+      this.ctx.close().catch(() => {});
+    }
+    this.ctx = null;
+  }
 }
 
 /**
@@ -496,6 +512,7 @@ export function createBeamSplitterDemoAudio(
   const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
   const ctx = new AudioCtx();
   const buffer = ctx.createBuffer(2, totalSamples, sampleRate);
+  ctx.close().catch(() => {});
   const left = buffer.getChannelData(0);
   const right = buffer.getChannelData(1);
 

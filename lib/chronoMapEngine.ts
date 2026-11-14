@@ -1,8 +1,8 @@
-import { ChronoPin, BeatmapResult } from '../types';
+import { ChronoPin, ChronoMapResult } from '../types';
 
 /**
- * Chrono-Pin Audio Intelligence & Tempo Alignment Engine
- * Provides transient onset analysis, tempo detection, Chrono-Pin anchor calculations,
+ * ChronoMap & ChronoPins Audio Intelligence Engine
+ * Provides transient onset analysis, tempo detection, ChronoPin anchor calculations,
  * and high-precision Web Audio metronome synchronization.
  */
 
@@ -12,7 +12,7 @@ export interface TransientPeak {
   energy: number;
 }
 
-export interface BeatmapAnalysisOutput {
+export interface ChronoMapAnalysisOutput {
   detectedBpm: number;
   confidence: number;
   downbeatSeconds: number;
@@ -28,7 +28,7 @@ export interface BeatmapAnalysisOutput {
 /**
  * Computes root-mean-square and onset novelty across audio buffer
  */
-export function analyzeAudioBuffer(buffer: AudioBuffer): BeatmapAnalysisOutput {
+export function analyzeAudioBuffer(buffer: AudioBuffer): ChronoMapAnalysisOutput {
   const sampleRate = buffer.sampleRate;
   const length = buffer.length;
   const numChannels = buffer.numberOfChannels;
@@ -190,7 +190,7 @@ export function analyzeAudioBuffer(buffer: AudioBuffer): BeatmapAnalysisOutput {
     }
   }
 
-  // 6. Generate initial Chrono-Pins (Anchors)
+  // 6. Generate per-measure Chrono-Pins across all measures (snapping subtly to nearby strong transients)
   const totalDuration = length / sampleRate;
   const durationAfterDownbeat = totalDuration - downbeatSeconds;
   const totalBars = Math.max(1, Math.round(durationAfterDownbeat / barLengthSeconds));
@@ -201,29 +201,43 @@ export function analyzeAudioBuffer(buffer: AudioBuffer): BeatmapAnalysisOutput {
   chronoPins.push({
     id: 'pin-downbeat-1-1',
     label: 'Downbeat (Bar 1.1)',
-    timeSeconds: downbeatSeconds,
+    timeSeconds: Number(downbeatSeconds.toFixed(4)),
+    targetTimeSeconds: Number(downbeatSeconds.toFixed(4)),
     measure: 1,
     beat: 1,
     isDownbeat: true,
     isLocked: true
   });
 
-  // Measure Chrono-Pins for key landmarks: Bar 2, Bar 3, Bar 4, Bar 5, Bar 9, Bar 17...
-  const measureLandmarks = [2, 3, 4, 5, 9, 17, 33];
-  for (const m of measureLandmarks) {
-    if (m <= totalBars + 1) {
-      const pinTime = downbeatSeconds + (m - 1) * barLengthSeconds;
-      if (pinTime <= totalDuration) {
-        chronoPins.push({
-          id: `pin-measure-${m}`,
-          label: `Chrono-Pin Bar ${m}.1`,
-          timeSeconds: Number(pinTime.toFixed(4)),
-          measure: m,
-          beat: 1,
-          isDownbeat: false,
-          isLocked: false
-        });
+  // Measure Chrono-Pins for every measure (Bar 2.1, Bar 3.1, ... up to 64 bars)
+  const maxMeasurePins = Math.min(64, totalBars + 1);
+  for (let m = 2; m <= maxMeasurePins; m++) {
+    const idealTime = downbeatSeconds + (m - 1) * barLengthSeconds;
+    if (idealTime <= totalDuration - 0.02) {
+      // Snap gently to a prominent onset within +-35ms so measure pins track real rubato/drift
+      let detectedTime = idealTime;
+      let nearestEnergy = 0;
+      let bestDist = 0.035;
+      for (const tp of transientPeaks) {
+        const dist = Math.abs(tp.timeSeconds - idealTime);
+        if (dist < bestDist) {
+          bestDist = dist;
+          detectedTime = tp.timeSeconds;
+          nearestEnergy = tp.energy;
+        }
       }
+
+      chronoPins.push({
+        id: `pin-measure-${m}`,
+        label: `ChronoPin Bar ${m}.1`,
+        timeSeconds: Number(detectedTime.toFixed(4)),
+        targetTimeSeconds: Number(idealTime.toFixed(4)),
+        measure: m,
+        beat: 1,
+        isDownbeat: false,
+        isLocked: false,
+        transientEnergy: nearestEnergy > 0 ? Number(nearestEnergy.toFixed(4)) : undefined
+      });
     }
   }
 
@@ -242,7 +256,7 @@ export function analyzeAudioBuffer(buffer: AudioBuffer): BeatmapAnalysisOutput {
 }
 
 /**
- * Synthesizes high-fidelity rhythmic demo audio for instant Beatmapper testing
+ * Synthesizes high-fidelity rhythmic demo audio for instant ChronoMap testing
  */
 export function createSyntheticDemoAudio(
   style: 'acid_breakbeat' | 'house_groove' | 'hiphop_boom' | 'synthwave_arp',

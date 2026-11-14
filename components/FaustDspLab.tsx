@@ -22,16 +22,61 @@ import {
   Code2,
   Mic,
   Activity,
-  Disc
+  Disc,
+  ChefHat,
+  Wand2,
+  Eye,
+  Tag
 } from 'lucide-react';
-import { FaustDspToy, FaustDspParam, Track } from '../types';
+import { FaustDspToy, FaustDspParam, FaustIdeaTag, Track } from '../types';
 import { 
   FAUST_DSP_PRESET_TOYS, 
+  FAUST_IDEA_TAGS,
   compileFaustToyFromCode, 
   FaustDspLiveNode 
 } from '../services/faustDspService';
-import { consultQuinnGhost, getStoredKoboldSettings } from '../services/koboldCppService';
+import { consultGhost, getStoredKoboldSettings } from '../services/koboldCppService';
 import { playLaserBeamSound, playColliderInjectionSound, getAudioContext } from '../lib/laserSound';
+
+interface PromptRecipe {
+  label: string;
+  prompt: string;
+  category: 'effect' | 'instrument' | 'toy';
+  tag: FaustIdeaTag;
+}
+
+const PROMPT_TO_TOY_RECIPES: PromptRecipe[] = [
+  {
+    label: 'Underwater Muffled Reverb',
+    prompt: 'Underwater Muffled Reverb with submerged resonant lowpass swirl and cavern feedback tail',
+    category: 'effect',
+    tag: 'Space & Dimension'
+  },
+  {
+    label: 'Broken AM Radio',
+    prompt: 'Broken AM Radio bandpass speaker crunch with static noise hiss and intermittent signal dropout',
+    category: 'effect',
+    tag: 'Grit & Crunch'
+  },
+  {
+    label: 'Laser Gun Zap',
+    prompt: 'Laser Gun Zap sci-fi plasma synth trigger with steep downward frequency sweep and overdrive',
+    category: 'instrument',
+    tag: 'Sci-Fi Glitch'
+  },
+  {
+    label: 'Dub Siren',
+    prompt: 'Dub Siren LFO pitch-wailing sound system oscillator with analog tape delay echo',
+    category: 'instrument',
+    tag: 'Sci-Fi Glitch'
+  },
+  {
+    label: 'VHS Tape Wobble',
+    prompt: 'VHS Tape Wobble modulated stereo delay drift with oxide high-cut warmth',
+    category: 'effect',
+    tag: 'Time & Warble'
+  }
+];
 
 interface FaustDspLabProps {
   isOpen?: boolean;
@@ -62,14 +107,17 @@ export const FaustDspLab: React.FC<FaustDspLabProps> = ({
   const [isAiGenerating, setIsAiGenerating] = useState<boolean>(false);
   const [aiPrompt, setAiPrompt] = useState<string>('');
   const [showAiModal, setShowAiModal] = useState<boolean>(false);
+  const [workbenchTab, setWorkbenchTab] = useState<'editor' | 'idea_board'>('editor');
+  const [selectedIdeaTag, setSelectedIdeaTag] = useState<'ALL' | FaustIdeaTag>('ALL');
   const [notification, setNotification] = useState<string | null>(null);
 
   const liveNodeRef = useRef<FaustDspLiveNode | null>(null);
   const testOscRef = useRef<{ osc: OscillatorNode; gain: GainNode } | null>(null);
+  const testIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const showToast = (msg: string) => {
     setNotification(msg);
-    setTimeout(() => setNotification(null), 3000);
+    setTimeout(() => setNotification(null), 3200);
   };
 
   // Rebuild DSP node when selectedToy changes
@@ -164,9 +212,9 @@ export const FaustDspLab: React.FC<FaustDspLabProps> = ({
       const interval = 0.35;
       const notes = [146.83, 164.81, 196.00, 220.00, 196.00];
       let noteIdx = 0;
-      const timer = setInterval(() => {
+      testIntervalRef.current = setInterval(() => {
         if (!testOscRef.current) {
-          clearInterval(timer);
+          if (testIntervalRef.current) clearInterval(testIntervalRef.current);
           return;
         }
         osc.frequency.setValueAtTime(notes[noteIdx % notes.length], ctx.currentTime);
@@ -195,6 +243,10 @@ export const FaustDspLab: React.FC<FaustDspLabProps> = ({
   };
 
   const stopTestSignal = () => {
+    if (testIntervalRef.current) {
+      clearInterval(testIntervalRef.current);
+      testIntervalRef.current = null;
+    }
     if (testOscRef.current) {
       try {
         testOscRef.current.osc.stop();
@@ -207,19 +259,28 @@ export const FaustDspLab: React.FC<FaustDspLabProps> = ({
     }
   };
 
-  // AI Helper: Generate Faust Code from Natural Language
-  const handleAskAiForFaustCode = async () => {
-    if (!aiPrompt.trim()) return;
+  // AI Helper: Generate Faust Code from Natural Language or One-Click Recipe
+  const handleAskAiForFaustCode = async (
+    overridePrompt?: string,
+    overrideName?: string,
+    overrideCategory: 'effect' | 'instrument' | 'toy' = 'effect'
+  ) => {
+    const activePrompt = (overridePrompt ?? aiPrompt).trim();
+    if (!activePrompt || isAiGenerating) return;
+    if (overridePrompt !== undefined) {
+      setAiPrompt(overridePrompt);
+    }
+
     setIsAiGenerating(true);
     playLaserBeamSound('laser_select');
 
     const settings = getStoredKoboldSettings();
-    const persona = settings.defaultPersona || 'llama';
+    const persona = settings.defaultPersona || 'ghost';
 
     const prompt = `
 [TASK: WRITE REAL-TIME FAUST DSP CODE (.dsp)]
-You are an expert Faust DSP engineer. Create a standalone Faust audio effect or instrument toy.
-User specification: "${aiPrompt}"
+You are GHOST (The Ghost in the Machine), an expert Faust DSP architect. Brew a standalone Faust audio effect or instrument toy.
+User specification: "${activePrompt}"
 Requirements:
 1. Start with import("stdfaust.lib");
 2. Declare interactive UI controls using hslider or vslider or button with [unit:xyz] tags.
@@ -228,12 +289,13 @@ Requirements:
 `;
 
     try {
-      const reply = await consultQuinnGhost(prompt, [], {}, persona);
+      const reply = await consultGhost(prompt, [], {}, persona);
       const codeMatch = reply.text.match(/```(?:faust)?([\s\S]*?)```/);
       const generatedCode = codeMatch ? codeMatch[1].trim() : reply.text.trim();
 
+      const toyTitle = overrideName || `GHOST: ${activePrompt.slice(0, 26)}`;
       setCode(generatedCode);
-      const compiled = compileFaustToyFromCode(generatedCode, `AI ${aiPrompt.slice(0, 20)}`, 'effect');
+      const compiled = compileFaustToyFromCode(generatedCode, toyTitle, overrideCategory);
       setSelectedToy(compiled);
       setParams(compiled.params);
 
@@ -242,15 +304,26 @@ Requirements:
         liveNodeRef.current = new FaustDspLiveNode(compiled);
       }
 
+      setWorkbenchTab('editor');
       setShowAiModal(false);
-      setAiPrompt('');
       playColliderInjectionSound();
-      showToast('AI coded and compiled your Faust DSP Toy successfully!');
+      showToast(`GHOST assembled & compiled "${toyTitle}" (${compiled.params.length} live params)!`);
     } catch (err) {
-      showToast('Failed to generate Faust code with AI.');
+      showToast('Failed to generate Faust code with GHOST.');
     } finally {
       setIsAiGenerating(false);
     }
+  };
+
+  const handleSelectRecipeChip = (recipe: PromptRecipe) => {
+    setAiPrompt(recipe.prompt);
+    void handleAskAiForFaustCode(recipe.prompt, recipe.label, recipe.category);
+  };
+
+  const handleInspectAndTweakToy = (toy: FaustDspToy) => {
+    handleSelectPresetToy(toy);
+    setWorkbenchTab('editor');
+    showToast(`Loaded "${toy.name}" into DSP Workbench for inspection & live tweaking.`);
   };
 
   // Deploy to Channel Strip as VST
@@ -316,7 +389,7 @@ Requirements:
             className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-600/30 to-purple-600/30 hover:from-amber-600/50 hover:to-purple-600/50 border border-amber-500/40 text-amber-200 text-xs font-bold flex items-center gap-1.5 transition-all shadow-[0_0_12px_rgba(245,158,11,0.25)]"
           >
             <Bot className="w-4 h-4 text-amber-300" />
-            <span>Ask AI to Code Faust Toy</span>
+            <span>Ask GHOST to Brew Faust Toy</span>
           </button>
 
           {onClose && (
@@ -330,10 +403,10 @@ Requirements:
         </div>
       </div>
 
-      {/* Preset Faust Toys Carousel */}
+      {/* Preset Faust Toys Carousel (12 Boutique Models) */}
       <div className="px-6 py-2.5 border-b border-[#141B2D] bg-[#0A0D18] flex items-center gap-2 overflow-x-auto text-xs flex-shrink-0">
         <span className="text-[10px] font-bold text-[#636C8F] uppercase tracking-wider shrink-0 mr-1">
-          Preset Toys:
+          Boutique Presets ({FAUST_DSP_PRESET_TOYS.length}):
         </span>
         {FAUST_DSP_PRESET_TOYS.map(toy => {
           const isSelected = selectedToy.id === toy.id;
@@ -355,53 +428,240 @@ Requirements:
         })}
       </div>
 
+      {/* Prompt-to-Toy One-Click Recipes Strip */}
+      <div className="px-6 py-2.5 border-b border-[#161E34] bg-[#080B14] flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 flex-shrink-0">
+        <div className="flex items-center gap-2 overflow-x-auto pb-0.5 lg:pb-0">
+          <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider shrink-0 flex items-center gap-1.5">
+            <Wand2 className="w-3.5 h-3.5 text-amber-400" />
+            <span>Prompt-to-Toy Recipes:</span>
+          </span>
+          {PROMPT_TO_TOY_RECIPES.map(recipe => (
+            <button
+              key={recipe.label}
+              onClick={() => handleSelectRecipeChip(recipe)}
+              disabled={isAiGenerating}
+              className="px-2.5 py-1 rounded-lg bg-[#12172A] hover:bg-amber-950/50 border border-[#242E4F] hover:border-amber-400/60 text-[11px] font-bold text-[#CBD5F5] hover:text-amber-200 transition-all shrink-0 flex items-center gap-1.5 disabled:opacity-50"
+              title={`1-Click: Fill prompt & let GHOST compile ${recipe.label}`}
+            >
+              <Sparkles className="w-3 h-3 text-amber-400" />
+              <span>{recipe.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Live AI Prompt Box */}
+        <form
+          onSubmit={e => {
+            e.preventDefault();
+            void handleAskAiForFaustCode();
+          }}
+          className="flex items-center gap-2 lg:w-[420px] shrink-0"
+        >
+          <input
+            type="text"
+            value={aiPrompt}
+            onChange={e => setAiPrompt(e.target.value)}
+            placeholder="Describe a custom Faust DSP toy or click a recipe..."
+            className="flex-1 px-3 py-1.5 rounded-lg bg-[#0E1324] border border-[#232D4D] text-white text-[11px] focus:outline-none focus:border-amber-400 placeholder:text-[#5B6487]"
+          />
+          <button
+            type="submit"
+            disabled={isAiGenerating || !aiPrompt.trim()}
+            className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-600 to-purple-600 hover:from-amber-500 hover:to-purple-500 text-white font-bold text-[11px] flex items-center gap-1.5 disabled:opacity-40 shrink-0 shadow-[0_0_12px_rgba(245,158,11,0.25)]"
+          >
+            {isAiGenerating ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : <Bot className="w-3.5 h-3.5" />}
+            <span>{isAiGenerating ? 'Brewing...' : 'Brew Toy'}</span>
+          </button>
+        </form>
+      </div>
+
       {/* Main Workspace Split View */}
       <div className="flex-1 p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0">
-        {/* Left Column: Faust Code Editor (7 cols) */}
-        <div className="lg:col-span-7 flex flex-col space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-[#9DA7CB] uppercase tracking-wider flex items-center gap-2">
-              <Code2 className="w-4 h-4 text-cyan-400" />
-              <span>Faust Functional DSP Specification (.dsp)</span>
-            </span>
-
-            <div className="flex items-center gap-2">
+        {/* Left Column: Code Editor OR Idea Board / DSP Kitchen (7 cols) */}
+        <div className="lg:col-span-7 flex flex-col space-y-4 min-h-0">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {/* View Toggle Next to Code Editor */}
+            <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[#0B0F1D] border border-[#1E2745]">
               <button
-                onClick={handleDownloadDsp}
-                className="px-2.5 py-1 rounded-lg bg-[#12182B] hover:bg-[#1A223B] border border-[#212A45] text-[10px] text-[#8E95B8] hover:text-white flex items-center gap-1 transition-colors"
-                title="Download standard Faust .dsp code file"
+                onClick={() => {
+                  setWorkbenchTab('editor');
+                  playLaserBeamSound('laser_select');
+                }}
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all ${
+                  workbenchTab === 'editor'
+                    ? 'bg-cyan-950/90 border border-cyan-400/60 text-cyan-200 shadow-[0_0_10px_rgba(6,182,212,0.2)]'
+                    : 'text-[#848EB2] hover:text-white'
+                }`}
               >
-                <Download className="w-3.5 h-3.5" />
-                <span>Export .dsp</span>
+                <Code2 className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Faust Code Editor</span>
               </button>
-
               <button
-                onClick={handleCompileCode}
-                disabled={isCompiling}
-                className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-[0_0_15px_rgba(6,182,212,0.3)] transition-all"
+                onClick={() => {
+                  setWorkbenchTab('idea_board');
+                  playLaserBeamSound('laser_select');
+                }}
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all ${
+                  workbenchTab === 'idea_board'
+                    ? 'bg-purple-950/90 border border-purple-400/60 text-purple-200 shadow-[0_0_10px_rgba(168,85,247,0.25)]'
+                    : 'text-[#848EB2] hover:text-white'
+                }`}
               >
-                <RotateCw className={`w-3.5 h-3.5 ${isCompiling ? 'animate-spin' : ''}`} />
-                <span>Compile & Run DSP</span>
+                <ChefHat className="w-3.5 h-3.5 text-purple-400" />
+                <span>Idea Board / Cookbook</span>
               </button>
             </div>
+
+            {workbenchTab === 'editor' ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleDownloadDsp}
+                  className="px-2.5 py-1 rounded-lg bg-[#12182B] hover:bg-[#1A223B] border border-[#212A45] text-[10px] text-[#8E95B8] hover:text-white flex items-center gap-1 transition-colors"
+                  title="Download standard Faust .dsp code file"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export .dsp</span>
+                </button>
+
+                <button
+                  onClick={handleCompileCode}
+                  disabled={isCompiling}
+                  className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-[0_0_15px_rgba(6,182,212,0.3)] transition-all"
+                >
+                  <RotateCw className={`w-3.5 h-3.5 ${isCompiling ? 'animate-spin' : ''}`} />
+                  <span>Compile & Run DSP</span>
+                </button>
+              </div>
+            ) : (
+              <span className="text-[10px] text-[#8E98BC] font-bold uppercase tracking-wider">
+                DSP Kitchen • {FAUST_DSP_PRESET_TOYS.length} Boutique Recipes
+              </span>
+            )}
           </div>
 
-          <div className="flex-1 relative rounded-2xl overflow-hidden border border-[#1E2642] bg-[#05070E] shadow-inner flex flex-col min-h-[350px]">
-            <textarea
-              value={code}
-              onChange={e => setCode(e.target.value)}
-              spellCheck={false}
-              className="w-full flex-1 p-4 bg-transparent text-[#67E8F9] font-mono text-xs leading-relaxed focus:outline-none resize-none selection:bg-cyan-900 selection:text-white"
-            />
-          </div>
+          {workbenchTab === 'editor' ? (
+            <>
+              <div className="flex-1 relative rounded-2xl overflow-hidden border border-[#1E2642] bg-[#05070E] shadow-inner flex flex-col min-h-[350px]">
+                <textarea
+                  value={code}
+                  onChange={e => setCode(e.target.value)}
+                  spellCheck={false}
+                  className="w-full flex-1 p-4 bg-transparent text-[#67E8F9] font-mono text-xs leading-relaxed focus:outline-none resize-none selection:bg-cyan-900 selection:text-white"
+                />
+              </div>
 
-          {/* Quick Syntax Tip */}
-          <div className="p-3 rounded-xl bg-[#090C16] border border-[#1A223B] text-[10px] text-[#71789B] flex items-center justify-between">
-            <span>
-              💡 Declaring sliders like <code className="text-cyan-300">hslider("Cutoff[unit:Hz]", 1000, 20, 20000, 1)</code> automatically generates live GUI knobs!
-            </span>
-            <span className="text-cyan-400 font-bold ml-2">Faust v2.70</span>
-          </div>
+              {/* Quick Syntax Tip */}
+              <div className="p-3 rounded-xl bg-[#090C16] border border-[#1A223B] text-[10px] text-[#71789B] flex items-center justify-between">
+                <span>
+                  💡 Declaring sliders like <code className="text-cyan-300">hslider("Cutoff[unit:Hz]", 1000, 20, 20000, 1)</code> automatically generates live GUI knobs!
+                </span>
+                <span className="text-cyan-400 font-bold ml-2">Faust v2.70</span>
+              </div>
+            </>
+          ) : (
+            /* VISUAL IDEA BOARD / DSP KITCHEN */
+            <div className="flex-1 flex flex-col space-y-3 min-h-[380px] overflow-hidden">
+              {/* Tag Filter Row */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  onClick={() => setSelectedIdeaTag('ALL')}
+                  className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold transition-all ${
+                    selectedIdeaTag === 'ALL'
+                      ? 'bg-cyan-950/80 border-cyan-400 text-cyan-200'
+                      : 'bg-[#0D1222] border-[#1F2947] text-[#8892B5] hover:text-white'
+                  }`}
+                >
+                  All ({FAUST_DSP_PRESET_TOYS.length})
+                </button>
+                {FAUST_IDEA_TAGS.map(tag => (
+                  <button
+                    key={tag}
+                    onClick={() => setSelectedIdeaTag(tag)}
+                    className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold transition-all flex items-center gap-1 ${
+                      selectedIdeaTag === tag
+                        ? 'bg-purple-950/80 border-purple-400 text-purple-200'
+                        : 'bg-[#0D1222] border-[#1F2947] text-[#8892B5] hover:text-white'
+                    }`}
+                  >
+                    <Tag className="w-2.5 h-2.5" />
+                    <span>[{tag}]</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Idea Board Cards Organized by Tag */}
+              <div className="flex-1 overflow-y-auto pr-1 space-y-4">
+                {FAUST_IDEA_TAGS.filter(tag => selectedIdeaTag === 'ALL' || selectedIdeaTag === tag).map(tag => {
+                  const groupToys = FAUST_DSP_PRESET_TOYS.filter(t => t.ideaTag === tag);
+                  if (groupToys.length === 0) return null;
+
+                  return (
+                    <div key={tag} className="space-y-2">
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-[11px] font-bold text-[#A5B4FC] uppercase tracking-wider">
+                          [{tag}]
+                        </span>
+                        <span className="text-[10px] text-[#646E91]">
+                          {groupToys.length} {groupToys.length === 1 ? 'model' : 'models'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {groupToys.map(toy => {
+                          const isActive = selectedToy.id === toy.id;
+                          return (
+                            <div
+                              key={toy.id}
+                              className={`p-3.5 rounded-xl border bg-[#0A0E1B] transition-all flex flex-col justify-between space-y-3 ${
+                                isActive
+                                  ? 'border-cyan-400/70 shadow-[0_0_16px_rgba(6,182,212,0.18)]'
+                                  : 'border-[#1E2744] hover:border-[#344270]'
+                              }`}
+                            >
+                              <div className="space-y-1.5">
+                                <div className="flex items-start justify-between gap-2">
+                                  <h4 className="text-xs font-bold text-white leading-snug">
+                                    {toy.name}
+                                  </h4>
+                                  <span
+                                    className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase shrink-0"
+                                    style={{ backgroundColor: `${toy.color || '#00F0FF'}22`, color: toy.color || '#00F0FF' }}
+                                  >
+                                    {toy.category}
+                                  </span>
+                                </div>
+
+                                <div className="text-[10px] font-bold text-amber-300">
+                                  Archetype: {toy.archetype || toy.category}
+                                </div>
+
+                                <p className="text-[11px] text-[#98A2C6] leading-relaxed">
+                                  {toy.howItWorks || toy.description}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                                <span className="text-[9px] text-[#6B7499] uppercase">
+                                  {toy.params.length} Controls
+                                </span>
+                                <button
+                                  onClick={() => handleInspectAndTweakToy(toy)}
+                                  className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600/80 to-blue-600/80 hover:from-cyan-500 hover:to-blue-500 text-white text-[10px] font-bold flex items-center gap-1.5 transition-all"
+                                >
+                                  <Eye className="w-3 h-3" />
+                                  <span>Inspect & Tweak</span>
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right Column: Live GUI Parameter Rack, Testing Deck & Channel Strip Deployment (5 cols) */}
@@ -540,7 +800,7 @@ Requirements:
               <div className="flex items-center gap-2">
                 <Bot className="w-5 h-5 text-amber-400" />
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                  AI Faust Code Architect
+                  GHOST // Faust DSP Toy Architect
                 </h3>
               </div>
               <button
@@ -552,8 +812,28 @@ Requirements:
             </div>
 
             <p className="text-xs text-[#828BAE] leading-relaxed">
-              Describe the audio effect, distortion pedal, filter, or physical instrument toy you want. The AI Helper will write pristine Faust DSP code with mapped sliders.
+              Describe the audio effect, distortion pedal, filter, or physical instrument toy you want. GHOST (The Ghost in the Machine) will brew pristine Faust DSP code with mapped sliders.
             </p>
+
+            {/* Quick Recipe Chips inside Modal */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider block">
+                1-Click Prompt-to-Toy Recipes:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {PROMPT_TO_TOY_RECIPES.map(recipe => (
+                  <button
+                    key={recipe.label}
+                    type="button"
+                    onClick={() => handleSelectRecipeChip(recipe)}
+                    disabled={isAiGenerating}
+                    className="px-2.5 py-1 rounded-lg bg-[#141A30] hover:bg-amber-950/60 border border-[#263156] hover:border-amber-400/60 text-[10px] font-bold text-[#CBD5F5] hover:text-amber-200 transition-all disabled:opacity-50"
+                  >
+                    {recipe.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <textarea
               value={aiPrompt}
@@ -571,7 +851,7 @@ Requirements:
                 Cancel
               </button>
               <button
-                onClick={handleAskAiForFaustCode}
+                onClick={() => void handleAskAiForFaustCode()}
                 disabled={isAiGenerating || !aiPrompt.trim()}
                 className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-purple-600 hover:from-amber-500 hover:to-purple-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.3)] disabled:opacity-50"
               >

@@ -5,14 +5,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Download, X, Settings2, Play, Pause, CheckCircle2, Music, 
   Sparkles, Loader2, FolderArchive, Layers, FileText, Check, 
-  Sliders, Volume2, ShieldCheck, ArrowRight, RefreshCw
+  Sliders, Volume2, ShieldCheck, ArrowRight, RefreshCw, Film
 } from 'lucide-react';
-import { Track } from '../types';
+import { Track, TimelineMarker } from '../types';
 import { 
   offlineAudioRenderer, 
+  OfflineAudioRenderer,
   ExportResult, 
   BatchExportResult, 
-  StemExportItem 
+  StemExportItem,
+  KenetiCutExportResult
 } from '../services/offlineAudioRenderer';
 import { playLaserBeamSound } from '../lib/laserSound';
 
@@ -24,6 +26,7 @@ interface ExportProjectModalProps {
   tempo: number;
   masterGain: number;
   loopRange?: { start: number; end: number };
+  timelineMarkers?: TimelineMarker[];
 }
 
 export const ExportProjectModal: React.FC<ExportProjectModalProps> = ({
@@ -33,7 +36,8 @@ export const ExportProjectModal: React.FC<ExportProjectModalProps> = ({
   tracks,
   tempo,
   masterGain,
-  loopRange
+  loopRange,
+  timelineMarkers
 }) => {
   const [exportMode, setExportMode] = useState<'mix' | 'stems'>(initialMode);
 
@@ -43,7 +47,9 @@ export const ExportProjectModal: React.FC<ExportProjectModalProps> = ({
       setExportMode(initialMode);
       setExportResult(null);
       setBatchResult(null);
+      setKenetiCutResult(null);
       setIsRendering(false);
+      setIsExportingKenetiCut(false);
       setProgress(0);
       setStatusText('');
     }
@@ -75,10 +81,13 @@ export const ExportProjectModal: React.FC<ExportProjectModalProps> = ({
 
   // Render Execution State
   const [isRendering, setIsRendering] = useState<boolean>(false);
+  const [isExportingKenetiCut, setIsExportingKenetiCut] = useState<boolean>(false);
   const [progress, setProgress] = useState<number>(0);
   const [statusText, setStatusText] = useState<string>('');
+  const [exportError, setExportError] = useState<string | null>(null);
   const [exportResult, setExportResult] = useState<ExportResult | null>(null);
   const [batchResult, setBatchResult] = useState<BatchExportResult | null>(null);
+  const [kenetiCutResult, setKenetiCutResult] = useState<KenetiCutExportResult | null>(null);
 
   // Audio Preview Player
   const [playingStemId, setPlayingStemId] = useState<string | null>(null);
@@ -109,6 +118,7 @@ export const ExportProjectModal: React.FC<ExportProjectModalProps> = ({
 
   // Start Export Process (Stereo Mix or Batch Stems)
   const handleStartExport = async () => {
+    setExportError(null);
     setIsRendering(true);
     setProgress(5);
     setExportResult(null);
@@ -151,7 +161,7 @@ export const ExportProjectModal: React.FC<ExportProjectModalProps> = ({
       } else {
         // BATCH STEMS EXPORT (.ZIP)
         if (selectedTrackIds.length === 0) {
-          alert('Please select at least one track to export.');
+          setExportError('Please select at least one track to export.');
           setIsRendering(false);
           return;
         }
@@ -200,6 +210,76 @@ export const ExportProjectModal: React.FC<ExportProjectModalProps> = ({
   const handleDownloadBatchZip = () => {
     if (batchResult) {
       OfflineAudioRendererDownload(batchResult.zipBlob, batchResult.zipFilename);
+      playLaserBeamSound('laser_curve');
+    }
+  };
+
+  // 1-Click KenetiCut VJ Studio Package Export
+  const handleExportForKenetiCut = async () => {
+    if (exportMode === 'stems' && selectedTrackIds.length === 0) {
+      setStatusText('Select at least one track before packaging for KenetiCut VJ Studio.');
+      return;
+    }
+
+    setIsRendering(true);
+    setIsExportingKenetiCut(true);
+    setProgress(4);
+    setExportResult(null);
+    setBatchResult(null);
+    setKenetiCutResult(null);
+    setStatusText('KenetiCut VJ Bridge: Preparing audio + reactive chop manifest...');
+
+    let range: { startBar: number; endBar: number } | undefined = undefined;
+    if (rangeMode === 'loop' && loopRange) {
+      range = {
+        startBar: Math.floor(loopRange.start * 16),
+        endBar: Math.ceil(loopRange.end * 16)
+      };
+    } else if (rangeMode === 'custom') {
+      range = {
+        startBar: Math.max(0, customStartBar - 1),
+        endBar: Math.min(16, customEndBar)
+      };
+    }
+
+    try {
+      const result = await offlineAudioRenderer.renderKenetiCutVjBundle(tracks, {
+        mode: exportMode,
+        sampleRate,
+        bitDepth,
+        totalBars: 16,
+        tempo,
+        masterGain,
+        normalize,
+        limiter,
+        filename: exportMode === 'stems' ? zipFilename : filename,
+        dryStems,
+        namingFormat,
+        trackIds: exportMode === 'stems' ? selectedTrackIds : undefined,
+        markers: timelineMarkers,
+        range,
+        onProgress: (pct, msg) => {
+          setProgress(pct);
+          setStatusText(msg);
+        }
+      });
+
+      setKenetiCutResult(result);
+      OfflineAudioRenderer.downloadBlob(result.zipBlob, result.zipFilename);
+      playLaserBeamSound('laser_audio');
+    } catch (err: unknown) {
+      console.error('KenetiCut VJ bridge export error:', err);
+      const errMsg = err instanceof Error ? err.message : 'Unknown packaging failure';
+      setStatusText(`KenetiCut Export error: ${errMsg}`);
+    } finally {
+      setIsRendering(false);
+      setIsExportingKenetiCut(false);
+    }
+  };
+
+  const handleDownloadKenetiCutZip = () => {
+    if (kenetiCutResult) {
+      OfflineAudioRenderer.downloadBlob(kenetiCutResult.zipBlob, kenetiCutResult.zipFilename);
       playLaserBeamSound('laser_curve');
     }
   };
@@ -614,6 +694,16 @@ export const ExportProjectModal: React.FC<ExportProjectModalProps> = ({
             )}
           </div>
 
+          {/* Inline Validation / Export Error */}
+          {exportError && !isRendering && (
+            <div className="p-3 rounded-xl bg-red-950/70 border border-red-500/50 text-red-200 text-xs flex items-center justify-between">
+              <span>{exportError}</span>
+              <button onClick={() => setExportError(null)} className="text-red-300 hover:text-white ml-2 font-bold">
+                Dismiss
+              </button>
+            </div>
+          )}
+
           {/* Progress / Status Bar */}
           {isRendering && (
             <div className="p-4 rounded-xl bg-[#0E1322] border border-[#FFD700]/40 space-y-2 animate-fade-in shadow-inner">
@@ -731,10 +821,57 @@ export const ExportProjectModal: React.FC<ExportProjectModalProps> = ({
               </div>
             </div>
           )}
+
+          {/* Render Completion: KenetiCut VJ Studio Bridge Bundle */}
+          {kenetiCutResult && !isRendering && (
+            <div className="p-4 rounded-xl bg-gradient-to-b from-[#1A0B24] to-[#0E0716] border border-fuchsia-500/60 space-y-3 animate-fade-in shadow-[0_0_25px_rgba(217,70,239,0.25)]">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="text-xs font-bold text-fuchsia-300 flex items-center gap-2">
+                  <Film size={15} className="text-fuchsia-400" />
+                  KENETICUT VJ STUDIO PACKAGE READY!
+                </span>
+                <span className="text-[11px] text-[#94A3B8]">
+                  {(kenetiCutResult.totalSizeBytes / (1024 * 1024)).toFixed(2)} MB .ZIP • {kenetiCutResult.manifest.audioFiles.length} WAV(s)
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 text-[10px]">
+                <div className="p-2 rounded bg-[#080510] border border-fuchsia-500/20">
+                  <span className="text-[#94A3B8] block">Sync Tempo</span>
+                  <span className="font-bold text-cyan-300">{kenetiCutResult.manifest.bpm} BPM ({kenetiCutResult.manifest.beatGrid.beatTimestamps.length} beats)</span>
+                </div>
+                <div className="p-2 rounded bg-[#080510] border border-fuchsia-500/20">
+                  <span className="text-[#94A3B8] block">Transient Chops</span>
+                  <span className="font-bold text-fuchsia-300">{kenetiCutResult.manifest.transientChopPoints.length} chop points</span>
+                </div>
+                <div className="p-2 rounded bg-[#080510] border border-fuchsia-500/20">
+                  <span className="text-[#94A3B8] block">Song Markers</span>
+                  <span className="font-bold text-amber-300">{kenetiCutResult.manifest.songMarkers.length} cues</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-lg bg-[#080510] border border-fuchsia-500/30">
+                <div className="truncate pr-2">
+                  <div className="text-xs font-bold text-white truncate">{kenetiCutResult.zipFilename}</div>
+                  <div className="text-[10px] text-fuchsia-300">
+                    Contains audio + keneticut_manifest.json (BPM, transients, markers)
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDownloadKenetiCutZip}
+                  className="px-4 py-2 rounded-lg bg-gradient-to-r from-fuchsia-500 to-cyan-400 text-black font-extrabold text-xs hover:brightness-110 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
+                >
+                  <Download size={14} />
+                  <span>RE-DOWNLOAD VJ .ZIP</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer Actions */}
-        <div className="px-6 py-4 border-t border-[#1A2338] bg-[#0E1322] flex items-center justify-between gap-3">
+        <div className="px-6 py-4 border-t border-[#1A2338] bg-[#0E1322] flex items-center justify-between gap-3 flex-wrap">
           <button
             type="button"
             onClick={onClose}
@@ -743,7 +880,28 @@ export const ExportProjectModal: React.FC<ExportProjectModalProps> = ({
             Cancel
           </button>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* 1-Click KenetiCut VJ Studio Bridge Button */}
+            <button
+              type="button"
+              onClick={handleExportForKenetiCut}
+              disabled={isRendering || (exportMode === 'stems' && selectedTrackIds.length === 0)}
+              className="px-4 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-fuchsia-600 via-purple-600 to-cyan-500 text-white hover:brightness-110 transition-all shadow-[0_0_20px_rgba(217,70,239,0.35)] flex items-center gap-2 disabled:opacity-40 disabled:pointer-events-none cursor-pointer active:scale-95 border border-fuchsia-400/50"
+              title="1-Click package master audio or stems with BPM, transient chop points & song markers for KenetiCut VJ Studio"
+            >
+              {isExportingKenetiCut ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  <span>PACKAGING FOR KENETICUT...</span>
+                </>
+              ) : (
+                <>
+                  <Film size={14} />
+                  <span>Export for KenetiCut VJ Studio</span>
+                </>
+              )}
+            </button>
+
             {exportMode === 'stems' ? (
               batchResult ? (
                 <button
@@ -761,7 +919,7 @@ export const ExportProjectModal: React.FC<ExportProjectModalProps> = ({
                   disabled={isRendering || selectedTrackIds.length === 0}
                   className="px-6 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-[#10B981] via-[#059669] to-[#047857] text-white hover:brightness-110 transition-all shadow-[0_0_20px_rgba(16,185,129,0.35)] flex items-center gap-2 disabled:opacity-40 disabled:pointer-events-none cursor-pointer active:scale-95"
                 >
-                  {isRendering ? (
+                  {isRendering && !isExportingKenetiCut ? (
                     <>
                       <Loader2 size={14} className="animate-spin" />
                       BOUNCING {selectedTrackIds.length} STEMS...
@@ -791,7 +949,7 @@ export const ExportProjectModal: React.FC<ExportProjectModalProps> = ({
                   disabled={isRendering}
                   className="px-6 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-[#FF8C00] to-[#FFD700] text-black hover:brightness-110 transition-all shadow-[0_0_20px_rgba(255,140,0,0.35)] flex items-center gap-2 disabled:opacity-40 disabled:pointer-events-none cursor-pointer active:scale-95"
                 >
-                  {isRendering ? (
+                  {isRendering && !isExportingKenetiCut ? (
                     <>
                       <Loader2 size={14} className="animate-spin" />
                       BOUNCING MIX...

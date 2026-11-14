@@ -1,7 +1,7 @@
 // Offline Audio Renderer for Strangelet Lab Mixer
 // Uses Web Audio OfflineAudioContext to render and bounce multitrack arrangements to .wav files.
 
-import { Track, Clip } from '../types';
+import { Track, Clip, TimelineMarker } from '../types';
 import { evaluateAutomationAt } from '../lib/audioUtils';
 import JSZip from 'jszip';
 
@@ -132,6 +132,76 @@ export interface ExportResult {
   channels: number;
 }
 
+export interface KenetiCutTransientChop {
+  index: number;
+  timeSeconds: number;
+  bar: number;
+  beat: number;
+  intensity: number; // 0 to 1 normalized transient flux
+  peakDb: number;
+  sourceTrack?: string;
+}
+
+export interface KenetiCutSongMarker {
+  id: string;
+  label: string;
+  positionNormalized: number;
+  timeSeconds: number;
+  bar: number;
+  beat: number;
+  color?: string;
+}
+
+export interface KenetiCutManifest {
+  format: 'KenetiCut-VJ-AudioReactive-v1';
+  generator: 'Strangelet Lab Audio Workstation';
+  projectName: string;
+  exportedAt: string;
+  exportMode: 'master' | 'stems';
+  bpm: number;
+  timeSignature: string;
+  totalBars: number;
+  durationSeconds: number;
+  sampleRate: number;
+  bitDepth: 16 | 24;
+  audioFiles: {
+    role: 'master' | 'stem';
+    trackId?: string;
+    trackName?: string;
+    filename: string;
+    sizeBytes: number;
+    durationSeconds: number;
+    peakDb?: number;
+  }[];
+  beatGrid: {
+    bpm: number;
+    secondsPerBeat: number;
+    secondsPerBar: number;
+    beatTimestamps: number[];
+  };
+  transientChopPoints: KenetiCutTransientChop[];
+  songMarkers: KenetiCutSongMarker[];
+  vjReactiveHints: {
+    recommendedCutMode: 'transient_chop' | 'beat_sync';
+    transientThreshold: number;
+    strobeOnStrongTransients: boolean;
+    stemDrivenVisuals: boolean;
+  };
+}
+
+export interface KenetiCutExportOptions extends BatchStemExportOptions {
+  mode: 'mix' | 'stems';
+  markers?: TimelineMarker[];
+}
+
+export interface KenetiCutExportResult {
+  zipBlob: Blob;
+  downloadUrl: string;
+  zipFilename: string;
+  manifest: KenetiCutManifest;
+  totalSizeBytes: number;
+}
+
 export class OfflineAudioRenderer {
   /**
    * Renders the current arrangement of tracks to a WAV Blob via OfflineAudioContext
@@ -140,6 +210,46 @@ export class OfflineAudioRenderer {
     tracks: Track[],
     options: ExportOptions
   ): Promise<ExportResult> {
+    const {
+      sampleRate = 44100,
+      tempo = 120,
+      onProgress
+    } = options;
+
+    // Render raw AudioBuffer via helper
+    const renderedBuffer = await this.renderProjectAudioBuffer(tracks, options);
+
+    onProgress?.(85, `Normalizing & encoding ${options.bitDepth || 16}-bit PCM WAV container...`);
+
+    // Convert AudioBuffer to WAV Blob with requested bit depth
+    const wavBlob = encodeAudioBufferToWav(renderedBuffer, options.bitDepth || 16);
+    const downloadUrl = URL.createObjectURL(wavBlob);
+
+    const safeProjectName = (options.filename || `Strangelet_Mix_${tempo}BPM_${Date.now()}`)
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .replace(/_+/g, '_');
+    const finalFilename = safeProjectName.endsWith('.wav') ? safeProjectName : `${safeProjectName}.wav`;
+
+    onProgress?.(100, 'Master export complete!');
+
+    return {
+      blob: wavBlob,
+      downloadUrl,
+      filename: finalFilename,
+      durationSeconds: renderedBuffer.duration,
+      fileSizeBytes: wavBlob.size,
+      sampleRate,
+      channels: 2
+    };
+  }
+
+  /**
+   * Internal helper to render the full master mix to an AudioBuffer (used by renderProject and KenetiCut export)
+   */
+  public async renderProjectAudioBuffer(
+    tracks: Track[],
+    options: ExportOptions
+  ): Promise<AudioBuffer> {
     const {
       sampleRate = 44100,
       totalBars = 16,
@@ -153,22 +263,18 @@ export class OfflineAudioRenderer {
 
     onProgress?.(5, 'Initializing Offline Audio Context...');
 
-    // Calculate time duration
-    // 1 bar = 4 beats. 1 beat = 60 / tempo seconds
     const secondsPerBeat = 60 / tempo;
     const secondsPerBar = secondsPerBeat * 4;
 
     const startBar = range ? Math.max(0, range.startBar) : 0;
     const endBar = range ? Math.min(totalBars, range.endBar) : totalBars;
     const renderBars = Math.max(1, endBar - startBar);
-    
-    // Add 1.5 seconds tail for reverb/delay ringing out
+
     const durationSeconds = renderBars * secondsPerBar + 1.5;
     const totalFrames = Math.ceil(durationSeconds * sampleRate);
 
     const offlineCtx = new OfflineAudioContext(2, totalFrames, sampleRate);
 
-    // Master Bus Chain
     const masterGainNode = offlineCtx.createGain();
     masterGainNode.gain.setValueAtTime(masterGain, 0);
 
@@ -203,7 +309,6 @@ export class OfflineAudioRenderer {
       trackGain.gain.setValueAtTime(baseVolume, 0);
       trackPan.pan.setValueAtTime(track.pan, 0);
 
-      // Apply Volume & Pan Automation if configured
       if (track.automation?.volume?.enabled && track.automation.volume.points.length > 0) {
         const points = [...track.automation.volume.points].sort((a, b) => a.time - b.time);
         points.forEach(pt => {
@@ -224,7 +329,6 @@ export class OfflineAudioRenderer {
       trackGain.connect(trackPan);
       trackPan.connect(masterGainNode);
 
-      // Process Clips on this track
       const clips = track.clips || [];
 
       if (clips.length > 0) {
@@ -233,7 +337,6 @@ export class OfflineAudioRenderer {
           const clipDurSec = (clip.durationBars || 2) * secondsPerBar;
 
           if (clip.audioUrl) {
-            // Recorded audio or imported audio file clip
             try {
               const res = await fetch(clip.audioUrl);
               const arrayBuffer = await res.arrayBuffer();
@@ -248,66 +351,41 @@ export class OfflineAudioRenderer {
               this.synthesizeTrackEvent(offlineCtx, track, clip, clipStartSec, clipDurSec, trackGain, tempo);
             }
           } else {
-            // MIDI / Pattern based clip: synthesize musical content
             this.synthesizeTrackEvent(offlineCtx, track, clip, clipStartSec, clipDurSec, trackGain, tempo);
           }
         }
       } else {
-        // Track has no explicit clips: synthesize continuous track content across the active arrangement
         const fullTrackDur = renderBars * secondsPerBar;
         this.synthesizeContinuousTrack(offlineCtx, track, 0, fullTrackDur, trackGain, tempo);
       }
 
       processedTrackCount++;
-      const trackProgress = 15 + Math.round((processedTrackCount / activeTracks.length) * 45);
+      const trackProgress = 15 + Math.round((processedTrackCount / Math.max(1, activeTracks.length)) * 45);
       onProgress?.(trackProgress, `Routing track ${processedTrackCount}/${activeTracks.length}: ${track.name}`);
     }
 
     onProgress?.(65, 'Executing high-speed offline Web Audio rendering...');
 
-    // Run offline bounce
     const renderedBuffer = await offlineCtx.startRendering();
 
-    onProgress?.(85, `Normalizing & encoding ${options.bitDepth || 16}-bit PCM WAV container...`);
-
-    // Optional Normalization to target dBFS peak
     if (normalize && options.normalizeMode !== 'none') {
-      const targetCeiling = options.normalizationTargetDb !== undefined 
-        ? dbToLinearPeak(options.normalizationTargetDb) 
+      const targetCeiling = options.normalizationTargetDb !== undefined
+        ? dbToLinearPeak(options.normalizationTargetDb)
         : 0.96;
       this.normalizeBuffer(renderedBuffer, targetCeiling);
     }
 
-    // Convert AudioBuffer to WAV Blob with requested bit depth
-    const wavBlob = encodeAudioBufferToWav(renderedBuffer, options.bitDepth || 16);
-    const downloadUrl = URL.createObjectURL(wavBlob);
-
-    const safeProjectName = (options.filename || `Strangelet_Mix_${tempo}BPM_${Date.now()}`)
-      .replace(/[^a-zA-Z0-9_-]/g, '_')
-      .replace(/_+/g, '_');
-    const finalFilename = safeProjectName.endsWith('.wav') ? safeProjectName : `${safeProjectName}.wav`;
-
-    onProgress?.(100, 'Master export complete!');
-
-    return {
-      blob: wavBlob,
-      downloadUrl,
-      filename: finalFilename,
-      durationSeconds,
-      fileSizeBytes: wavBlob.size,
-      sampleRate,
-      channels: 2
-    };
+    return renderedBuffer;
   }
 
   /**
-   * Renders a single track to a pristine stereo 16-bit or 24-bit PCM WAV Blob
+   * Renders a single track and returns both the AudioBuffer and encoded WAV Blob
    */
-  public async renderTrackStem(
+  public async renderTrackStemWithBuffer(
     track: Track,
     options: ExportOptions,
     dryStem: boolean = false
-  ): Promise<{ blob: Blob; durationSeconds: number; sizeBytes: number; peakDb: number }> {
+  ): Promise<{ buffer: AudioBuffer; blob: Blob; durationSeconds: number; sizeBytes: number; peakDb: number }> {
     const {
       sampleRate = 44100,
       totalBars = 16,
@@ -323,8 +401,7 @@ export class OfflineAudioRenderer {
     const startBar = range ? Math.max(0, range.startBar) : 0;
     const endBar = range ? Math.min(totalBars, range.endBar) : totalBars;
     const renderBars = Math.max(1, endBar - startBar);
-    
-    // Add 1.5 seconds tail for natural decay / reverb ring-out
+
     const durationSeconds = renderBars * secondsPerBar + 1.5;
     const totalFrames = Math.ceil(durationSeconds * sampleRate);
 
@@ -334,7 +411,6 @@ export class OfflineAudioRenderer {
     const trackPan = offlineCtx.createStereoPanner();
 
     if (dryStem) {
-      // Dry unity gain & center pan
       trackGain.gain.setValueAtTime(1.0, 0);
       trackPan.pan.setValueAtTime(0, 0);
     } else {
@@ -363,7 +439,6 @@ export class OfflineAudioRenderer {
     trackGain.connect(trackPan);
     trackPan.connect(offlineCtx.destination);
 
-    // Render clips on this track
     const clips = track.clips || [];
     if (clips.length > 0) {
       for (const clip of clips) {
@@ -394,16 +469,14 @@ export class OfflineAudioRenderer {
 
     const renderedBuffer = await offlineCtx.startRendering();
 
-    // Measure peak before/after normalization
-    const targetCeiling = options.normalizationTargetDb !== undefined 
-      ? dbToLinearPeak(options.normalizationTargetDb) 
+    const targetCeiling = options.normalizationTargetDb !== undefined
+      ? dbToLinearPeak(options.normalizationTargetDb)
       : 0.96;
 
     if (normalize && options.normalizeMode !== 'none') {
       this.normalizeBuffer(renderedBuffer, targetCeiling);
     }
 
-    // Calculate final peak level in dBFS
     let maxVal = 0;
     for (let c = 0; c < renderedBuffer.numberOfChannels; c++) {
       const data = renderedBuffer.getChannelData(c);
@@ -416,10 +489,28 @@ export class OfflineAudioRenderer {
 
     const wavBlob = encodeAudioBufferToWav(renderedBuffer, bitDepth);
     return {
+      buffer: renderedBuffer,
       blob: wavBlob,
       durationSeconds,
       sizeBytes: wavBlob.size,
       peakDb
+    };
+  }
+
+  /**
+   * Renders a single track to a pristine stereo 16-bit or 24-bit PCM WAV Blob
+   */
+  public async renderTrackStem(
+    track: Track,
+    options: ExportOptions,
+    dryStem: boolean = false
+  ): Promise<{ blob: Blob; durationSeconds: number; sizeBytes: number; peakDb: number }> {
+    const res = await this.renderTrackStemWithBuffer(track, options, dryStem);
+    return {
+      blob: res.blob,
+      durationSeconds: res.durationSeconds,
+      sizeBytes: res.sizeBytes,
+      peakDb: res.peakDb
     };
   }
 
@@ -753,6 +844,367 @@ export class OfflineAudioRenderer {
       durationBars: Math.ceil(duration / ((60 / tempo) * 4))
     };
     this.synthesizeTrackEvent(ctx, track, dummyClip, startTime, duration, destination, tempo);
+  }
+
+  /**
+   * Detects percussive / energy onset chop points from a rendered AudioBuffer for KenetiCut VJ auto-chopping
+   */
+  public detectAudioBufferTransients(
+    buffer: AudioBuffer,
+    bpm: number,
+    sourceTrack?: string,
+    maxChops: number = 96
+  ): KenetiCutTransientChop[] {
+    const sampleRate = buffer.sampleRate;
+    const ch0 = buffer.getChannelData(0);
+    const ch1 = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : ch0;
+
+    const hopSize = Math.max(256, Math.floor(sampleRate * 0.015)); // 15ms frames
+    const winSize = Math.max(512, Math.floor(sampleRate * 0.03)); // 30ms window
+    const numFrames = Math.floor((ch0.length - winSize) / hopSize);
+    if (numFrames <= 2) return [];
+
+    const energies = new Float32Array(numFrames);
+    const peaks = new Float32Array(numFrames);
+    for (let f = 0; f < numFrames; f++) {
+      const start = f * hopSize;
+      let sumSq = 0;
+      let maxAbs = 0;
+      for (let i = 0; i < winSize; i++) {
+        const mono = 0.5 * (ch0[start + i] + ch1[start + i]);
+        const abs = Math.abs(mono);
+        if (abs > maxAbs) maxAbs = abs;
+        sumSq += mono * mono;
+      }
+      energies[f] = Math.sqrt(sumSq / winSize);
+      peaks[f] = maxAbs;
+    }
+
+    // Half-wave rectified energy flux
+    const flux = new Float32Array(numFrames);
+    let maxFlux = 0;
+    let sumFlux = 0;
+    for (let f = 1; f < numFrames; f++) {
+      const diff = Math.max(0, energies[f] - energies[f - 1] * 0.92);
+      flux[f] = diff;
+      sumFlux += diff;
+      if (diff > maxFlux) maxFlux = diff;
+    }
+
+    if (maxFlux <= 0.0001) return [];
+
+    const meanFlux = sumFlux / numFrames;
+    let varFlux = 0;
+    for (let f = 0; f < numFrames; f++) {
+      const d = flux[f] - meanFlux;
+      varFlux += d * d;
+    }
+    const stdFlux = Math.sqrt(varFlux / numFrames);
+    const adaptiveThreshold = Math.max(meanFlux + stdFlux * 1.15, maxFlux * 0.16);
+    const minRefractoryFrames = Math.max(1, Math.floor((0.11 * sampleRate) / hopSize)); // 110ms minimum spacing
+
+    const secondsPerBeat = 60 / Math.max(30, bpm);
+    const secondsPerBar = secondsPerBeat * 4;
+
+    const candidates: KenetiCutTransientChop[] = [];
+    let lastAcceptedFrame = -minRefractoryFrames;
+
+    for (let f = 1; f < numFrames - 1; f++) {
+      if (f - lastAcceptedFrame < minRefractoryFrames) continue;
+      if (flux[f] >= adaptiveThreshold && flux[f] >= flux[f - 1] && flux[f] > flux[f + 1]) {
+        const timeSeconds = Number(((f * hopSize) / sampleRate).toFixed(4));
+        const totalBeats = timeSeconds / secondsPerBeat;
+        const bar = Math.floor(totalBeats / 4) + 1;
+        const beat = Number(((totalBeats % 4) + 1).toFixed(2));
+        const intensity = Number(Math.min(1, flux[f] / maxFlux).toFixed(3));
+        const peakVal = Math.max(0.0001, peaks[f]);
+        const peakDb = Number((20 * Math.log10(peakVal)).toFixed(1));
+
+        candidates.push({
+          index: candidates.length + 1,
+          timeSeconds,
+          bar,
+          beat,
+          intensity,
+          peakDb,
+          sourceTrack
+        });
+        lastAcceptedFrame = f;
+      }
+    }
+
+    // If capped, retain the strongest transients sorted chronologically
+    if (candidates.length > maxChops) {
+      const top = [...candidates]
+        .sort((a, b) => b.intensity - a.intensity)
+        .slice(0, maxChops)
+        .sort((a, b) => a.timeSeconds - b.timeSeconds)
+        .map((item, idx) => ({ ...item, index: idx + 1 }));
+      return top;
+    }
+
+    // Check bar alignment consistency (fallback safeguard not needed unless silence)
+    void secondsPerBar;
+    return candidates;
+  }
+
+  /**
+   * Packages the project master audio or stems alongside an audio-reactive JSON manifest
+   * (BPM, detected transient chop points, beat grid, and song markers) ready for KenetiCut VJ Studio.
+   */
+  public async renderKenetiCutVjBundle(
+    tracks: Track[],
+    options: KenetiCutExportOptions
+  ): Promise<KenetiCutExportResult> {
+    const {
+      mode = 'mix',
+      sampleRate = 44100,
+      bitDepth = 16,
+      totalBars = 16,
+      tempo = 120,
+      masterGain = 0.8,
+      normalize = true,
+      limiter = true,
+      filename,
+      dryStems = false,
+      namingFormat = 'numbered',
+      trackIds,
+      markers,
+      range,
+      onProgress
+    } = options;
+
+    const secondsPerBeat = 60 / tempo;
+    const secondsPerBar = secondsPerBeat * 4;
+    const effectiveStartBar = range ? Math.max(0, range.startBar) : 0;
+    const effectiveEndBar = range ? Math.min(totalBars, range.endBar) : totalBars;
+    const renderBars = Math.max(1, effectiveEndBar - effectiveStartBar);
+    const arrangementDurationSec = renderBars * secondsPerBar;
+
+    const zip = new JSZip();
+    const audioFiles: KenetiCutManifest['audioFiles'] = [];
+    let allTransients: KenetiCutTransientChop[] = [];
+    let exportDurationSeconds = arrangementDurationSec;
+
+    if (mode === 'mix') {
+      onProgress?.(10, 'KenetiCut VJ Bridge: Rendering stereo master audio...');
+      const buffer = await this.renderProjectAudioBuffer(tracks, {
+        ...options,
+        normalize,
+        limiter,
+        onProgress: (pct, msg) => onProgress?.(Math.min(70, Math.round(pct * 0.7)), msg)
+      });
+      exportDurationSeconds = buffer.duration;
+
+      onProgress?.(74, 'KenetiCut VJ Bridge: Detecting transient chop points...');
+      allTransients = this.detectAudioBufferTransients(buffer, tempo, 'Master Mix', 128);
+
+      const safeMasterBase = (filename || `Strangelet_KenetiCut_${tempo}BPM`)
+        .replace(/[^a-zA-Z0-9_-]/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/\.wav$/i, '');
+      const masterWavName = `${safeMasterBase}.wav`;
+      const wavBlob = encodeAudioBufferToWav(buffer, bitDepth);
+
+      let maxPeak = 0;
+      for (let c = 0; c < buffer.numberOfChannels; c++) {
+        const d = buffer.getChannelData(c);
+        for (let i = 0; i < d.length; i++) {
+          const abs = Math.abs(d[i]);
+          if (abs > maxPeak) maxPeak = abs;
+        }
+      }
+      const peakDb = maxPeak > 0.0001 ? Number((20 * Math.log10(maxPeak)).toFixed(1)) : -96.0;
+
+      zip.file(masterWavName, wavBlob);
+      audioFiles.push({
+        role: 'master',
+        trackName: 'Master Mix',
+        filename: masterWavName,
+        sizeBytes: wavBlob.size,
+        durationSeconds: buffer.duration,
+        peakDb
+      });
+    } else {
+      const anySoloed = tracks.some(t => t.soloed);
+      let targetTracks = tracks.filter(t => !t.muted && (!anySoloed || t.soloed));
+      if (trackIds && trackIds.length > 0) {
+        targetTracks = targetTracks.filter(t => trackIds.includes(t.id));
+      }
+      if (targetTracks.length === 0) {
+        throw new Error('No active tracks selected for KenetiCut VJ stem package.');
+      }
+
+      const combinedTransients: KenetiCutTransientChop[] = [];
+      for (let i = 0; i < targetTracks.length; i++) {
+        const track = targetTracks[i];
+        const indexPrefix = String(i + 1).padStart(2, '0');
+        const safeTrackName = track.name.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_');
+
+        let stemFilename = `${indexPrefix}_${safeTrackName}.wav`;
+        if (namingFormat === 'clean') {
+          stemFilename = `${safeTrackName}_Stem.wav`;
+        } else if (namingFormat === 'detailed') {
+          stemFilename = `${indexPrefix}_${safeTrackName}_${tempo}BPM_${sampleRate}Hz.wav`;
+        }
+
+        const pct = 8 + Math.round((i / targetTracks.length) * 60);
+        onProgress?.(pct, `KenetiCut VJ Bridge: Rendering stem [${i + 1}/${targetTracks.length}] ${track.name}...`);
+
+        const stemRes = await this.renderTrackStemWithBuffer(track, options, dryStems);
+        exportDurationSeconds = Math.max(exportDurationSeconds, stemRes.durationSeconds);
+
+        zip.file(stemFilename, stemRes.blob);
+        audioFiles.push({
+          role: 'stem',
+          trackId: track.id,
+          trackName: track.name,
+          filename: stemFilename,
+          sizeBytes: stemRes.sizeBytes,
+          durationSeconds: stemRes.durationSeconds,
+          peakDb: stemRes.peakDb
+        });
+
+        const trackTransients = this.detectAudioBufferTransients(stemRes.buffer, tempo, track.name, 48);
+        combinedTransients.push(...trackTransients);
+      }
+
+      onProgress?.(74, 'KenetiCut VJ Bridge: Merging multi-stem transient chop points...');
+      // Sort chronologically and merge near-simultaneous hits within 65ms keeping higher intensity
+      combinedTransients.sort((a, b) => a.timeSeconds - b.timeSeconds);
+      const merged: KenetiCutTransientChop[] = [];
+      for (const chop of combinedTransients) {
+        const prev = merged[merged.length - 1];
+        if (prev && Math.abs(chop.timeSeconds - prev.timeSeconds) < 0.065) {
+          if (chop.intensity > prev.intensity) {
+            merged[merged.length - 1] = chop;
+          }
+        } else {
+          merged.push(chop);
+        }
+      }
+      allTransients = merged.slice(0, 128).map((c, idx) => ({ ...c, index: idx + 1 }));
+    }
+
+    onProgress?.(82, 'KenetiCut VJ Bridge: Generating beat grid & song marker manifest...');
+
+    // Build Beat Grid
+    const beatTimestamps: number[] = [];
+    const totalBeats = renderBars * 4;
+    for (let b = 0; b < totalBeats; b++) {
+      beatTimestamps.push(Number((b * secondsPerBeat).toFixed(4)));
+    }
+
+    // Build Song Markers from project TimelineMarkers or arrangement defaults
+    const sourceMarkers: TimelineMarker[] = (markers && markers.length > 0)
+      ? markers
+      : [
+          { id: 'intro', position: 0.0, label: 'Intro', barNumber: 1 },
+          { id: 'drop', position: 0.25, label: 'Drop / Main Groove', barNumber: Math.max(2, Math.round(totalBars * 0.25) + 1) },
+          { id: 'breakdown', position: 0.5, label: 'Breakdown', barNumber: Math.max(3, Math.round(totalBars * 0.5) + 1) },
+          { id: 'outro', position: 0.875, label: 'Outro', barNumber: Math.max(4, Math.round(totalBars * 0.875) + 1) }
+        ];
+
+    const songMarkers: KenetiCutSongMarker[] = sourceMarkers
+      .map(m => {
+        const pos = Math.max(0, Math.min(1, m.position));
+        const timeSeconds = Number((pos * arrangementDurationSec).toFixed(4));
+        const totalBeatsAtPos = pos * totalBars * 4;
+        const bar = m.barNumber || Math.floor(totalBeatsAtPos / 4) + 1;
+        const beat = Number(((totalBeatsAtPos % 4) + 1).toFixed(2));
+        return {
+          id: m.id,
+          label: m.label,
+          positionNormalized: pos,
+          timeSeconds,
+          bar,
+          beat,
+          color: m.color
+        };
+      })
+      .sort((a, b) => a.timeSeconds - b.timeSeconds);
+
+    const projectName = (filename || `Strangelet_KenetiCut_${tempo}BPM`)
+      .replace(/\.(wav|zip)$/i, '');
+
+    const manifest: KenetiCutManifest = {
+      format: 'KenetiCut-VJ-AudioReactive-v1',
+      generator: 'Strangelet Lab Audio Workstation',
+      projectName,
+      exportedAt: new Date().toISOString(),
+      exportMode: mode === 'mix' ? 'master' : 'stems',
+      bpm: tempo,
+      timeSignature: '4/4',
+      totalBars: renderBars,
+      durationSeconds: Number(exportDurationSeconds.toFixed(3)),
+      sampleRate,
+      bitDepth,
+      audioFiles,
+      beatGrid: {
+        bpm: tempo,
+        secondsPerBeat: Number(secondsPerBeat.toFixed(6)),
+        secondsPerBar: Number(secondsPerBar.toFixed(6)),
+        beatTimestamps
+      },
+      transientChopPoints: allTransients,
+      songMarkers,
+      vjReactiveHints: {
+        recommendedCutMode: allTransients.length >= 8 ? 'transient_chop' : 'beat_sync',
+        transientThreshold: 0.35,
+        strobeOnStrongTransients: allTransients.some(t => t.intensity >= 0.75),
+        stemDrivenVisuals: mode === 'stems'
+      }
+    };
+
+    zip.file('keneticut_manifest.json', JSON.stringify(manifest, null, 2));
+
+    const readme = [
+      '========================================================================',
+      'KENETICUT VJ STUDIO - AUDIO-REACTIVE EXPORT BRIDGE PACKAGE',
+      '========================================================================',
+      `Project: ${projectName}`,
+      `Mode: ${mode === 'mix' ? 'Master Audio Bounce' : `Multi-Stem Package (${audioFiles.length} stems)`}`,
+      `Tempo: ${tempo} BPM (4/4)`,
+      `Detected Transient Chop Points: ${allTransients.length}`,
+      `Song Markers: ${songMarkers.length} (${songMarkers.map(m => m.label).join(', ')})`,
+      `Format: ${sampleRate} Hz / ${bitDepth}-bit PCM WAV`,
+      '',
+      'HOW TO LOAD IN KENETICUT VJ STUDIO:',
+      '1. Import this .zip archive or extract into a KenetiCut project folder.',
+      '2. KenetiCut automatically reads keneticut_manifest.json to align:',
+      '   - Master BPM & sample-accurate beat grid',
+      '   - Transient chop timestamps for reactive video cuts/strobes',
+      '   - Arrangement song markers for scene transitions',
+      '========================================================================'
+    ].join('\n');
+    zip.file('KENETICUT_VJ_README.txt', readme);
+
+    onProgress?.(88, 'Compressing KenetiCut VJ Studio bundle (.zip)...');
+
+    const zipBlob = await zip.generateAsync(
+      {
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 }
+      },
+      (metadata) => {
+        const zipProg = 88 + Math.round(metadata.percent * 0.11);
+        onProgress?.(zipProg, `Packaging KenetiCut VJ bundle: ${metadata.percent.toFixed(0)}%`);
+      }
+    );
+
+    const safeZipName = `${projectName.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_')}_KenetiCut_VJ.zip`;
+    const downloadUrl = URL.createObjectURL(zipBlob);
+
+    onProgress?.(100, `KenetiCut VJ bundle ready (${allTransients.length} chop points, ${songMarkers.length} markers)`);
+
+    return {
+      zipBlob,
+      downloadUrl,
+      zipFilename: safeZipName,
+      manifest,
+      totalSizeBytes: zipBlob.size
+    };
   }
 
   /**

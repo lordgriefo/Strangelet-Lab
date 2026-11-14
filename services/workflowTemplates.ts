@@ -2,7 +2,7 @@
  * Strangelet Lab: Guided Workflows & Project Templates Engine
  * 
  * Plotted-out production workflows with step-by-step guidance,
- * Ghost (Llama 3.1) & Quinn (Qwen 3) team tips, and 1-click project templates!
+ * Ghost (Mad Scientist) tips, and 1-click project templates!
  */
 
 import { GuidedWorkflow, ProjectTemplateConfig } from '../types';
@@ -21,12 +21,11 @@ export const GUIDED_WORKFLOWS: GuidedWorkflow[] = [
       {
         stepNumber: 1,
         title: 'Prompt Genesis in the Large Sonic Collider (LSC)',
-        description: 'Accelerate the Hadron particle beam and collide sonic concepts (e.g. "88 BPM Heavy Dusty Boom-Bap Drums + Detuned Rhodes + Warm Reese Sub"). Copy the collision prompt or let Ghost & Quinn infuse it with studio mojo.',
+        description: 'Accelerate the Hadron particle beam and collide sonic concepts (e.g. "88 BPM Heavy Dusty Boom-Bap Drums + Detuned Rhodes + Warm Reese Sub"). Copy the collision prompt or let Ghost infuse it with Mad Scientist studio mojo.',
         componentTarget: 'lsc',
         actionButtonLabel: 'Open Large Sonic Collider',
         recommendedPreset: '88 BPM Dusty Boom-Bap & Glitched Rhodes',
-        ghostTip: '👻 Ghost: "Don\'t think in sterile genres, brother! Think textures: old reel tape left in the Jamaican sun, crackling vinyl, and a Moog sub that vibrates your ribcage."',
-        quinnTip: '⚡ Quinn: "Ensure the LSC energy is set to 8.4 TeV or above so the harmonic superposition generates dense semantic tokens for the diffusion model."'
+        ghostTip: '👻 Ghost: "Don\'t think in sterile genres, brother! Think textures: old reel tape left in the Jamaican sun, crackling vinyl, and a Moog sub that vibrates your ribcage."'
       },
       {
         stepNumber: 2,
@@ -35,8 +34,7 @@ export const GUIDED_WORKFLOWS: GuidedWorkflow[] = [
         componentTarget: 'acestep',
         actionButtonLabel: 'Open Ace-Step Loop Designer',
         recommendedPreset: 'Drums & 808 Bass Stems',
-        ghostTip: '👻 Ghost: "Enable the Studer Tape Warmth toggle! It rounds off the digital transients so your kick drum thumps like an old SP-1200."',
-        quinnTip: '⚡ Quinn: "Using 28 diffusion steps with a guidance scale of 7.2 yields the ideal mathematical balance between prompt fidelity and acoustic dynamic range."'
+        ghostTip: '👻 Ghost: "Enable the Studer Tape Warmth toggle! It rounds off the digital transients so your kick drum thumps like an old SP-1200."'
       },
       {
         stepNumber: 3,
@@ -44,8 +42,7 @@ export const GUIDED_WORKFLOWS: GuidedWorkflow[] = [
         description: 'Click "Send to Mixer Console". Ace-Step automatically builds individual multitrack channels with color-coded stems, gain staging, pan offsets, and bus routing into the Gold Path master bus.',
         componentTarget: 'mixer',
         actionButtonLabel: 'Open Multitrack Mixer',
-        ghostTip: '👻 Ghost: "Check your faders! Give your bass and kick room to breathe. Carve out a tiny valley around 250Hz so the muddy boxiness disappears into thin air."',
-        quinnTip: '⚡ Quinn: "The tracks are pre-calibrated with -14 LUFS integrated headroom so you have ample dynamic ceiling before hitting the master bus brickwall."'
+        ghostTip: '👻 Ghost: "Check your faders! Give your bass and kick room to breathe. Carve out a tiny valley around 250Hz so the muddy boxiness disappears into thin air."'
       },
       {
         stepNumber: 4,
@@ -53,8 +50,7 @@ export const GUIDED_WORKFLOWS: GuidedWorkflow[] = [
         description: 'Arm the Live Mic / Guitar input channel. Turn on Groove Humanizing (jitter engine) on your MIDI and audio tracks to introduce subtle organic micro-timing variations (±12ms) and dynamic velocity drifts so it never sounds robotic.',
         componentTarget: 'humanizer',
         actionButtonLabel: 'Arm Guitar Track & Humanize',
-        ghostTip: '👻 Ghost: "Slap a little spring reverb on that Strat! Humans don\'t play on a grid like machines, man. The magic is in the micro-hesitation right before the downbeat."',
-        quinnTip: '⚡ Quinn: "The Humanize algorithm implements Gaussian distribution jitter across the transient onset points, simulating biological muscle twitch micro-deviations."'
+        ghostTip: '👻 Ghost: "Slap a little spring reverb on that Strat! Humans don\'t play on a grid like machines, man. The magic is in the micro-hesitation right before the downbeat."'
       },
       {
         stepNumber: 5,
@@ -62,8 +58,7 @@ export const GUIDED_WORKFLOWS: GuidedWorkflow[] = [
         description: 'Send the guitar loop through the Beam Splitter to refract it into 3 frequency prism bands. Then trigger the Devine Machine VST cut-up engine to perform Burroughsian reel-to-reel slice sequences and reverse flutter!',
         componentTarget: 'devine',
         actionButtonLabel: 'Launch Beam Splitter & Devine Machine',
-        ghostTip: '👻 Ghost: "Devine Machine is legendary! Like William Burroughs taking scissors to tape and pasting it backwards. Let slice 5 and 11 run in reverse!"',
-        quinnTip: '⚡ Quinn: "Beam Splitter applies Linkwitz-Riley 24dB/octave crossovers at 250Hz and 4kHz, ensuring zero phase smearing during the multi-band granular slicing."'
+        ghostTip: '👻 Ghost: "Devine Machine is legendary! Like William Burroughs taking scissors to tape and pasting it backwards. Let slice 5 and 11 run in reverse!"'
       }
     ]
   },
@@ -83,8 +78,7 @@ export const GUIDED_WORKFLOWS: GuidedWorkflow[] = [
         description: 'Drop in your Suno or Udio audio render. Notice the characteristic hyper-compressed high-frequency hiss between 8kHz and 12kHz.',
         componentTarget: 'mixer',
         actionButtonLabel: 'Import Audio File',
-        ghostTip: '👻 Ghost: "Hear that glass-like fizzle on the cymbals? That\'s the digital demon trying to rob your soul. We are gonna melt that down."',
-        quinnTip: '⚡ Quinn: "Generative diffusion models often exhibit phase correlation anomalies and high-frequency spectral clustering in the 8.2kHz to 9.1kHz zone."'
+        ghostTip: '👻 Ghost: "Hear that glass-like fizzle on the cymbals? That\'s the digital demon trying to rob your soul. We are gonna melt that down."'
       },
       {
         stepNumber: 2,
@@ -92,8 +86,7 @@ export const GUIDED_WORKFLOWS: GuidedWorkflow[] = [
         description: 'Apply the AI Mix Step "Spectral De-Sheen" to notch -3.8dB at 8.5kHz with a high Q-factor and collapse sub frequencies below 90Hz to pure mono.',
         componentTarget: 'mixer',
         actionButtonLabel: 'Apply Anti-Sheen Mix Step',
-        ghostTip: '👻 Ghost: "Bam! Instantly smooth like velvet. Now your speakers won\'t drill a hole into your ear canals."',
-        quinnTip: '⚡ Quinn: "Collapsing sub-bass below 90Hz eliminates out-of-phase stereo artifacts that ruin club playback systems and vinyl cutting heads."'
+        ghostTip: '👻 Ghost: "Bam! Instantly smooth like velvet. Now your speakers won\'t drill a hole into your ear canals."'
       },
       {
         stepNumber: 3,
@@ -101,8 +94,7 @@ export const GUIDED_WORKFLOWS: GuidedWorkflow[] = [
         description: 'Engage the Gold Path mastering chain. Toggle the real-time A/B button to instantly compare your restored, punchy master against the dry digital glare.',
         componentTarget: 'goldpath',
         actionButtonLabel: 'Open Gold Path Mastering Suite',
-        ghostTip: '👻 Ghost: "Hit that A/B button! Night and day, brother. One sounds like plastic, the other sounds like Abbey Road."',
-        quinnTip: '⚡ Quinn: "The Gold Path Matchering curve aligns the spectral envelope with Fletcher-Munson equal-loudness contours for pristine translation."'
+        ghostTip: '👻 Ghost: "Hit that A/B button! Night and day, brother. One sounds like plastic, the other sounds like Abbey Road."'
       }
     ]
   },
@@ -122,8 +114,7 @@ export const GUIDED_WORKFLOWS: GuidedWorkflow[] = [
         description: 'Use the Live Microphone Recorder or pick an existing audio clip in your project bin.',
         componentTarget: 'mixer',
         actionButtonLabel: 'Record Live Take',
-        ghostTip: '👻 Ghost: "Sing or pluck with conviction! Even a raspy acoustic chord progression has incredible harmonic secrets inside it."',
-        quinnTip: '⚡ Quinn: "Basic Pitch neural transcription processes note salience, onset velocity, and pitch bend deviations simultaneously."'
+        ghostTip: '👻 Ghost: "Sing or pluck with conviction! Even a raspy acoustic chord progression has incredible harmonic secrets inside it."'
       },
       {
         stepNumber: 2,
@@ -131,8 +122,7 @@ export const GUIDED_WORKFLOWS: GuidedWorkflow[] = [
         description: 'Open Basic Pitch, adjust note sensitivity and minimum duration, and click "Transcribe to Polyphonic MIDI".',
         componentTarget: 'mixer',
         actionButtonLabel: 'Open Basic Pitch Transcriber',
-        ghostTip: '👻 Ghost: "Watching raw audio turn into piano roll notes without sending data to the cloud is pure cybernetic poetry."',
-        quinnTip: '⚡ Quinn: "Inspect the MIDI Editor to adjust any microtonal pitch bends or quantize to the nearest 16th-note grid if desired."'
+        ghostTip: '👻 Ghost: "Watching raw audio turn into piano roll notes without sending data to the cloud is pure cybernetic poetry."'
       },
       {
         stepNumber: 3,
@@ -140,8 +130,7 @@ export const GUIDED_WORKFLOWS: GuidedWorkflow[] = [
         description: 'Open the SFZ Open Library. Choose the 1973 Rhodes Mk I, Intimate Chamber Cello, or Model D Bass and assign the MIDI notes to play through the SFZ engine.',
         componentTarget: 'mixer',
         actionButtonLabel: 'Open SFZ Library',
-        ghostTip: '👻 Ghost: "The 1973 Rhodes Mk I has that real mechanical tine thump that breathes life into any MIDI chord progression."',
-        quinnTip: '⚡ Quinn: "The SFZ engine uses multi-velocity round-robin sample mapping, giving you organic dynamic velocity response."'
+        ghostTip: '👻 Ghost: "The 1973 Rhodes Mk I has that real mechanical tine thump that breathes life into any MIDI chord progression."'
       }
     ]
   }

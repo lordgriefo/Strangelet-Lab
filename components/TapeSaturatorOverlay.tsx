@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 
 export type TapeSaturationIntensity = 'off' | 'subtle' | 'warm' | 'lynchian';
 
@@ -13,29 +13,6 @@ export const TapeSaturatorOverlay: React.FC<TapeSaturatorOverlayProps> = ({
   isRecording = false,
   lynchianActive = false
 }) => {
-  const [flickerFrame, setFlickerFrame] = useState<number>(0);
-  const [tapeJitter, setTapeJitter] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-
-  useEffect(() => {
-    if (intensity === 'off' && !lynchianActive) return;
-
-    const interval = setInterval(() => {
-      // Periodic micro-jitter simulating 1/4" tape transport flutter
-      if (Math.random() > 0.8) {
-        setTapeJitter({
-          x: (Math.random() - 0.5) * 1.5,
-          y: (Math.random() - 0.5) * 1.0
-        });
-      } else {
-        setTapeJitter({ x: 0, y: 0 });
-      }
-
-      setFlickerFrame(prev => (prev + 1) % 10);
-    }, 180);
-
-    return () => clearInterval(interval);
-  }, [intensity, lynchianActive]);
-
   if (intensity === 'off' && !lynchianActive) return null;
 
   // Determine opacity and saturation color tones based on mode
@@ -56,12 +33,7 @@ export const TapeSaturatorOverlay: React.FC<TapeSaturatorOverlayProps> = ({
   }
 
   return (
-    <div
-      className="fixed inset-0 pointer-events-none z-[9990] overflow-hidden select-none transition-transform duration-100 ease-out"
-      style={{
-        transform: `translate3d(${tapeJitter.x}px, ${tapeJitter.y}px, 0)`,
-      }}
-    >
+    <div className="fixed inset-0 pointer-events-none z-[9990] overflow-hidden select-none">
       {/* 1960s Ampex Magnetic Tape Horizontal Scanlines */}
       <div
         className="absolute inset-0 w-full h-full"
@@ -73,12 +45,13 @@ export const TapeSaturatorOverlay: React.FC<TapeSaturatorOverlayProps> = ({
         }}
       />
 
-      {/* Magnetic Tape Oxide Grain / Film Flutter */}
+      {/* Magnetic Tape Oxide Tone Wash */}
       <div
-        className="absolute inset-0 w-full h-full mix-blend-overlay"
+        className="absolute inset-0 w-full h-full"
         style={{
-          opacity: isRecording ? grainOpacity * 1.5 : grainOpacity,
-          backgroundImage: `radial-gradient(circle at ${50 + (flickerFrame % 3) * 2}% ${50 + (flickerFrame % 2) * 2}%, rgba(255, 215, 0, 0.15) 0%, rgba(0, 0, 0, 0.4) 100%)`,
+          opacity: isRecording ? grainOpacity * 1.4 : grainOpacity,
+          backgroundImage:
+            'radial-gradient(circle at 50% 50%, rgba(255, 215, 0, 0.14) 0%, rgba(0, 0, 0, 0.38) 100%)',
         }}
       />
 

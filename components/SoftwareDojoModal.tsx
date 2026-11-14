@@ -39,12 +39,11 @@ export const SoftwareDojoModal: React.FC<SoftwareDojoModalProps> = ({
   onClose,
   onOpenHubSettings
 }) => {
-  if (!isOpen) return null;
-
   const [scrolls, setScrolls] = useState<DojoScroll[]>(getStoredDojoScrolls);
   const [activeScrollId, setActiveScrollId] = useState<string>(scrolls[0]?.id || 'custom-training');
   const [customNote, setCustomNote] = useState<string>(getCustomDojoTrainingNote);
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
+  const [importError, setImportError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'scrolls' | 'custom_training' | 'studio_lore' | 'offline_guide'>('scrolls');
   const [selectedLoreId, setSelectedLoreId] = useState<string>(STUDIO_LORE_DATABASE[0]?.id);
 
@@ -95,13 +94,18 @@ export const SoftwareDojoModal: React.FC<SoftwareDojoModalProps> = ({
         const parsed = JSON.parse(evt.target?.result as string);
         if (parsed.scrolls) setScrolls(parsed.scrolls);
         if (parsed.customNote !== undefined) setCustomNote(parsed.customNote);
+        setImportError(null);
         playColliderInjectionSound();
       } catch (err) {
-        alert('Invalid Dojo training JSON file.');
+        setImportError('Invalid Dojo training JSON file. Please choose a valid Strangelet Dojo export.');
+        setTimeout(() => setImportError(null), 5000);
       }
     };
     reader.readAsText(file);
+    e.target.value = '';
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[9996] flex items-center justify-center p-3 md:p-6 bg-black/85 backdrop-blur-md animate-fade-in font-mono select-none">
@@ -148,6 +152,16 @@ export const SoftwareDojoModal: React.FC<SoftwareDojoModalProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Inline Error Notification */}
+        {importError && (
+          <div className="mx-6 mt-3 px-3 py-2 rounded-lg bg-red-950/70 border border-red-500/50 text-red-200 text-xs flex items-center justify-between">
+            <span>{importError}</span>
+            <button onClick={() => setImportError(null)} className="text-red-300 hover:text-white ml-2">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Top Navigation Tabs */}
         <div className="flex items-center justify-between px-6 py-2.5 bg-[#0C101E] border-b border-[#1A223B] text-xs">

@@ -109,6 +109,7 @@ export const SunoMasteringStudio: React.FC<SunoMasteringStudioProps> = ({ initia
   const [duration, setDuration] = useState<number>(6.0);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportComplete, setExportComplete] = useState<boolean>(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>('synthetic_suno_demo.mp3');
 
   // Web Audio refs
@@ -404,6 +405,7 @@ export const SunoMasteringStudio: React.FC<SunoMasteringStudioProps> = ({ initia
       const decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
 
       stopPlayback();
+      setStatusError(null);
       audioBufferRef.current = decodedBuffer;
       setDuration(decodedBuffer.duration);
       setFileName(file.name);
@@ -413,7 +415,7 @@ export const SunoMasteringStudio: React.FC<SunoMasteringStudioProps> = ({ initia
       startPlayback();
     } catch (err) {
       console.error('Error decoding audio file:', err);
-      alert('Could not decode audio file. Please try a standard MP3 or WAV file.');
+      setStatusError('Could not decode audio file. Please try a standard MP3 or WAV file.');
     }
   };
 
@@ -454,7 +456,7 @@ export const SunoMasteringStudio: React.FC<SunoMasteringStudioProps> = ({ initia
       setTimeout(() => setExportComplete(false), 3500);
     } catch (err) {
       console.error('Export error:', err);
-      alert('Failed to export audio. Please check browser permissions.');
+      setStatusError('Failed to export audio. Please check browser permissions.');
     } finally {
       setIsExporting(false);
     }
@@ -533,6 +535,18 @@ export const SunoMasteringStudio: React.FC<SunoMasteringStudioProps> = ({ initia
           </label>
         </div>
       </div>
+
+      {statusError && (
+        <div className="px-4 py-2.5 rounded-xl bg-red-950/70 border border-red-500/50 text-red-200 text-xs font-mono flex items-center justify-between">
+          <span>{statusError}</span>
+          <button
+            onClick={() => setStatusError(null)}
+            className="text-red-300 hover:text-white ml-3 text-[11px] font-bold"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Main Grid: Left Spectrum & Player (60%), Right Presets & Knobs (40%) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
