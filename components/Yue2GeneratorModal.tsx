@@ -27,7 +27,11 @@ import {
   YUE2_VOCAL_PROFILES, 
   YUE2_PRESET_PROMPTS, 
   Yue2GenerationResult, 
-  Yue2StemOutput 
+  Yue2StemOutput,
+  checkAudioCppServer,
+  getStoredAudioCppEndpoint,
+  saveStoredAudioCppEndpoint,
+  AudioCppServerStatus
 } from '../services/yue2Engine';
 import { Track, Clip, ProjectBinClip } from '../types';
 import { playLaserBeamSound, playColliderInjectionSound } from '../lib/laserSound';
@@ -76,6 +80,42 @@ export const Yue2GeneratorModal: React.FC<Yue2GeneratorModalProps> = ({
   const [generationStep, setGenerationStep] = useState<string>('');
   const [result, setResult] = useState<Yue2GenerationResult | null>(null);
 
+  // Native C++ Kobold.cpp / audio.cpp Server State
+  const [nativeEndpoint, setNativeEndpoint] = useState<string>(getStoredAudioCppEndpoint);
+  const [serverStatus, setServerStatus] = useState<AudioCppServerStatus>({
+    connected: false,
+    pingMs: 0,
+    serverName: 'Detecting...',
+    supportsAudio: false,
+    backendType: 'offline'
+  });
+  const [isCheckingServer, setIsCheckingServer] = useState<boolean>(false);
+  const [forceEmbedded, setForceEmbedded] = useState<boolean>(false);
+
+  // Probe audio.cpp / Kobold server on mount
+  useEffect(() => {
+    let mounted = true;
+    const probe = async () => {
+      setIsCheckingServer(true);
+      const status = await checkAudioCppServer(nativeEndpoint);
+      if (mounted) {
+        setServerStatus(status);
+        setIsCheckingServer(false);
+      }
+    };
+    probe();
+    return () => { mounted = false; };
+  }, [nativeEndpoint]);
+
+  const handlePingServer = async () => {
+    setIsCheckingServer(true);
+    playLaserBeamSound('laser_select');
+    const status = await checkAudioCppServer(nativeEndpoint);
+    setServerStatus(status);
+    saveStoredAudioCppEndpoint(nativeEndpoint);
+    setIsCheckingServer(false);
+  };
+
   // Playback state
   const [isPlayingFullMix, setIsPlayingFullMix] = useState<boolean>(false);
   const [activeStemPlaying, setActiveStemPlaying] = useState<string | null>(null);
@@ -103,17 +143,24 @@ export const Yue2GeneratorModal: React.FC<Yue2GeneratorModalProps> = ({
       await new Promise(r => setTimeout(r, 800));
       setGenerationStep('YuE 2.0 Stage 3: Rendering 32-bit Floating Point Audio Stems...');
 
-      const genResult = await yue2Engine.generateSong({
-        prompt,
-        lyrics,
-        vocalProfileId,
-        bpm,
-        durationBars,
-        keyRoot,
-        scale,
-        instrumentalBalance,
-        creativityTemperature: creativityTemp
-      });
+      const genResult = await yue2Engine.generateSong(
+        {
+          prompt,
+          lyrics,
+          vocalProfileId,
+          bpm,
+          durationBars,
+          keyRoot,
+          scale,
+          instrumentalBalance,
+          creativityTemperature: creativityTemp
+        },
+        {
+          forceEmbedded,
+          endpointUrl: nativeEndpoint,
+          onStepProgress: (step) => setGenerationStep(step)
+        }
+      );
 
       setResult(genResult);
       playLaserBeamSound('laser_curve');
@@ -251,6 +298,64 @@ export const Yue2GeneratorModal: React.FC<Yue2GeneratorModalProps> = ({
         {/* Content Body */}
         <div className="p-6 flex-1 overflow-y-auto space-y-6">
           
+          {/* C++ GGML Engine / Kobold.cpp / audio.cpp Status Banner */}
+          <div className="p-3.5 rounded-xl border border-pink-900/50 bg-black/60 shadow-inner flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
+                serverStatus.connected && !forceEmbedded
+                  ? 'bg-emerald-400 shadow-[0_0_10px_#34D399] animate-pulse'
+                  : 'bg-amber-400 shadow-[0_0_8px_#FBBF24]'
+              }`} />
+              <div>
+                <div className="text-xs font-bold text-white flex items-center gap-2">
+                  <span>INFERENCE BACKEND:</span>
+                  <span className={serverStatus.connected && !forceEmbedded ? 'text-emerald-300 font-black' : 'text-amber-300 font-bold'}>
+                    {forceEmbedded 
+                      ? 'FORCE EMBEDDED DSP SYNTHESIZER' 
+                      : (serverStatus.connected ? `${serverStatus.serverName.toUpperCase()} (NATIVE C++ GGML)` : 'OFFLINE EMBEDDED AUDIO SYNTHESIZER')}
+                  </span>
+                </div>
+                <div className="text-[11px] text-[#8E92B0] mt-0.5">
+                  {serverStatus.connected && !forceEmbedded
+                    ? `Connected to ${nativeEndpoint} (${serverStatus.pingMs}ms latency) — Pure C++ inference without Python`
+                    : 'Running Strangelet embedded multi-stem audio synthesizer. Start Kobold.cpp or audio.cpp on port 5001/5002 for neural generation.'}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+              <input
+                type="text"
+                value={nativeEndpoint}
+                onChange={(e) => setNativeEndpoint(e.target.value)}
+                placeholder="http://localhost:5001"
+                className="px-2.5 py-1 text-[11px] font-mono rounded-lg bg-black/80 border border-white/20 text-white focus:outline-none focus:border-pink-400 w-36"
+                title="Endpoint URL for Kobold.cpp or audio.cpp"
+              />
+              <button
+                onClick={handlePingServer}
+                disabled={isCheckingServer}
+                className="px-2.5 py-1 text-[10px] font-bold rounded-lg border border-pink-600/50 bg-pink-950/60 hover:bg-pink-900/80 text-pink-200 transition-colors cursor-pointer flex items-center gap-1.5"
+                title="Ping Kobold.cpp or audio.cpp server"
+              >
+                <RotateCw size={11} className={isCheckingServer ? 'animate-spin' : ''} />
+                <span>{isCheckingServer ? 'PINGING...' : 'PING'}</span>
+              </button>
+
+              <button
+                onClick={() => setForceEmbedded(!forceEmbedded)}
+                className={`px-2 py-1 text-[10px] font-bold rounded-lg border transition-colors cursor-pointer ${
+                  forceEmbedded
+                    ? 'border-amber-500/50 bg-amber-950/50 text-amber-300'
+                    : 'border-white/10 bg-black/40 text-[#8E92B0] hover:text-white'
+                }`}
+                title="Toggle forced offline embedded synthesis mode"
+              >
+                {forceEmbedded ? 'EMBEDDED' : 'AUTO C++'}
+              </button>
+            </div>
+          </div>
+
           {/* Quick Presets Strip */}
           <div>
             <label className="text-[10px] font-bold text-[#8C9BBF] uppercase tracking-wider block mb-2">

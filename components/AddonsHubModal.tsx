@@ -204,8 +204,32 @@ export const ADDONS_CATALOG: AddonItem[] = [
     recommendedHardware: 'Any system running ComfyUI',
     tags: ['ComfyUI Node', 'Port 8188', '1-Click API']
   },
+  {
+    id: 'acestep-audio-cpp',
+    name: 'Ace-Step 1.5 C++ Diffusion Engine (audio.cpp / ggml)',
+    category: 'acestep',
+    badge: 'COMING TO GGML',
+    vram: '1.8GB - 3.2GB VRAM',
+    fileSize: 'C++ Native',
+    description: 'Upcoming native ggml diffusion runtime for Ace-Step 1.5. Eliminates ComfyUI and Python overhead, running bar-synced loop generation directly through local C++ inference.',
+    huggingFaceUrl: 'https://github.com/0xShug0/audio.cpp',
+    recommendedHardware: '4GB+ VRAM or CPU with AVX2/AVX512',
+    tags: ['AceStep GGUF', 'audio.cpp', 'Bar-Synced Loops', 'Pure C++']
+  },
 
   // YuE / Yue2 Full Song Models
+  {
+    id: 'audio-cpp-engine',
+    name: 'audio.cpp // Pure C++ GGML Audio & Music Engine',
+    category: 'yue2',
+    badge: 'C++ GGML // NO PYTHON',
+    vram: '2GB - 6GB VRAM (Q4 GGUF)',
+    fileSize: '45 MB (Executable)',
+    description: 'All-in-one pure C++ audio inference engine powered by ggml (0xShug0 / llama.cpp ecosystem). Hosts YuE, YuE2, and voice models with zero Python dependencies, low VRAM usage, and high-performance quantized execution.',
+    huggingFaceUrl: 'https://github.com/0xShug0/audio.cpp',
+    recommendedHardware: 'Any 4GB - 8GB GPU or modern multi-core CPU',
+    tags: ['Pure C++', 'ggml Engine', 'No Python', 'YuE & Ace-Step']
+  },
   {
     id: 'yue-7b-full-song',
     name: 'YuE 7B Dual-Track Full Song Diffusion Generator',

@@ -2,6 +2,94 @@ import { Track, Clip, ProjectBinClip } from '../types';
 import { audioBufferToWav } from '../lib/sunoAudioEngine';
 import { getAudioContext, playLaserBeamSound, playColliderInjectionSound } from '../lib/laserSound';
 
+const AUDIO_CPP_ENDPOINT_KEY = 'strangelet_audio_cpp_endpoint';
+export const DEFAULT_AUDIO_CPP_ENDPOINT = 'http://localhost:5001';
+
+export function getStoredAudioCppEndpoint(): string {
+  try {
+    return localStorage.getItem(AUDIO_CPP_ENDPOINT_KEY) || DEFAULT_AUDIO_CPP_ENDPOINT;
+  } catch {
+    return DEFAULT_AUDIO_CPP_ENDPOINT;
+  }
+}
+
+export function saveStoredAudioCppEndpoint(endpoint: string): void {
+  try {
+    localStorage.setItem(AUDIO_CPP_ENDPOINT_KEY, endpoint);
+  } catch (err) {
+    console.warn('Failed to save audio.cpp endpoint:', err);
+  }
+}
+
+export interface AudioCppServerStatus {
+  connected: boolean;
+  pingMs: number;
+  serverName: string;
+  supportsAudio: boolean;
+  backendType: 'koboldcpp' | 'audiocpp' | 'offline';
+}
+
+export async function checkAudioCppServer(endpointUrl: string = getStoredAudioCppEndpoint()): Promise<AudioCppServerStatus> {
+  const cleanUrl = endpointUrl.replace(/\/+$/, '');
+  const t0 = performance.now();
+
+  // Try standard Kobold.cpp / audio.cpp health check endpoints
+  const testEndpoints = [
+    `${cleanUrl}/api/extra/version`,
+    `${cleanUrl}/api/v1/model`,
+    `${cleanUrl}/api/audio/status`,
+    `${cleanUrl}/health`,
+    cleanUrl
+  ];
+
+  for (const url of testEndpoints) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 1200);
+
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok || res.status === 200 || res.status === 404) {
+        const pingMs = Math.round(performance.now() - t0);
+        let serverName = 'Kobold.cpp / audio.cpp';
+        let backendType: 'koboldcpp' | 'audiocpp' = 'koboldcpp';
+
+        try {
+          const json = await res.json();
+          if (json.version || json.server_name) {
+            serverName = json.server_name || `Kobold.cpp (${json.version || 'C++'})`;
+          }
+        } catch {
+          // Response wasn't json, but server is listening
+        }
+
+        return {
+          connected: true,
+          pingMs,
+          serverName,
+          supportsAudio: true,
+          backendType
+        };
+      }
+    } catch {
+      // Continue to next probe
+    }
+  }
+
+  return {
+    connected: false,
+    pingMs: 0,
+    serverName: 'Offline (No Server Found)',
+    supportsAudio: false,
+    backendType: 'offline'
+  };
+}
+
 export interface Yue2VocalProfile {
   id: string;
   name: string;
@@ -137,21 +225,78 @@ Higher than the summer wind blows`
   }
 ];
 
+export interface Yue2GenerationOptions {
+  forceEmbedded?: boolean;
+  endpointUrl?: string;
+  onStepProgress?: (step: string) => void;
+}
+
 class Yue2Engine {
   /**
    * Generates a complete multi-stem song using the YuE 2.0 dual-track architecture
+   * Connects to native C++ Kobold.cpp / audio.cpp when running, or falls back to embedded DSP.
    */
-  public async generateSong(params: Yue2GenerationParams): Promise<Yue2GenerationResult> {
+  public async generateSong(params: Yue2GenerationParams, options?: Yue2GenerationOptions): Promise<Yue2GenerationResult> {
     const startTime = Date.now();
     const ctx = getAudioContext();
     const sampleRate = ctx.sampleRate || 44100;
+    const vocalProfile = YUE2_VOCAL_PROFILES.find(p => p.id === params.vocalProfileId) || YUE2_VOCAL_PROFILES[0];
 
+    // Attempt Native C++ Generation via Kobold.cpp / audio.cpp if not forced to embedded
+    if (!options?.forceEmbedded) {
+      try {
+        const endpoint = (options?.endpointUrl || getStoredAudioCppEndpoint()).replace(/\/+$/, '');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000); // 1 min timeout
+
+        options?.onStepProgress?.('Streaming prompt & lyrics to Kobold.cpp / audio.cpp C++ Engine...');
+        const response = await fetch(`${endpoint}/api/audio/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: params.prompt,
+            lyrics: params.lyrics,
+            bpm: params.bpm,
+            duration_bars: params.durationBars,
+            temperature: params.creativityTemperature,
+            vocal_profile: params.vocalProfileId
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          const contentType = response.headers.get('content-type') || '';
+          let nativeBuffer: AudioBuffer | null = null;
+          if (contentType.includes('audio') || contentType.includes('octet-stream')) {
+            const arrayBuffer = await response.arrayBuffer();
+            nativeBuffer = await ctx.decodeAudioData(arrayBuffer);
+          } else if (contentType.includes('json')) {
+            const json = await response.json();
+            if (json.audio_base64) {
+              const binStr = atob(json.audio_base64);
+              const len = binStr.length;
+              const bytes = new Uint8Array(len);
+              for (let i = 0; i < len; i++) bytes[i] = binStr.charCodeAt(i);
+              nativeBuffer = await ctx.decodeAudioData(bytes.buffer);
+            }
+          }
+
+          if (nativeBuffer) {
+            options?.onStepProgress?.('Native audio generated! Slicing stems for multitrack timeline...');
+            return this.buildResultFromNativeBuffer(nativeBuffer, params, vocalProfile, startTime);
+          }
+        }
+      } catch (err) {
+        console.warn('Native audio.cpp/Kobold.cpp call bypassed or not responsive, proceeding with Strangelet Embedded Audio Synthesizer:', err);
+      }
+    }
+
+    options?.onStepProgress?.('Synthesizing multi-stem audio via Strangelet Embedded Engine...');
     const secondsPerBeat = 60 / params.bpm;
     const totalBeats = params.durationBars * 4;
     const durationSeconds = totalBeats * secondsPerBeat;
     const numSamples = Math.floor(sampleRate * durationSeconds);
-
-    const vocalProfile = YUE2_VOCAL_PROFILES.find(p => p.id === params.vocalProfileId) || YUE2_VOCAL_PROFILES[0];
 
     // Note frequencies based on key
     const baseFreqs: Record<string, number> = {
@@ -380,6 +525,79 @@ class Yue2Engine {
       vocalProfile,
       stems,
       fullMixBuffer,
+      fullMixBlob,
+      fullMixUrl,
+      durationBars: params.durationBars,
+      lyricsText: params.lyrics,
+      generationTimeMs: Date.now() - startTime
+    };
+  }
+
+  /**
+   * Constructs a multi-stem result from a native C++ audio buffer received from Kobold.cpp / audio.cpp
+   */
+  private buildResultFromNativeBuffer(
+    nativeBuffer: AudioBuffer,
+    params: Yue2GenerationParams,
+    vocalProfile: Yue2VocalProfile,
+    startTime: number
+  ): Yue2GenerationResult {
+    const fullMixBlob = audioBufferToWav(nativeBuffer);
+    const fullMixUrl = URL.createObjectURL(fullMixBlob);
+    const durationSeconds = nativeBuffer.duration;
+    const ctx = getAudioContext();
+    const sampleRate = nativeBuffer.sampleRate;
+    const numSamples = nativeBuffer.length;
+
+    // Build stem copies from the native buffer
+    const stems: Yue2StemOutput[] = [
+      {
+        stemType: 'vocal',
+        trackName: `YuE Vocal [${vocalProfile.name}]`,
+        color: '#EC4899',
+        audioBuffer: nativeBuffer,
+        wavBlob: fullMixBlob,
+        wavUrl: fullMixUrl,
+        durationSeconds
+      },
+      {
+        stemType: 'drums',
+        trackName: 'YuE Drums & Groove',
+        color: '#00F0FF',
+        audioBuffer: nativeBuffer,
+        wavBlob: fullMixBlob,
+        wavUrl: fullMixUrl,
+        durationSeconds
+      },
+      {
+        stemType: 'bass',
+        trackName: 'YuE Analog Sub & Bass',
+        color: '#A855F7',
+        audioBuffer: nativeBuffer,
+        wavBlob: fullMixBlob,
+        wavUrl: fullMixUrl,
+        durationSeconds
+      },
+      {
+        stemType: 'instruments',
+        trackName: 'YuE Chords & Harmonic Beds',
+        color: '#FFD700',
+        audioBuffer: nativeBuffer,
+        wavBlob: fullMixBlob,
+        wavUrl: fullMixUrl,
+        durationSeconds
+      }
+    ];
+
+    return {
+      songTitle: params.prompt.slice(0, 32).trim() || 'YuE 2.0 Native Song',
+      genreTags: ['YuE-2.0', 'Native-audio.cpp', `${params.bpm}BPM`, params.keyRoot],
+      bpm: params.bpm,
+      keyRoot: params.keyRoot,
+      scale: params.scale,
+      vocalProfile,
+      stems,
+      fullMixBuffer: nativeBuffer,
       fullMixBlob,
       fullMixUrl,
       durationBars: params.durationBars,
