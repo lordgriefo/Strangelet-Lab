@@ -194,6 +194,7 @@ interface LayoutProps {
   collabSessionCode?: string | null;
   collabMemberCount?: number;
   onOpenYue2Generator?: () => void;
+  onOpenAddonsHub?: () => void;
   onOpenVstWrapperHost?: (pluginId?: string) => void;
 }
 
@@ -252,6 +253,7 @@ const Layout: React.FC<LayoutProps> = ({
   collabSessionCode,
   collabMemberCount,
   onOpenYue2Generator,
+  onOpenAddonsHub,
   onOpenVstWrapperHost
 }) => {
   const [internalSidebarCollapsed, setInternalSidebarCollapsed] = useState<boolean>(false);
@@ -843,6 +845,7 @@ const Layout: React.FC<LayoutProps> = ({
                   collabSessionCode={collabSessionCode}
                   collabMemberCount={collabMemberCount}
                   onOpenYue2Generator={onOpenYue2Generator}
+                  onOpenAddonsHub={onOpenAddonsHub}
                   onOpenVstWrapperHost={onOpenVstWrapperHost}
                 />
 

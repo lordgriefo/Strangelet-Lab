@@ -46,6 +46,7 @@ const DrumTriggerView = lazy(() => import('./components/DrumTriggerView').then(m
 const StudioContextMenu = lazy(() => import('./components/StudioContextMenu').then(m => ({ default: m.StudioContextMenu })));
 const BatchStemExportModal = lazy(() => import('./components/BatchStemExportModal').then(m => ({ default: m.BatchStemExportModal })));
 const TemplateGallery = lazy(() => import('./components/TemplateGallery').then(m => ({ default: m.TemplateGallery })));
+const AddonsHubModal = lazy(() => import('./components/AddonsHubModal').then(m => ({ default: m.AddonsHubModal })));
 import { 
   Clip, 
   View, 
@@ -265,6 +266,7 @@ const App: React.FC = () => {
   const [yue2InitialPrompt, setYue2InitialPrompt] = useState<string>('');
   const [isVstWrapperHostOpen, setIsVstWrapperHostOpen] = useState<boolean>(false);
   const [vstWrapperHostPluginId, setVstWrapperHostPluginId] = useState<string | undefined>(undefined);
+  const [isAddonsHubOpen, setIsAddonsHubOpen] = useState<boolean>(false);
 
   // Real-Time Collaborative Workspace Subscriptions
   useEffect(() => {
@@ -1443,6 +1445,7 @@ const App: React.FC = () => {
           setMixerModalRequest({ type: 'beamsplitter', id: Date.now() });
         }}
         onOpenYue2Generator={() => setIsYue2ModalOpen(true)}
+        onOpenAddonsHub={() => setIsAddonsHubOpen(true)}
         onOpenVstWrapperHost={(pluginId) => {
           setVstWrapperHostPluginId(pluginId);
           setIsVstWrapperHostOpen(true);
@@ -1524,6 +1527,15 @@ const App: React.FC = () => {
             onClose={() => setIsResourceManagerOpen(false)}
             onOpenSoftwareDojo={() => setIsSoftwareDojoOpen(true)}
             onOpenAiHub={() => setIsKoboldSettingsOpen(true)}
+          />
+        )}
+
+        {/* Add-ons & Model Download Hub Modal */}
+        {isAddonsHubOpen && (
+          <AddonsHubModal
+            isOpen={isAddonsHubOpen}
+            onClose={() => setIsAddonsHubOpen(false)}
+            onOpenResourceManager={() => setIsResourceManagerOpen(true)}
           />
         )}
 

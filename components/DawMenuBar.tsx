@@ -89,6 +89,7 @@ export interface DawMenuBarProps {
   onOpenUserGuide?: () => void;
   onOpenSoftwareDojo?: () => void;
   onOpenResourceManager?: () => void;
+  onOpenAddonsHub?: () => void;
   onMoveGuruToSidebar?: () => void;
   isGuruDockedInSidebar?: boolean;
   isAutoArmMode?: boolean;
@@ -140,6 +141,7 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
   onOpenUserGuide,
   onOpenSoftwareDojo,
   onOpenResourceManager,
+  onOpenAddonsHub,
   onMoveGuruToSidebar,
   isGuruDockedInSidebar,
   isAutoArmMode,
@@ -743,6 +745,21 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
               </span>
               <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-600/50 font-bold">DSP LAB AI</span>
             </button>
+
+            {onOpenAddonsHub && (
+              <button
+                onClick={() => executeAction(onOpenAddonsHub)}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-emerald-300 hover:text-white hover:bg-emerald-950/40 transition-colors font-bold"
+              >
+                <span className="flex items-center gap-2">
+                  <Download size={14} className="text-emerald-400" />
+                  <span>📦 Add-ons & Model Download Hub...</span>
+                </span>
+                <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-600/50">
+                  MODELS
+                </span>
+              </button>
+            )}
 
             <div className="h-[1px] bg-[#1E2438] my-1" />
 

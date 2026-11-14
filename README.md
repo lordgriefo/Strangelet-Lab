@@ -86,6 +86,18 @@ Available both as a standalone portable Windows executable and as a browser-nati
 
 ---
 
+## 📦 Model Add-ons & Expansions Hub
+
+Strangelet Lab is completely modular. You can run it 100% standalone with zero AI models installed, or connect heavy neural engines on demand:
+
+* 👉 **[Browse the Full Add-ons & Models Catalog (ADDONS_AND_MODELS.md)](ADDONS_AND_MODELS.md)**
+  * 👻 **GHOST AI Models**: Direct Hugging Face GGUF downloads + 1-click Ollama commands (`qwen2.5:3b`, `qwen2.5:7b`, `llama3.1:8b`).
+  * ⚡ **Ace-Step 1.5 Audio Diffusion**: 1.7B LM Backbone, Turbo DiT weights, and local ComfyUI workflow template.
+  * 🎶 **YuE 2.0 Full-Song Generation**: Dual-track 7B vocal & instrumental foundation weights.
+  * 🎹 **Free Acoustic & Vintage SFZ Packs**: Concert Grand Piano, Rhodes Mark I, Mellotron Strings, and Roland TR-808/909 drum transient kits.
+
+---
+
 ## 🚀 Quick Start (Portable Windows Binary)
 
 1. Download the latest release: **[Strangelet-Lab-v2.5-Beta-Windows-x64.zip](https://github.com/lordgriefo/strangelet-lab/releases)**
