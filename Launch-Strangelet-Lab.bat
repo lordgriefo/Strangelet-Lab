@@ -1,0 +1,3 @@
+@echo off
+title Launching Strangelet Lab Native Desktop...
+start "" "%~dp0release\win-unpacked\Strangelet Lab.exe"

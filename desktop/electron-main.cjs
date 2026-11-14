@@ -6,6 +6,9 @@ const fs = require('fs');
 let mainWindow = null;
 const nativePluginWindows = new Map();
 
+// Enable Web Audio & autoplay flags without requiring manual user gesture
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -13,6 +16,8 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     backgroundColor: '#0E0E12',
+    icon: path.join(__dirname, '../app-icon.png'),
+    autoHideMenuBar: true,
     title: 'Strangelet Lab - Native Audio Workstation',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

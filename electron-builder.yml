@@ -1,0 +1,21 @@
+appId: com.strangelet.lab
+productName: Strangelet Lab
+electronVersion: "29.1.5"
+directories:
+  output: release/
+files:
+  - "dist/**/*"
+  - "desktop/**/*"
+  - "electron.cjs"
+  - "app-icon.png"
+  - "package.json"
+win:
+  target:
+    - target: zip
+      arch:
+        - x64
+    - target: dir
+      arch:
+        - x64
+  icon: app-icon.png
+  signAndEditExecutable: false

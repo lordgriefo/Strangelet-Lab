@@ -1,0 +1,164 @@
+# ⚡ STRANGELET LAB
+
+<div align="center">
+
+```
+   ███████╗████████╗██████╗  █████╗ ███╗   ██╗ ██████╗ ███████╗██╗     ███████╗████████╗
+   ██╔════╝╚══██╔══╝██╔══██╗██╔══██╗████╗  ██║██╔════╝ ██╔════╝██║     ██╔════╝╚══██╔══╝
+   ███████╗   ██║   ██████╔╝███████║██╔██╗ ██║██║  ███╗█████╗  ██║     █████╗     ██║   
+   ╚════██║   ██║   ██╔══██╗██╔══██║██║╚██╗██║██║   ██║██╔══╝  ██║     ██╔══╝     ██║   
+   ███████║   ██║   ██║  ██║██║  ██║██║ ╚████║╚██████╔╝███████╗███████╗███████╗   ██║   
+   ╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚══════╝╚══════╝╚══════╝   ╚═╝   
+                                    -- L A B --
+```
+
+**Quantum-Acoustic Production Workstation & Offline-First Particle Collider DAW**  
+*Inspired by Georges Méliès (1902), David Lynchian Tape Realism & High-Energy Particle Physics*
+
+[![Version](https://img.shields.io/badge/version-2.5.0--beta.1-amber.svg)](https://github.com/lordgriefo/strangelet-lab/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20Web-cyan.svg)](https://github.com/lordgriefo/strangelet-lab/releases)
+[![Audio](https://img.shields.io/badge/DSP-Faust%20WebAssembly%20%2B%20Web%20Audio-emerald.svg)](#-faust-dsp-toy-workbench)
+[![AI Engine](https://img.shields.io/badge/AI%20Buddy-GHOST%20%28Offline%20Dojo%20%2F%20GGUF%29-purple.svg)](#-ghost-in-the-machine)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+</div>
+
+---
+
+## 🌌 Overview
+
+**Strangelet Lab** is an experimental desktop Digital Audio Workstation (DAW) and sonic physics laboratory. It unites classic analog console workflows with relativistic particle audio synthesis, real-time Faust WebAssembly DSP compilation, FFT reference mastering, and an air-gapped offline AI studio companion named **GHOST**.
+
+Available both as a standalone portable Windows executable and as a browser-native audio workstation.
+
+---
+
+## 🎛️ Key Features
+
+### 1. 🎚️ Multi-Mode Workspace & Zero-Latency Performance
+- **Pure Timeline View**: Edge-to-edge full-height arrangement window with micro-transport for uninterrupted multi-track editing.
+- **Studio Console View**: Dedicated long-throw mixing console with faders, meters, and routing inserts.
+- **Zero-Latency Hardware Cursor**: Smooth, instant 60fps/120fps tracking without main-thread cursor lag.
+- **A/B Mix Snapshots**: Instant 1-click storage and auditioning across 8 distinct mix balance states.
+
+### 2. ⚛️ The Large Sonic Collider
+- Simulates audio stems as relativistic charged particles inside a superconducting toroidal ring.
+- **Relativistic Fission**: Induce granular Doppler pitch shifts and micro-sonic particle bursts as audio waves collide at sub-light velocities.
+- **Laser Steering**: Inspect, pull, or deflect orbiting sound particles using magnetic containment fields.
+
+### 3. 🛡️ Gold Path Mastering & FFT Reference Matchering
+- **6-Stage Mastering Engine**: Pre-EQ, Dynamic Matchering Curve, Multiband Glue Compression, Analog Tape Saturation, Stereo Imager (with mono sub-lock below 100Hz), and Brickwall True-Peak Limiter.
+- **Live FFT Reference Matchering**: Drag-and-drop any commercial reference track (`.wav`, `.mp3`) — the engine computes the spectral transfer curve and automatically aligns the 6-band Parametric EQ to match the target loudness and tonal balance.
+- **Level-Matched Reference Auditioning**: Seamlessly toggle between your active master and the reference track.
+
+### 4. 🥁 Drum Transient Replacer & Audio-to-MIDI
+- **Spotify Basic Pitch Neural Transcription**: Polyphonic audio-to-MIDI pitch detection converting raw audio stems into editable MIDI note events.
+- **Transient Replacement**: Detects attack transients (Kick, Snare, Hi-Hat) and triggers vintage SFZ 808/909 samples or sends notes to external VST instruments.
+- **1-Click .MID Export & Web MIDI Out**: Export standard MIDI files or stream directly into hardware synths and virtual MIDI ports (`loopMIDI`).
+
+### 5. 🎛️ Faust DSP Toy Workbench
+- Real-time in-app audio coding and compilation powered by the **Faust (Functional Audio Stream)** engine compiled to WebAssembly.
+- **12 Boutique Presets**:
+  - *Lynchian Tape Echo & Wow/Flutter*
+  - *TB-303 Diode Acid Ladder Filter*
+  - *Karplus-Strong Plucked Acoustic String*
+  - *Vintage Germanium Transistor Fuzz & Voltage Starve*
+  - *Holographic Stereo Comb Resonator*
+  - *Deep Cavern Shimmer Reverb*
+  - *VHS 1985 Chorus & Pitch Drift*
+- **Visual Recipe Board**: Design custom stompboxes and filters visually with zero coding required.
+
+### 6. 👻 GHOST in the Machine (Offline AI Studio Sensei)
+- GHOST is the resident studio companion and analog sage.
+- **Air-Gapped & Offline Ready**: Runs 100% offline using embedded Software Dojo heuristics (mix analysis, frequency masking advice, lore from Lee Scratch Perry, Brian Eno, Dr. Dre, and Bob Katz).
+- **Local GGUF Hub Connector**: Seamlessly links to local inference backends:
+  - **Kobold.cpp** (`http://localhost:5001`)
+  - **Ollama** (`http://localhost:11434`)
+  - **LM Studio** (`http://localhost:1234`)
+  - **Google AI Studio / Gemini API** (Cloud fallback)
+
+### 7. ⚡ Ace-Step 1.5 Neural Loop Diffusion
+- Bar-synced neural audio loop and song bed diffusion generation.
+- Direct API connector to local **ComfyUI** (`http://127.0.0.1:8188`) to generate synchronized stems (Drums, Bass, Leads, Pads) and download them straight into timeline tracks.
+
+### 8. 🎞️ Strangelet KenetiCut VJ Bridge
+- 1-Click export to **KenetiCut Studio**, formatting master audio stems and audio-reactive transient markers for visual cut-up choreography.
+
+---
+
+## 🚀 Quick Start (Portable Windows Binary)
+
+1. Download the latest release: **[Strangelet-Lab-v2.5-Beta-Windows-x64.zip](https://github.com/lordgriefo/strangelet-lab/releases)**
+2. Extract the ZIP to any folder or USB drive.
+3. Double-click **`Strangelet Lab.exe`** (or `Start-Strangelet-Lab.bat`).
+4. *No installation, admin privileges, or internet connection required.*
+
+---
+
+## 💻 Developer & Local Build Setup
+
+### Prerequisites
+- [Node.js](https://nodejs.org/) (v18 or v20+)
+- `npm` or `bun`
+
+### Installation & Development Run
+```bash
+# Clone repository
+git clone https://github.com/lordgriefo/strangelet-lab.git
+cd strangelet-lab
+
+# Install dependencies
+npm install
+
+# Run Web Development Server (Vite)
+npm run dev
+
+# Run Native Desktop App (Electron)
+npm run desktop:electron
+```
+
+### Packaging Desktop Binary (.exe / .zip)
+```bash
+# Compile production bundle and build Windows x64 binary
+npm run desktop:build
+```
+The output executable will be created in `release/win-unpacked/Strangelet Lab.exe`.
+
+---
+
+## ⌨️ Global Keyboard Shortcuts
+
+| Shortcut | Action |
+| :--- | :--- |
+| **`Space`** | Start / Pause Audio Transport |
+| **`Tab`** | Toggle Arrange View (Pure Timeline) / Console View (Mixer) |
+| **`B`** | Flip A/B Audition (Active Master vs. Reference Track / Dry Signal) |
+| **`Ctrl + Z` / `Ctrl + Y`** | Undo / Redo Timeline & Parameter Edits |
+| **`Ctrl + S`** | Save Project Snapshot (`.slp`) |
+| **`1` – `8`** | Recall Mix Snapshots |
+| **`L`** | Toggle Transport Loop Region |
+
+---
+
+## 📜 Architecture & Tech Stack
+
+- **UI & Canvas**: React 19, TypeScript, Tailwind CSS v4, Lucide Icons
+- **Audio DSP Engine**: Web Audio API, Web Workers, Faust WebAssembly (Wasm)
+- **Spectral Graphics**: D3.js real-time FFT frequency response visualizer
+- **Pitch Transcription**: Spotify Basic Pitch deep neural net
+- **Desktop Packaging**: Electron 29, Electron Builder
+- **Local AI Connectors**: Kobold.cpp, Ollama, LM Studio, OpenAI-compatible APIs, Google Gemini API
+
+---
+
+## 📖 Documentation
+
+For in-depth operational walkthroughs, see the **[USER_GUIDE.md](USER_GUIDE.md)** included in the repository.
+
+---
+
+## ⚖️ License & Attribution
+
+Designed & Developed by **The Strangelet Cybernetics & Audio Division**  
+Icon Artwork: Homage to Georges Méliès' *Le Voyage dans la Lune* (1902)  
+Licensed under the [MIT License](LICENSE).

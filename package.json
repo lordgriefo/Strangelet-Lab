@@ -1,7 +1,8 @@
 {
   "name": "strangelet-lab",
   "private": true,
-  "version": "0.9.0-beta.1",
+  "version": "1.0.0-beta.1",
+  "main": "electron.cjs",
   "type": "module",
   "scripts": {
     "dev": "vite",
