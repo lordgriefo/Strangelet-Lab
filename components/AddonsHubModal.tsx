@@ -36,6 +36,19 @@ interface AddonItem {
 export const ADDONS_CATALOG: AddonItem[] = [
   // GHOST Models
   {
+    id: 'ghost-hermes-3-8b',
+    name: 'Ghost Hermes 3 8B (Nous Research / 8GB VRAM)',
+    category: 'ghost',
+    badge: 'STEERABLE GENIUS',
+    vram: '4.8 GB VRAM',
+    fileSize: '4.9 GB',
+    description: 'Nous Research Hermes 3 built on Llama 3.1. Renowned for total instruction obedience, zero moralizing refusals, surgical DSP coding, and deeply nuanced studio personality.',
+    ollamaCommand: 'ollama run hermes3:8b',
+    huggingFaceUrl: 'https://huggingface.co/NousResearch/Hermes-3-Llama-3.1-8B-GGUF',
+    recommendedHardware: 'RTX 3060 12GB / RTX 4060 / Apple M 16GB',
+    tags: ['Nous Hermes 3', 'Zero Refusal', '8B GGUF']
+  },
+  {
     id: 'ghost-gemma-2b',
     name: 'Ghost Google Gemma 2 2B (Ultralight / 4GB VRAM)',
     category: 'ghost',
