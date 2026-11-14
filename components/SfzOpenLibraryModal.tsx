@@ -16,7 +16,8 @@ import {
   FileCode,
   HardDrive,
   User,
-  Radio
+  Radio,
+  ExternalLink
 } from 'lucide-react';
 import { SfzLibraryInstrument } from '../types';
 import { 
@@ -151,6 +152,18 @@ export const SfzOpenLibraryModal: React.FC<SfzOpenLibraryModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            <a
+              href="https://sfzinstruments.github.io/"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/70 hover:bg-emerald-900/80 border border-emerald-500/50 text-emerald-300 text-xs font-bold transition-all shadow-md shadow-emerald-950/40"
+              title="Explore 200+ free open-source SFZ instruments at sfzinstruments.github.io"
+            >
+              <ExternalLink size={13} />
+              <span className="hidden sm:inline">sfzinstruments.github.io</span>
+              <span className="sm:hidden">SFZ Hub</span>
+            </a>
+
             <button
               onClick={() => setShowShareModal(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold transition-all shadow-md shadow-cyan-950/40"

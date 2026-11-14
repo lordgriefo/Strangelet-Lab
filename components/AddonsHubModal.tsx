@@ -268,6 +268,66 @@ export const ADDONS_CATALOG: AddonItem[] = [
     recommendedHardware: 'Zero GPU required',
     tags: ['Drum Replacement', '808 Sub', '909 Punch']
   },
+  {
+    id: 'sfz-salamander-grand',
+    name: 'Salamander Grand Piano (Yamaha C5 / 16 Velocity Layers)',
+    category: 'sfz',
+    badge: 'FLAGSHIP PIANO',
+    vram: '0 MB (Web Audio / RAM)',
+    fileSize: '1.1 GB (Flac)',
+    description: 'Gold-standard open-source acoustic grand piano recorded from a Yamaha C5. 16 velocity layers per key, pedal noise, sympathetic string resonance, and release sound.',
+    huggingFaceUrl: 'https://sfzinstruments.github.io/pianos/salamander_grand_piano',
+    recommendedHardware: 'Any computer with 2GB+ system RAM',
+    tags: ['sfzinstruments.github.io', 'Yamaha C5', '16 Layers', 'Concert Grand']
+  },
+  {
+    id: 'sfz-vpo-orchestra',
+    name: 'Virtual Playing Orchestra (Full Symphonic Suite)',
+    category: 'sfz',
+    badge: 'ORCHESTRAL',
+    vram: '0 MB (Web Audio / RAM)',
+    fileSize: '780 MB',
+    description: 'Comprehensive orchestral SFZ library: Solo & section violins, cellos, brass, woodwinds, and orchestral percussion with natural attack and acoustic release.',
+    huggingFaceUrl: 'https://sfzinstruments.github.io/orchestral/virtual_playing_orchestra',
+    recommendedHardware: 'Any standard system RAM',
+    tags: ['sfzinstruments.github.io', 'Symphonic', 'Strings & Brass', 'VPO']
+  },
+  {
+    id: 'sfz-meatbass',
+    name: 'Karoryfer Samples Meatbass (Acoustic Upright Double Bass)',
+    category: 'sfz',
+    badge: 'UPRIGHT BASS',
+    vram: '0 MB (Web Audio / RAM)',
+    fileSize: '220 MB',
+    description: 'Acoustic upright double bass with genuine finger pizzicato, open string growl, body thumps, and slap dynamics for jazz, acoustic, and lo-fi tracks.',
+    huggingFaceUrl: 'https://sfzinstruments.github.io/bass/meatbass',
+    recommendedHardware: 'Zero GPU required',
+    tags: ['sfzinstruments.github.io', 'Karoryfer', 'Double Bass', 'Pizzicato']
+  },
+  {
+    id: 'sfz-generaluser-gs',
+    name: 'GeneralUser GS SoundFont & SFZ (Complete 128 GM Instruments)',
+    category: 'sfz',
+    badge: '128 GM PACK',
+    vram: '0 MB (Web Audio / RAM)',
+    fileSize: '30 MB',
+    description: 'Chris Collins’ legendary GeneralUser GS sound bank converted to SFZ. 128 general MIDI instruments from guitars and organs to ethnic flutes and synth leads.',
+    huggingFaceUrl: 'https://sfzinstruments.github.io/general_midi/generaluser_gs',
+    recommendedHardware: 'Runs on any device',
+    tags: ['sfzinstruments.github.io', 'General MIDI', '128 Instruments', 'Full Set']
+  },
+  {
+    id: 'sfz-splendid-grand',
+    name: 'Splendid 136 Grand Piano & jRhodes3',
+    category: 'sfz',
+    badge: 'STUDIO KEYS',
+    vram: '0 MB (Web Audio / RAM)',
+    fileSize: '136 MB',
+    description: 'Classic Steinway grand piano sample set paired with the warm, vintage jRhodes3 electric piano map for expressive keyboard performance.',
+    huggingFaceUrl: 'https://sfzinstruments.github.io/pianos/splendid_grand_piano',
+    recommendedHardware: 'Zero GPU required',
+    tags: ['sfzinstruments.github.io', 'Steinway B', 'jRhodes3', 'E-Piano']
+  },
 
   // Open-Source Effects Racks & DSP Components
   {
@@ -483,6 +543,43 @@ export const AddonsHubModal: React.FC<AddonsHubModalProps> = ({
                 >
                   <ExternalLink size={12} />
                   <span>Get Ollama</span>
+                </a>
+              </div>
+            )}
+
+            {activeCategory === 'sfz' && (
+              <div className="flex items-center gap-2 text-xs">
+                <a 
+                  href="https://sfzinstruments.github.io/" 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="px-3.5 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-400 text-emerald-300 hover:bg-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(16,185,129,0.2)]"
+                >
+                  <ExternalLink size={12} />
+                  <span>Browse sfzinstruments.github.io</span>
+                </a>
+              </div>
+            )}
+
+            {activeCategory === 'fx_racks' && (
+              <div className="flex items-center gap-2 text-xs">
+                <a 
+                  href="https://webaudiomodules.org/" 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="px-3 py-1.5 rounded-lg bg-purple-500/20 border border-purple-400 text-purple-300 hover:bg-purple-500/30 text-xs font-bold transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(168,85,247,0.2)]"
+                >
+                  <ExternalLink size={12} />
+                  <span>WAM 2.0 Web</span>
+                </a>
+                <a 
+                  href="https://github.com/TheCodeDestroyer/tuna" 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="px-3 py-1.5 rounded-lg bg-cyan-500/20 border border-cyan-400 text-cyan-300 hover:bg-cyan-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
+                >
+                  <ExternalLink size={12} />
+                  <span>Tuna.js GitHub</span>
                 </a>
               </div>
             )}

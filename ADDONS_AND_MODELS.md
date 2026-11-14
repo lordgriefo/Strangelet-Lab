@@ -124,12 +124,20 @@ YuE2 is a 7B dual-track foundation model for generating complete full-length son
 
 ## 🎹 5. FREE SOUNDFONT & SFZ INSTRUMENT PACKS
 
-High-quality sample-based instruments for the built-in **SFZ Player** and **Drum Transient Replacer** (100% Web Audio, zero GPU needed):
+High-quality open-source sample-based instruments for the built-in **SFZ Player** and **Drum Transient Replacer** (100% Web Audio, zero GPU needed):
 
-1. **Concert Grand Piano SFZ**: 4 velocity layers, real hammer release, uncompressed stereo.
-2. **1973 Rhodes Mark I Vintage EP**: Sampled through tube preamps with natural bell harmonics.
-3. **Roland TR-808 & TR-909 Analog Master Drum Kit**: Studio-grade drum transient hits for 1-click drum replacement.
-4. **Mellotron M400 Vintage Strings**: Authentic tape-loop flute, violin, and choir samples.
+### 🌐 The Open SFZ Repository: [sfzinstruments.github.io](https://sfzinstruments.github.io/)
+Browse 200+ free, community-curated, multi-sampled instruments across acoustic pianos, vintage electric pianos, orchestral strings, upright basses, guitars, and drum kits.
+
+| Instrument / Library | Category | Description | Size | Link |
+| :--- | :--- | :--- | :--- | :--- |
+| **[Salamander Grand Piano](https://sfzinstruments.github.io/pianos/salamander_grand_piano)** | Concert Grand | Yamaha C5 with 16 velocity layers, hammer noise, string resonance. | 1.1 GB (Flac) | [Download SFZ](https://sfzinstruments.github.io/pianos/salamander_grand_piano) |
+| **[Virtual Playing Orchestra](https://sfzinstruments.github.io/orchestral/virtual_playing_orchestra)** | Symphonic Suite | Solo & section strings, woodwinds, brass, and orchestral percussion. | 780 MB | [Download VPO](https://sfzinstruments.github.io/orchestral/virtual_playing_orchestra) |
+| **[Karoryfer Meatbass](https://sfzinstruments.github.io/bass/meatbass)** | Acoustic Upright | Real double bass with finger pizzicato, open string growl, body thumps. | 220 MB | [Download Meatbass](https://sfzinstruments.github.io/bass/meatbass) |
+| **[GeneralUser GS SFZ](https://sfzinstruments.github.io/general_midi/generaluser_gs)** | 128 GM Pack | Complete 128 General MIDI instrument set mapped to open SFZ format. | 30 MB | [Download GS](https://sfzinstruments.github.io/general_midi/generaluser_gs) |
+| **[Splendid 136 Grand & jRhodes3](https://sfzinstruments.github.io/pianos/splendid_grand_piano)** | Studio Keys | Classic Steinway grand piano sample set paired with the warm vintage jRhodes3. | 136 MB | [Download Keys](https://sfzinstruments.github.io/pianos/splendid_grand_piano) |
+| **1973 Rhodes Mark I Vintage EP** | Electric Piano | Sampled through tube preamps with natural bell harmonics. | 36 MB | Included / Releases |
+| **Roland TR-808 & TR-909 Analog Kit** | Drum Samples | Studio-grade drum transient hits for 1-click drum replacement. | 18 MB | Included / Releases |
 
 ---
 
