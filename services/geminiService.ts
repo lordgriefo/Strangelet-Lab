@@ -1,5 +1,6 @@
 import { generateWithKoboldDetailed } from './koboldCppService';
 import { awardBuddyXp, buildBuddySoulPromptBlock } from './buddyEvolutionCore';
+import { buildSoftwareDojoKnowledgeBlock } from './softwareDojoKnowledge';
 import { ColliderChip, PromptOutputResult, LyricLabOutput, SongDeconstruction } from '../types';
 
 export const generateSystemCode = async (filename: string, context: string): Promise<string> => {
@@ -156,6 +157,7 @@ export const collideSonicParticlesGemini = async (
 
   try {
     const soulBlock = buildBuddySoulPromptBlock();
+    const dojoKnowledge = buildSoftwareDojoKnowledgeBlock();
     const topParticleNames = chips.slice(0, 3).map(c => c.label).join(' + ');
     awardBuddyXp(
       20,
@@ -166,12 +168,14 @@ export const collideSonicParticlesGemini = async (
     const prompt = `
       You are Ghost in the Machine, the smart, personable Mad Scientist running Strangelet Lab's "Large Sonic Collider" (LSC).
       ${soulBlock}
+      ${dojoKnowledge}
+
       We have injected the following sonic particle chips into the collision chamber:
       [${chipLabels}]
 
       Target Engine Format: ${formatLabel}.
 
-      Synthesize the collision into a JSON object with this EXACT structure:
+      Using your Software Dojo training on 5-layer prompt synthesis (Genre Fusion, Instruments & Synthesis, Tempo/BPM & Rhythm, Vocal Character & Delivery, Production Aesthetics & Era Tone), synthesize the collision into a JSON object with this EXACT structure:
       {
         "title": "Evocative Short Track Title",
         "promptText": "Rich, highly effective prompt string ready to paste directly into ${formatLabel}",
@@ -286,15 +290,20 @@ export const generateLyricLabGemini = async (
 ): Promise<LyricLabOutput> => {
   const fallback = generateFallbackLyrics(themeA, themeB);
   try {
+    const soulBlock = buildBuddySoulPromptBlock();
+    const dojoKnowledge = buildSoftwareDojoKnowledgeBlock();
     const prompt = `
       You are the Lyric Lab lyricist at Strangelet Lab.
+      ${soulBlock}
+      ${dojoKnowledge}
+
       Smash these two contrasting concepts together:
       Concept A: "${themeA}"
       Concept B: "${themeB}"
       Structure: "${structureType}"
       Rhyme Scheme / Cadence: "${rhymeScheme}"
 
-      Format for AI Music Generators (like Suno or Udio), with tags like [Verse 1], [Chorus], [Bridge], [Outro].
+      Format for AI Music Generators (like Suno, Udio, or YuE 2.0), incorporating structural bracket tags ([Intro], [Verse 1], [Pre-Chorus], [Chorus], [Bridge], [Outro]) and performance/vocal cues ([Whispered], [Ethereal Harmonies], [Spoken Word], etc.).
       Return a JSON object:
       {
         "title": "Evocative Song Title",
@@ -412,8 +421,10 @@ export const reverseEngineerAndReimagineGemini = async (
   const fallback = generateFallbackDeconstruction(referenceSong, userTargetTopic);
 
   try {
+    const dojoKnowledge = buildSoftwareDojoKnowledgeBlock();
     const prompt = `
       You are the Master Audio Deconstructor at Strangelet Lab.
+      ${dojoKnowledge}
       A user wants to reverse engineer the musical and production DNA of this reference:
       REFERENCE: "${referenceSong}"
       

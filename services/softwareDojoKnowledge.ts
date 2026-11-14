@@ -184,6 +184,48 @@ Always supply complete, compilable Faust code blocks enclosed in \`\`\`faust.`,
    - Freeverb & Dattorro Plate: Classic open-source reverb topologies for lush spatial diffusion.
 When users ask for mix adjustments on individual tracks, instruct them to expand the 'FX' drawer on the track's channel strip or propose exact dB and frequency settings.`,
     enabled: true
+  },
+  {
+    id: 'scroll-sonic-collider-prompting',
+    title: 'Sonic Collider Prompt Alchemy & Particle Superposition',
+    category: 'AI Prompt Engineering',
+    summary: 'Mastering prompt particle collisions for Suno, Udio, Ace-Step 1.5, and YuE2: genre fusion, acoustic textures, BPM, and production warmth.',
+    content: `In Strangelet Lab's Large Sonic Collider, AI prompts are built by colliding contrasting aesthetic particles.
+When the user asks for prompt ideas, synthesize a complete, production-ready prompt string following the 5-Layer Particle Formula:
+1. Genre Fusion & Era: Pair two contrasting genres (e.g. "90s trip hop + dark ambient", "shoegaze dream-pop + breakcore", "desert blues + cyberpunk synth").
+2. Core Instrumentation: Name specific analog instruments (e.g. "tape-saturated 808 sub, clean rickenbacker bass, juno-106 chorus pad, detuned upright piano").
+3. Rhythm & BPM: Specify the groove and tempo (e.g. "86 bpm, swung boom-bap groove, live acoustic drum breaks, ghost snares").
+4. Vocal Delivery & Mood: Describe the timbre (e.g. "haunting female vocal, ethereal airy falsetto, close-mic whispered cadence, reverb tails").
+5. Analog Grain & Spatial Production: Add production character (e.g. "warm 1/4-inch tape saturation, vinyl surface crackle, lush Dattorro plate reverb, mono sub-lock").
+Example Output Format:
+[SONIC COLLIDER PROMPT]
+"darkwave trip hop, 90s cassette warmth, juno-106 analog pads, heavy rickenbacker bass, driving 88 bpm breakbeat, haunting ethereal female vocals, wide stereo reverb"
+[COLLIDER CHIPS]: [Darkwave], [Juno-106], [88 BPM], [Haunting Vocals], [Tape Saturation]`,
+    enabled: true
+  },
+  {
+    id: 'scroll-lyric-lab-craft',
+    title: 'Lyric Lab Songwriting Architecture & Metatag Directives',
+    category: 'Songwriting & Lyric Craft',
+    summary: 'Full-song lyric writing with structural brackets ([Verse], [Chorus], [Bridge]), vocal delivery cues, meter, and Burroughs cut-up metaphors.',
+    content: `The Lyric Lab inside the Large Sonic Collider formats lyrics specifically for AI audio generation models (Suno, Udio, YuE2) and human vocal tracking.
+When assisting with lyrics:
+1. Structural Brackets: Always structure songs with bracketed sections so generative models and singers know the pacing:
+   - [Intro - Atmospheric Synth Drift]
+   - [Verse 1] (Establish the setting, concrete sensory imagery, 4 to 8 lines)
+   - [Pre-Chorus - Rising Tension] (2 to 4 lines, builds rhythmic momentum)
+   - [Chorus] (The central emotional hook, memorable melody, strong rhyme)
+   - [Verse 2] (Deepens the story or introduces a twist)
+   - [Chorus]
+   - [Bridge - Quantum Cut-Up / Modulation] (Shift perspective, key change, or William Burroughs cut-up fold-in phrases)
+   - [Guitar Solo] or [Synth Breakdown]
+   - [Chorus - Climax]
+   - [Outro - Fading Radio Signal]
+2. Vocal Delivery Cues: Insert performance bracket cues directly into the lyrics:
+   - [Whispered], [Spoken Word], [Ethereal Harmonies], [Distorted Shout], [Call and Response].
+3. Metric Rhythm & Cadence: Ensure line syllables flow musically with natural stress patterns, avoiding clunky robotic syntax.
+4. Lyrical Themes: Blend Strangelet Lab's retro-futuristic Méliès cosmos with raw emotional honesty (astrophysics, lost radio signals, neon nights, analog memory).`,
+    enabled: true
   }
 ];
 
@@ -216,6 +258,8 @@ export function getCustomDojoTrainingNote(): string {
     return localStorage.getItem(CUSTOM_SCROLL_KEY) || 
 `// Ninja Training Directives & Studio Principles:
 - Treat Strangelet Lab as a sacred particle collider and analog tape studio.
+- When asked for prompt ideas, synthesize 5-layer Sonic Collider prompts (Genre Fusion + Instruments + BPM + Vocal Delivery + Analog Grain).
+- When asked for lyrics or songwriting help, format lyrics with full Lyric Lab structural brackets ([Verse], [Pre-Chorus], [Chorus], [Bridge], [Outro]) and vocal performance cues ([Whispered], [Harmonies], [Spoken Word]).
 - Suggest Faust DSP code snippets whenever the user asks for pedals, distortion, filters, or instruments.
 - For AI-generated or muddy tracks, immediately recommend the 8.5kHz Suno De-Sheen cut and Gold Path Stage 4 Tape Saturation.
 - When generating loops, favor syncopated grooves, deep 808 sub lock, and bar-synced AceStep diffusion.

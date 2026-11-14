@@ -28,6 +28,8 @@ import {
 } from 'lucide-react';
 import { LyricLabOutput, ArchiveItem, SunoMetaTag, SunoStyleItem } from '../../types';
 import { generateLyricLabGemini } from '../../services/geminiService';
+import { getStoredKoboldSettings } from '../../services/koboldCppService';
+import { getGhostShortModelBadge } from '../../services/hardwareResourceManager';
 import { playColliderInjectionSound, playLaserBeamSound } from '../../lib/laserSound';
 import { SUNO_META_TAGS_CATALOG, SUNO_STYLE_CATALOG } from '../../lib/sonicColliderData';
 import { lyricLabDB, tagDescriptions } from '../../lib/sonicSectorStaticData';
@@ -137,6 +139,17 @@ export const LyricLab: React.FC<LyricLabProps> = ({
     if (externalThemeB) setThemeB(externalThemeB);
   }, [externalThemeA, externalThemeB]);
 
+  const [ghostBadge, setGhostBadge] = useState<string>(() => getGhostShortModelBadge(getStoredKoboldSettings().modelName));
+
+  useEffect(() => {
+    const syncBadge = () => setGhostBadge(getGhostShortModelBadge(getStoredKoboldSettings().modelName));
+    window.addEventListener('storage', syncBadge);
+    window.addEventListener('strangelet:kobold_updated', syncBadge);
+    return () => {
+      window.removeEventListener('storage', syncBadge);
+      window.removeEventListener('strangelet:kobold_updated', syncBadge);
+    };
+  }, []);
 
   const [isInjecting, setIsInjecting] = useState<boolean>(false);
   const [output, setOutput] = useState<LyricLabOutput | null>(null);
@@ -618,6 +631,15 @@ Spin state down.`);
                 <Zap className={`w-4 h-4 ${isInjecting ? 'animate-bounce' : ''}`} />
                 <span>{isInjecting ? 'COLLIDING POETIC PARTICLES...' : 'INJECT LYRIC BEAM // COLLIDE POETRY'}</span>
               </button>
+
+              <div className="flex items-center justify-between text-[10px] text-[#7E84A3] px-1 font-mono pt-0.5">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                  <span>POETRY ENGINE:</span>
+                  <span className="text-purple-300 font-bold">{ghostBadge}</span>
+                </span>
+                <span className="text-[#555B7A]">DOJO TRAINED // METATAGS & CADENCE</span>
+              </div>
             </div>
           </div>
 

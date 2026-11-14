@@ -826,6 +826,15 @@ export const SonicSector: React.FC<SonicSectorProps> = ({
                   </span>
                 </button>
 
+                <div className="flex items-center justify-between text-[10px] text-[#7E84A3] px-1 font-mono pt-0.5">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                    <span>SYNTHESIS ENGINE:</span>
+                    <span className="text-cyan-300 font-bold">{ghostBadge}</span>
+                  </span>
+                  <span className="text-[#555B7A]">5-LAYER COLLIDER MATRIX</span>
+                </div>
+
                 <div className="flex items-center justify-between text-[11px] text-[#6A7090] gap-2 flex-wrap">
                   <button
                     onClick={() => setChamberChips([])}

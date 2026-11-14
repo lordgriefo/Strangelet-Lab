@@ -140,6 +140,11 @@ export function getRecommendedGhostModelForTier(tierId: HardwareTierId): Recomme
 
 export function getGhostShortModelBadge(modelName: string): string {
   const lower = (modelName || '').toLowerCase();
+  if (lower.includes('hermes')) return 'HERMES 3 8B';
+  if (lower.includes('gemma') && lower.includes('2b')) return 'GEMMA 2 2B';
+  if (lower.includes('gemma') && lower.includes('4b')) return 'GEMMA 3 4B';
+  if (lower.includes('gemma') && lower.includes('9b')) return 'GEMMA 2 9B';
+  if (lower.includes('gemma')) return 'GEMMA 2';
   if (lower.includes('mad scientist mini') || (lower.includes('3b mini'))) return '3B MINI';
   if (lower.includes('mad scientist')) return '3B/4B LAB';
   if (lower.includes('studio alchemist')) return '7B/8B LAB';
@@ -148,8 +153,8 @@ export function getGhostShortModelBadge(modelName: string): string {
   if (lower.includes('llama') && lower.includes('3b')) return 'LLAMA 3B';
   if (lower.includes('llama') && lower.includes('q8')) return 'LLAMA 8B Q8';
   if (lower.includes('llama') && lower.includes('8b')) return 'LLAMA 8B';
-  if (lower.includes('gemma')) return 'GEMMA';
   if (lower.includes('mistral') || lower.includes('ministral')) return 'MISTRAL';
+  if (lower.includes('qwen') && lower.includes('32b')) return 'QWEN 32B';
   if (lower.includes('qwen') && lower.includes('14b')) return 'QWEN 14B';
   if (lower.includes('qwen') && lower.includes('4b')) return 'QWEN 4B';
   if (lower.includes('qwen') && lower.includes('3b')) return 'QWEN 3B';
