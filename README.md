@@ -19,13 +19,46 @@
 **Quantum-Acoustic Production Workstation & Offline-First Particle Collider DAW**  
 *Inspired by Georges Méliès (1902), David Lynchian Tape Realism & High-Energy Particle Physics*
 
-[![Version](https://img.shields.io/badge/version-2.5.0--beta.1-amber.svg)](https://github.com/lordgriefo/strangelet-lab/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20Web-cyan.svg)](https://github.com/lordgriefo/strangelet-lab/releases)
+[![Status](https://img.shields.io/badge/status-PUBLIC%20BETA%20v2.5-orange.svg)](https://github.com/lordgriefo/Strangelet-Lab/releases)
+[![Version](https://img.shields.io/badge/version-2.5.0--beta.1-amber.svg)](https://github.com/lordgriefo/Strangelet-Lab/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20Web-cyan.svg)](https://github.com/lordgriefo/Strangelet-Lab/releases)
 [![Audio](https://img.shields.io/badge/DSP-Faust%20WebAssembly%20%2B%20Web%20Audio-emerald.svg)](#-faust-dsp-toy-workbench)
 [![AI Engine](https://img.shields.io/badge/AI%20Buddy-GHOST%20%28Offline%20Dojo%20%2F%20GGUF%29-purple.svg)](#-ghost-in-the-machine)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+<br />
+
+> ⚡ **PUBLIC BETA v2.5**  
+> *"Actively evolving quantum-acoustic workstation. Core Web Audio DSP, Faust compiler, Gold Path mastering, and offline GHOST mentor are live; local neural bridges and desktop builds are actively expanding."*
+
+<br />
+
+[![Launch Browser Beta](https://img.shields.io/badge/▶%20Launch-Browser%20Beta%20(Zero%20Install)-22c55e?style=for-the-badge&logo=googlechrome&logoColor=white)](https://lordgriefo.github.io/Strangelet-Lab/)
+[![Download Portable x64](https://img.shields.io/badge/💾%20Download-Portable%20Windows%20x64%20(.zip)-f59e0b?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/lordgriefo/Strangelet-Lab/releases)
+[![Report Quirks](https://img.shields.io/badge/🐛%20Test%20the%20Beta-Report%20Quirks%20on%20GitHub-6366f1?style=for-the-badge&logo=github&logoColor=white)](https://github.com/lordgriefo/Strangelet-Lab/issues)
+
+<br />
+
+<sub>[ 🚀 Launch Browser Beta ](https://lordgriefo.github.io/Strangelet-Lab/) &nbsp;•&nbsp; [ 💾 Download Windows x64 .zip ](https://github.com/lordgriefo/Strangelet-Lab/releases) &nbsp;•&nbsp; [ 🐛 Test the Beta / Report Quirks on GitHub ](https://github.com/lordgriefo/Strangelet-Lab/issues)</sub>
+
 </div>
+
+---
+
+## ⚡ Zero-Friction Test Drive
+
+Strangelet Lab is built to be accessible instantly, whether you're testing ideas in a web browser or producing on a dedicated workstation:
+
+* **🌐 Browser-Native Web Beta (Zero Installation / Zero GPU Required)**:  
+  Launch the workstation directly in any modern desktop browser (Chrome, Edge, Firefox, Brave) with **zero setup and zero hardware requirements**. Powered by multi-threaded Web Audio DSP, Faust WebAssembly filters, and offline Software Dojo heuristics, you can sequence stems, tweak relativistic collider physics, and master audio with zero friction.  
+  👉 **[Launch Browser-Native Beta](https://lordgriefo.github.io/Strangelet-Lab/)**
+
+* **💻 Portable Windows x64 Binary (.zip)**:  
+  Grab the standalone portable build from **[GitHub Releases](https://github.com/lordgriefo/Strangelet-Lab/releases)** if you want full desktop integration, ultra-low-latency WASAPI audio drivers, and direct socket bridges to local GGUF neural engines (**Kobold.cpp**, **Ollama**, **LM Studio**, or **Ace-Step 1.5 loop diffusion**). No installer required—just unzip and run `Strangelet Lab.exe`.
+
+* **🐛 Beta Feedback & Community Discussion**:  
+  Strangelet Lab is in active Public Beta. If you encounter any audio engine quirks, UI anomalies, or have feature ideas for new collider effects, drop them directly into our tracker:  
+  👉 **[Test the Beta / Report Quirks on GitHub](https://github.com/lordgriefo/Strangelet-Lab/issues)**
 
 ---
 
