@@ -42,6 +42,7 @@ const VoiceCloner = lazy(() => import('./components/VoiceCloner').then(m => ({ d
 const SpectralAnalysisView = lazy(() => import('./components/SpectralAnalysisView').then(m => ({ default: m.SpectralAnalysisView })));
 const CollaborativeWorkspaceModal = lazy(() => import('./components/CollaborativeWorkspaceModal').then(m => ({ default: m.CollaborativeWorkspaceModal })));
 const Yue2GeneratorModal = lazy(() => import('./components/Yue2GeneratorModal').then(m => ({ default: m.Yue2GeneratorModal })));
+const KoboldMusicBridge = lazy(() => import('./components/KoboldMusicBridge').then(m => ({ default: m.KoboldMusicBridge })));
 const VstWrapperHostModal = lazy(() => import('./components/VstWrapperHostModal').then(m => ({ default: m.VstWrapperHostModal })));
 const DrumTriggerView = lazy(() => import('./components/DrumTriggerView').then(m => ({ default: m.DrumTriggerView })));
 const StudioContextMenu = lazy(() => import('./components/StudioContextMenu').then(m => ({ default: m.StudioContextMenu })));
@@ -242,6 +243,7 @@ const App: React.FC = () => {
   // KoboldCpp AI Step & Quinn Ghost in the Machine State
   const [isAiMixStepModalOpen, setIsAiMixStepModalOpen] = useState<boolean>(false);
   const [isKoboldSettingsOpen, setIsKoboldSettingsOpen] = useState<boolean>(false);
+  const [isKoboldMusicBridgeOpen, setIsKoboldMusicBridgeOpen] = useState<boolean>(false);
   const [isResourceManagerOpen, setIsResourceManagerOpen] = useState<boolean>(false);
   const [isSoftwareDojoOpen, setIsSoftwareDojoOpen] = useState<boolean>(false);
   const [isUserGuideOpen, setIsUserGuideOpen] = useState<boolean>(false);
@@ -706,6 +708,45 @@ const App: React.FC = () => {
     setTracks(prev => [...prev, ...newTracks]);
     setIsYue2ModalOpen(false);
     setCurrentView(View.MIXER);
+  };
+
+  const handleAudioGeneratedFromBridge = async (audioUrl: string, title: string, blob?: Blob) => {
+    projectHistory.pushSnapshot(`Import Kobold Audio (${title})`, tracks, tempo);
+    if (blob) {
+      const file = new File([blob], `${title || 'Kobold_Master'}.wav`, { type: blob.type || 'audio/wav' });
+      await handleImportAudioFile(file);
+    } else {
+      const newTrackId = `kobold-${Date.now()}`;
+      const newTrack: Track = {
+        id: newTrackId,
+        name: title || 'Kobold AI Master',
+        type: 'audio',
+        volume: 0.82,
+        pan: 0,
+        muted: false,
+        soloed: false,
+        color: '#FFD700',
+        phaseInverted: false,
+        isMono: false,
+        vstBypassed: false,
+        clips: [{
+          id: `clip-${newTrackId}`,
+          name: title || 'Kobold Track',
+          startBar: 0,
+          durationBars: 16
+        }]
+      };
+      setTracks(prev => [...prev, newTrack]);
+    }
+    setCurrentView(View.MIXER);
+  };
+
+  const handleSendBridgeToStemSplitter = async (audioUrl: string, title: string, blob?: Blob) => {
+    if (blob) {
+      const file = new File([blob], `${title || 'Kobold_Master'}.wav`, { type: blob.type || 'audio/wav' });
+      await handleImportAudioFile(file);
+    }
+    setCurrentView(View.WAVE_SPLITTER);
   };
 
   const handleApplyVstToTrack = (trackId: string, vstName: string) => {
@@ -1454,6 +1495,7 @@ const App: React.FC = () => {
           setIsVstWrapperHostOpen(true);
         }}
         onReplaySplashScreen={() => setIsSplashScreenOpen(true)}
+        onOpenKoboldMusicBridge={() => setIsKoboldMusicBridgeOpen(true)}
       >
         <ViewErrorBoundary viewKey={String(currentView)} onRecover={() => setCurrentView(View.MIXER)}>
           <Suspense
@@ -1775,6 +1817,16 @@ const App: React.FC = () => {
             projectBpm={tempo}
             initialPrompt={yue2InitialPrompt}
             onAddMultiStemTracks={handleAddYuE2StemsToMixer}
+          />
+        )}
+
+        {/* Standalone KoboldCpp Audio Bridge Modal */}
+        {isKoboldMusicBridgeOpen && (
+          <KoboldMusicBridge
+            isOpen={isKoboldMusicBridgeOpen}
+            onClose={() => setIsKoboldMusicBridgeOpen(false)}
+            onAudioGenerated={handleAudioGeneratedFromBridge}
+            onSendToStemSplitter={handleSendBridgeToStemSplitter}
           />
         )}
 

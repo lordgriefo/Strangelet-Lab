@@ -100,6 +100,7 @@ export interface DawMenuBarProps {
   onOpenYue2Generator?: () => void;
   onOpenVstWrapperHost?: (pluginId?: string) => void;
   onReplaySplashScreen?: () => void;
+  onOpenKoboldMusicBridge?: () => void;
 }
 
 type MenuKey = 'file' | 'edit' | 'view' | 'track' | 'ai' | 'export' | 'help' | null;
@@ -152,7 +153,8 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
   collabMemberCount,
   onOpenYue2Generator,
   onOpenVstWrapperHost,
-  onReplaySplashScreen
+  onReplaySplashScreen,
+  onOpenKoboldMusicBridge
 }) => {
   const [openMenu, setOpenMenu] = useState<MenuKey>(null);
   const [autoSaveSettings, setAutoSaveSettings] = useState<AutoSaveSettings>(() => projectAutoSave.getSettings());
@@ -764,6 +766,21 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
             )}
 
             <div className="h-[1px] bg-[#1E2438] my-1" />
+
+            {onOpenKoboldMusicBridge && (
+              <button
+                onClick={() => executeAction(onOpenKoboldMusicBridge)}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-[#FFD700] hover:text-white hover:bg-amber-950/40 transition-colors font-bold"
+              >
+                <span className="flex items-center gap-2">
+                  <Zap size={14} className="fill-[#FFD700]/30 text-[#FFD700]" />
+                  <span>⚡ Kobold Audio Bridge (REST v1.0)</span>
+                </span>
+                <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-600/50">
+                  ACE/YuE
+                </span>
+              </button>
+            )}
 
             {onOpenYue2Generator && (
               <button

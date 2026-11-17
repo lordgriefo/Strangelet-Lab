@@ -121,6 +121,12 @@ Available both as a standalone portable Windows executable and as a browser-nati
 ### 8. 🎞️ Strangelet KenetiCut VJ Bridge
 - 1-Click export to **KenetiCut Studio**, formatting master audio stems and audio-reactive transient markers for visual cut-up choreography.
 
+### 9. 🔌 KoboldCpp REST Audio Bridge
+- Direct neural music generation bridge connecting to any local KoboldCpp server (`http://localhost:5001`).
+- **Two-Step Architecture**:
+  - **Step 1 ("Prepare Plan")**: Dispatches `/api/extra/music/prepare` to establish musical key, BPM, and refined stylistic tags for user review and manual fine-tuning.
+  - **Step 2 ("Generate Track")**: Queries `/api/extra/music/generate` to synthesize full audio with ACE-Step 1.5 or YuE2, complete with preview player, WAV download, and 1-click routing into Strangelet Lab's multitrack timeline or stem splitter.
+
 ---
 
 ## 📦 Model Add-ons & Expansions Hub

@@ -197,6 +197,7 @@ interface LayoutProps {
   onOpenAddonsHub?: () => void;
   onOpenVstWrapperHost?: (pluginId?: string) => void;
   onReplaySplashScreen?: () => void;
+  onOpenKoboldMusicBridge?: () => void;
 }
 
 const Layout: React.FC<LayoutProps> = ({ 
@@ -256,7 +257,8 @@ const Layout: React.FC<LayoutProps> = ({
   onOpenYue2Generator,
   onOpenAddonsHub,
   onOpenVstWrapperHost,
-  onReplaySplashScreen
+  onReplaySplashScreen,
+  onOpenKoboldMusicBridge
 }) => {
   const [internalSidebarCollapsed, setInternalSidebarCollapsed] = useState<boolean>(false);
   const effectiveSidebarCollapsed = propSidebarCollapsed !== undefined ? propSidebarCollapsed : internalSidebarCollapsed;
@@ -464,6 +466,26 @@ const Layout: React.FC<LayoutProps> = ({
                 </span>
               )}
             </p>
+
+            {onOpenKoboldMusicBridge && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenKoboldMusicBridge();
+                }}
+                className="mt-2.5 w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#161A2B] hover:bg-[#20273F] border border-amber-500/40 hover:border-[#FFD700] text-[#FFD700] transition-all cursor-pointer group shadow-[0_0_12px_rgba(255,215,0,0.15)]"
+                title="Open Kobold Audio Bridge (AI Music Generator)"
+              >
+                <span className="flex items-center gap-1.5 font-mono text-[11px] font-bold">
+                  <Zap size={13} className="fill-[#FFD700]/30 group-hover:scale-110 transition-transform" />
+                  <span>KOBOLD BRIDGE</span>
+                </span>
+                <span className="flex items-center gap-1 text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-[#FFD700] font-mono border border-amber-500/30">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>REST</span>
+                </span>
+              </button>
+            )}
           </div>
 
           {/* Quick Collapse Button inside Sidebar Header */}
@@ -787,6 +809,20 @@ const Layout: React.FC<LayoutProps> = ({
           lynchianMode ? 'border-[#88081C]/60 bg-[#07050A]' : 'border-[#222] bg-[#121212]'
         }`}>
             <div className="flex items-center gap-2">
+                {/* Collapsed Logo Header Emblem */}
+                {effectiveSidebarCollapsed && (
+                  <div className="flex items-center gap-1.5 pr-2 border-r border-[#222]">
+                    <img 
+                      src="./strangelet-lab-logo.jpg" 
+                      alt="Strangelet Lab Seal" 
+                      className="w-6 h-6 rounded-full border border-[#FFD700]/60 object-cover shrink-0 shadow-[0_0_8px_rgba(255,215,0,0.35)]" 
+                    />
+                    <span className="font-bold text-white font-mono text-xs hidden sm:inline">
+                      STRANGELET <span className={lynchianMode ? 'text-[#E50914]' : 'text-[#FFD700]'}>LAB</span>
+                    </span>
+                  </div>
+                )}
+
                 {/* Show/Hide Sidebar Toggle */}
                 <button
                   onClick={handleToggleSidebar}
@@ -805,6 +841,19 @@ const Layout: React.FC<LayoutProps> = ({
                     </>
                   )}
                 </button>
+
+                {/* Kobold Audio Bridge Direct Header Button */}
+                {onOpenKoboldMusicBridge && (
+                  <button
+                    onClick={onOpenKoboldMusicBridge}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#161A2B] hover:bg-[#20273F] border border-amber-500/50 hover:border-[#FFD700] rounded-lg transition-all text-xs text-[#FFD700] font-mono font-bold cursor-pointer shadow-[0_0_12px_rgba(255,215,0,0.2)] group"
+                    title="Open Kobold Audio Bridge: Two-step neural music generator connecting to KoboldCpp REST API"
+                  >
+                    <Zap size={14} className="fill-[#FFD700]/30 text-[#FFD700] group-hover:scale-110 transition-transform" />
+                    <span className="hidden sm:inline">KOBOLD BRIDGE</span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5" />
+                  </button>
+                )}
 
                 {/* TRADITIONAL DAW MENU BAR (UPPER LEFT: File, Edit, View, Track, AI / Tools, Export, Help) */}
                 <DawMenuBar
@@ -856,6 +905,7 @@ const Layout: React.FC<LayoutProps> = ({
                   onOpenAddonsHub={onOpenAddonsHub}
                   onOpenVstWrapperHost={onOpenVstWrapperHost}
                   onReplaySplashScreen={onReplaySplashScreen}
+                  onOpenKoboldMusicBridge={onOpenKoboldMusicBridge}
                 />
 
                 {/* Global Undo & Redo History Controls */}
