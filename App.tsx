@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, lazy, Suspense, Component, ErrorInfo, ReactNode } from 'react';
 import Layout from './components/Layout';
+import { SplashScreen } from './components/SplashScreen';
 import TapeSaturatorOverlay, { TapeSaturationIntensity } from './components/TapeSaturatorOverlay';
 import { projectHistory } from './services/projectHistoryService';
 import { projectAutoSave, AutoSaveMetadata } from './services/projectAutoSaveService';
@@ -180,6 +181,7 @@ const App: React.FC = () => {
     playLaserBeamSound('laser_select');
   };
   const [tapeIntensity, setTapeIntensity] = useState<TapeSaturationIntensity>('subtle');
+  const [isSplashScreenOpen, setIsSplashScreenOpen] = useState<boolean>(true);
   const [isLiveRecorderOpen, setIsLiveRecorderOpen] = useState<boolean>(false);
   const [mixerModalRequest, setMixerModalRequest] = useState<{ type: 'chronomap' | 'beamsplitter'; id: number } | null>(null);
   const globalAudioImportInputRef = useRef<HTMLInputElement>(null);
@@ -1374,6 +1376,7 @@ const App: React.FC = () => {
 
   return (
     <>
+      <SplashScreen isOpen={isSplashScreenOpen} onClose={() => setIsSplashScreenOpen(false)} />
       <TapeSaturatorOverlay intensity={tapeIntensity} lynchianActive={lynchianMode} />
       <HistoryHudToast />
 
@@ -1450,6 +1453,7 @@ const App: React.FC = () => {
           setVstWrapperHostPluginId(pluginId);
           setIsVstWrapperHostOpen(true);
         }}
+        onReplaySplashScreen={() => setIsSplashScreenOpen(true)}
       >
         <ViewErrorBoundary viewKey={String(currentView)} onRecover={() => setCurrentView(View.MIXER)}>
           <Suspense

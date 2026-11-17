@@ -99,6 +99,7 @@ export interface DawMenuBarProps {
   collabMemberCount?: number;
   onOpenYue2Generator?: () => void;
   onOpenVstWrapperHost?: (pluginId?: string) => void;
+  onReplaySplashScreen?: () => void;
 }
 
 type MenuKey = 'file' | 'edit' | 'view' | 'track' | 'ai' | 'export' | 'help' | null;
@@ -150,7 +151,8 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
   collabSessionCode,
   collabMemberCount,
   onOpenYue2Generator,
-  onOpenVstWrapperHost
+  onOpenVstWrapperHost,
+  onReplaySplashScreen
 }) => {
   const [openMenu, setOpenMenu] = useState<MenuKey>(null);
   const [autoSaveSettings, setAutoSaveSettings] = useState<AutoSaveSettings>(() => projectAutoSave.getSettings());
@@ -1022,6 +1024,19 @@ export const DawMenuBar: React.FC<DawMenuBarProps> = ({
               </span>
               <span className="text-[10px] text-purple-400 font-bold">6GB / 16GB</span>
             </button>
+
+            {onReplaySplashScreen && (
+              <button
+                onClick={() => executeAction(onReplaySplashScreen)}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-amber-300 hover:text-white hover:bg-[#1E2640] transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <Play size={14} className="text-[#FFD700] fill-[#FFD700]" />
+                  <span>Replay CRT Startup Splash Animation</span>
+                </span>
+                <span className="text-[10px] text-amber-400/80 font-mono">1902 CRT</span>
+              </button>
+            )}
 
             <div className="h-[1px] bg-[#1E2438] my-1" />
 

@@ -196,6 +196,7 @@ interface LayoutProps {
   onOpenYue2Generator?: () => void;
   onOpenAddonsHub?: () => void;
   onOpenVstWrapperHost?: (pluginId?: string) => void;
+  onReplaySplashScreen?: () => void;
 }
 
 const Layout: React.FC<LayoutProps> = ({ 
@@ -254,7 +255,8 @@ const Layout: React.FC<LayoutProps> = ({
   collabMemberCount,
   onOpenYue2Generator,
   onOpenAddonsHub,
-  onOpenVstWrapperHost
+  onOpenVstWrapperHost,
+  onReplaySplashScreen
 }) => {
   const [internalSidebarCollapsed, setInternalSidebarCollapsed] = useState<boolean>(false);
   const effectiveSidebarCollapsed = propSidebarCollapsed !== undefined ? propSidebarCollapsed : internalSidebarCollapsed;
@@ -436,9 +438,15 @@ const Layout: React.FC<LayoutProps> = ({
           >
             <div className="flex items-center justify-between">
               <h1 className="text-xl font-bold tracking-tighter text-white flex items-center gap-2 truncate">
-                <div className={`w-3 h-3 rotate-45 transition-transform duration-300 group-hover:scale-125 shrink-0 ${
-                  lynchianMode ? 'bg-[#E50914] shadow-[0_0_12px_#E50914]' : 'bg-[#FFD700]'
-                }`} />
+                <img 
+                  src="./strangelet-lab-logo.jpg" 
+                  alt="Strangelet Lab Seal" 
+                  className={`w-7 h-7 rounded-full border object-cover shrink-0 transition-transform duration-300 group-hover:scale-110 ${
+                    lynchianMode 
+                      ? 'border-[#E50914] shadow-[0_0_12px_#E50914]' 
+                      : 'border-[#FFD700]/60 shadow-[0_0_10px_rgba(255,215,0,0.35)]'
+                  }`} 
+                />
                 <span>STRANGELET <span className={lynchianMode ? 'text-[#E50914]' : 'text-[#FFD700]'}>LAB</span></span>
               </h1>
 
@@ -847,6 +855,7 @@ const Layout: React.FC<LayoutProps> = ({
                   onOpenYue2Generator={onOpenYue2Generator}
                   onOpenAddonsHub={onOpenAddonsHub}
                   onOpenVstWrapperHost={onOpenVstWrapperHost}
+                  onReplaySplashScreen={onReplaySplashScreen}
                 />
 
                 {/* Global Undo & Redo History Controls */}

@@ -1,6 +1,10 @@
-# ⚡ STRANGELET LAB
-
 <div align="center">
+
+<img src="assets/strangelet-lab-logo.jpg" alt="Strangelet Lab Official Seal - ESTD 1902" width="780" />
+
+<br />
+
+# ⚡ STRANGELET LAB
 
 ```
    ███████╗████████╗██████╗  █████╗ ███╗   ██╗ ██████╗ ███████╗██╗     ███████╗████████╗
