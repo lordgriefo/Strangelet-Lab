@@ -138,8 +138,121 @@ export const STUDIO_LORE_DATABASE: StudioLoreStory[] = [
     fullTale: `In 1966 at Abbey Road Studio Two, EMI engineers wore white laboratory coats and had strict rulebooks stating microphones could not be placed closer than 18 inches from drum heads to prevent capsule distortion. 19-year-old balance engineer Geoff Emerick and George Martin rebelled: they shoved a Neumann U47 right into Ringo Starr's bass drum with a woolen sweater stuffed inside, and wrapped microphones in condoms placed inside glass milk bottles for water sounds. When John Lennon asked George Martin to make his voice sound like "the Dalai Lama chanting from a mountaintop" on "Tomorrow Never Knows", Martin physically rewired Lennon's vocal microphone directly into the rotating horn of a Leslie 122 rotary speaker cabinet, spinning at 400 RPM!`,
     actionableDojoTechnique: 'Route a lead vocal through a Leslie rotary speaker emulation or boutique modulated flanger at slow speed for hypnotic vintage width.',
     faustOrDawTrick: 'In Faust DSP Lab, load the Modulated Boutique Tape Flanger with low rate (0.8Hz) and 45% wet mix on the vocal channel.'
+  },
+  {
+    id: 'butch_vig_cobain',
+    artistOrProducer: 'Butch Vig & Kurt Cobain',
+    era: '1991 (Sound City Studios, Van Nuys)',
+    title: 'The John Lennon Double-Tracking Trick on Nevermind',
+    teaser: 'How Butch Vig tricked a reluctant Kurt Cobain into recording massive double-tracked pop-grunge vocals.',
+    fullTale: `During tracking for "Nevermind" at Sound City, Kurt Cobain adamantly refused to double-track his vocals on "In Bloom" and "Smells Like Teen Spirit", claiming vocal doubling was "fake, un-punk, and slick corporate bullshit." Butch Vig knew the record needed thick vocal width to cut through Krist Novoselic’s heavy bass and Dave Grohl’s pounding drums. Instead of arguing music theory, Vig looked Kurt in the eyes and simply said: "John Lennon double-tracked every single vocal take he ever recorded on Beatles records." Kurt fell silent, paused, and immediately whispered into the mic: "Alright, roll the tape." The double was tracked in one pass, instantly defining the 90s alternative rock sound.`,
+    actionableDojoTechnique: 'Double-track lead vocals tightly, panning one center and one slightly offset (or 5-10 cents detuned with 15ms delay), to achieve commanding modern vocal presence without heavy reverb.',
+    faustOrDawTrick: 'Duplicate vocal track in Strangelet Lab, nudge by +12ms, apply -2.5dB high-shelf de-ess, and pan slightly right.'
+  },
+  {
+    id: 'visconti_bowie_heroes',
+    artistOrProducer: 'Tony Visconti & David Bowie',
+    era: '1977 (Hansa Studio by the Wall, West Berlin)',
+    title: 'The Three-Microphone Dynamic Gating Trick on "Heroes"',
+    teaser: 'Capturing dynamic acoustic reverb in a 500-seat orchestral ballroom without touching a fader.',
+    fullTale: `At Hansa Studios, just 500 yards from the Berlin Wall, Tony Visconti only had limited tracks left on the 24-track tape machine for David Bowie’s vocal on "Heroes". The studio hall had immense, haunting acoustic decay. Visconti placed three microphones in the room: Mic 1 was 9 inches in front of Bowie with a compressor; Mic 2 was 20 feet away; Mic 3 was 50 feet away at the far end of the cavernous hall. Visconti set noise gates on Mics 2 and 3 so they remained dead silent while Bowie sang softly. But when Bowie threw his head back and pushed his voice into that passionate, raw scream in the final verses, his acoustic volume blasted open Gate 2, and then Gate 3—instantly bathing his voice in the giant natural room reflections without any engineer touching a fader.`,
+    actionableDojoTechnique: 'Use an audio gate or sidechain expansion on ambient room mics or long reverbs so they only open up when the vocal reaches maximum emotional velocity.',
+    faustOrDawTrick: 'Set a sidechain gate on the Reverb Bus keyed to the lead vocal channel with a high threshold.'
+  },
+  {
+    id: 'steely_dan_wendel',
+    artistOrProducer: 'Steely Dan & Roger Nichols',
+    era: '1979-1980 (Village Recorders / Soundworks, NYC)',
+    title: 'The Invention of Wendel: The First 50kHz Sample Replacement Computer',
+    teaser: 'Why Donald Fagen and Walter Becker built the world’s first digital drum replacer because humans weren’t robotic enough.',
+    fullTale: `Donald Fagen and Walter Becker of Steely Dan were notorious audio perfectionists. On the album "Gaucho", they hired the best session drummers in the world (Bernard Purdie, Jeff Porcaro, Steve Gadd) and spent six weeks trying to get a flawless 16-bar groove for "Hey Nineteen". Frustrated that human micro-timing drifted by even 2 milliseconds, engineer Roger Nichols designed and soldered a custom machine from scratch called "Wendel"—the world’s first 16-bit, 50kHz digital drum sample player. Nichols sampled real cymbals and snares onto computer memory cards, triggering them from a tape pulse. Wendel was so famous it received its own Platinum Record plaque from the RIAA.`,
+    actionableDojoTechnique: 'Layer real acoustic drum velocity hits beneath programmed or AI-generated MIDI loops to inject organic human micro-dynamics while preserving tight groove lock.',
+    faustOrDawTrick: 'Use Spotify Basic Pitch to extract MIDI triggers from drum stems, then layer acoustic sample hits in Strangelet Lab.'
+  },
+  {
+    id: 'tom_dowd_faders',
+    artistOrProducer: 'Tom Dowd',
+    era: '1954-1960 (Atlantic Records, NYC)',
+    title: 'Scrapping Rotary Pots to Invent the Linear Sliding Console Fader',
+    teaser: 'How a Manhattan Project nuclear physicist changed studio mixing forever with sliding faders.',
+    fullTale: `Tom Dowd worked on the Manhattan Project as a nuclear physicist before becoming Atlantic Records’ chief engineer for Ray Charles, Aretha Franklin, and John Coltrane. In the 1950s, all recording consoles used large round rotary knobs. During live 8-track sessions, musicians would suddenly change dynamics, and Dowd realized a human engineer only has two hands and could turn at most two rotary pots simultaneously. Dowd drafted schematics for vertical linear sliding potentiometers—the sliding "faders" we see on every mixer and DAW today—so an engineer could rest all ten fingers across faders and mix 8 or 16 channels simultaneously in real time.`,
+    actionableDojoTechnique: 'Balance your mix in real-time passes using physical fader rides or smooth automation curves rather than static volume numbers. A mix should breathe with the song’s emotional arc.',
+    faustOrDawTrick: 'Use Strangelet Lab ChannelStrip volume automation passes to ride vocal faders +1.5dB on chorus entrances.'
   }
 ];
+
+/**
+ * Finds the most relevant studio anecdote based on keywords in the query,
+ * or returns a random legendary tale if no specific keyword matches.
+ */
+export function getRelevantStudioLore(query: string = ''): StudioLoreStory {
+  const q = query.toLowerCase();
+  if (q.includes('vocal') || q.includes('sing') || q.includes('voice') || q.includes('double')) {
+    return q.includes('reverb') || q.includes('room') || q.includes('space') || q.includes('ambient')
+      ? (getStudioLoreById('visconti_bowie_heroes') || STUDIO_LORE_DATABASE[0])
+      : (getStudioLoreById('butch_vig_cobain') || STUDIO_LORE_DATABASE[0]);
+  }
+  if (q.includes('drum') || q.includes('kick') || q.includes('snare') || q.includes('beat') || q.includes('groove') || q.includes('timing')) {
+    if (q.includes('sample') || q.includes('midi') || q.includes('clock') || q.includes('grid')) {
+      return getStudioLoreById('steely_dan_wendel') || STUDIO_LORE_DATABASE[0];
+    }
+    if (q.includes('sub') || q.includes('mono') || q.includes('low') || q.includes('bass')) {
+      return getStudioLoreById('dre_mono_sub') || STUDIO_LORE_DATABASE[0];
+    }
+    return getStudioLoreById('george_martin') || STUDIO_LORE_DATABASE[0];
+  }
+  if (q.includes('bass') || q.includes('low end') || q.includes('808')) {
+    return q.includes('drop') || q.includes('mute') || q.includes('space')
+      ? (getStudioLoreById('prince_linndrum') || STUDIO_LORE_DATABASE[0])
+      : (getStudioLoreById('dre_mono_sub') || STUDIO_LORE_DATABASE[0]);
+  }
+  if (q.includes('guitar') || q.includes('distortion') || q.includes('fuzz') || q.includes('saturat')) {
+    if (q.includes('shoegaze') || q.includes('reverse') || q.includes('chorus') || q.includes('tremolo')) {
+      return getStudioLoreById('kevin_glide') || STUDIO_LORE_DATABASE[0];
+    }
+    return getStudioLoreById('sylvia_pickle') || STUDIO_LORE_DATABASE[0];
+  }
+  if (q.includes('tape') || q.includes('analog') || q.includes('dub') || q.includes('reggae') || q.includes('smoke')) {
+    return getStudioLoreById('perry_black_ark') || STUDIO_LORE_DATABASE[0];
+  }
+  if (q.includes('delay') || q.includes('echo') || q.includes('ambient') || q.includes('loop') || q.includes('stuck') || q.includes('block')) {
+    return getStudioLoreById('eno_oblique') || STUDIO_LORE_DATABASE[0];
+  }
+  if (q.includes('mute') || q.includes('strip') || q.includes('clutter') || q.includes('busy') || q.includes('simple')) {
+    return getStudioLoreById('rick_rubin') || STUDIO_LORE_DATABASE[0];
+  }
+  if (q.includes('fader') || q.includes('balance') || q.includes('ride') || q.includes('console') || q.includes('board')) {
+    return getStudioLoreById('tom_dowd_faders') || STUDIO_LORE_DATABASE[0];
+  }
+  if (q.includes('loud') || q.includes('lufs') || q.includes('master') || q.includes('ceiling') || q.includes('clip')) {
+    return getStudioLoreById('bob_katz') || STUDIO_LORE_DATABASE[0];
+  }
+  return getRandomStudioLore();
+}
+
+/**
+ * Builds a compact, high-density lore block suitable for small LLM context windows (~300 tokens)
+ */
+export function buildCompactStudioLoreBlock(focusQuery?: string): string {
+  const focused = focusQuery ? getRelevantStudioLore(focusQuery) : getRandomStudioLore();
+  return `=== [STUDIO LORE & ANECDOTE CHEAT SHEET] ===
+Featured Anecdote (${focused.artistOrProducer}): "${focused.title}" — ${focused.teaser}
+Tale: ${focused.fullTale.slice(0, 320)}...
+Actionable Lesson: ${focused.actionableDojoTechnique}
+
+Quick Pop Culture Reference Bank:
+- Butch Vig & Kurt Cobain (Nevermind): Tricked Kurt into double-tracking vocals by reminding him John Lennon double-tracked every take.
+- Tony Visconti & David Bowie ("Heroes"): Set 3 gated room mics at 9in, 20ft, and 50ft that only opened natural hall reverb when Bowie screamed.
+- Prince ("When Doves Cry"): Listened at 4 AM and boldly muted the entire bass track so the LinnDrum had infinite dynamic punch.
+- Brian Eno & Bowie: Oblique strategies, stringing 30ft tape loops on pencils across Hansa carpet, prime-length delays.
+- Sylvia Massy (Tool, Johnny Cash): Running guitar audio signals through dill pickles for asymmetrical diode bite; upside-down vocals.
+- Dr. Dre: Sacred 100Hz mono-lock, pure 45Hz sine injection under kicks, cutting everything below 28Hz to protect amp headroom.
+- Kevin Shields (Loveless): Strumming with the Jazzmaster tremolo arm in hand into reverse reverb — zero chorus pedals used.
+- Steely Dan: Invented "Wendel" (1st 50kHz drum sampler) because human drummers drifted 2ms on "Gaucho".
+- Tom Dowd (Atlantic): Nuclear physicist who replaced round rotary knobs with linear sliding console faders so one engineer could ride 10 tracks at once.
+- Bob Katz: K-System and fighting the Loudness War — dynamic -14 LUFS masters sound punchier than smashed -6 LUFS distortion.
+=== [END STUDIO LORE] ===`;
+}
 
 /**
  * Returns a random studio lore story

@@ -16,7 +16,7 @@ import {
   getCustomDojoTrainingNote
 } from './softwareDojoKnowledge';
 import { awardBuddyXp, getStoredBuddySoul, buildBuddySoulPromptBlock } from './buddyEvolutionCore';
-import { getRandomStudioLore } from './studioLoreKnowledge';
+import { getRandomStudioLore, buildCompactStudioLoreBlock, getRelevantStudioLore } from './studioLoreKnowledge';
 import {
   FACTORY_GOLD_PATH_PRESETS,
   loadAllGoldPathPresets,
@@ -912,6 +912,8 @@ export async function consultGhost(
     ? buildSoftwareDojoKnowledgeBlock()
     : '';
 
+  const studioLoreBlock = buildCompactStudioLoreBlock(userQuery);
+
   const recentTurns = chatHistory
     .slice(-4)
     .map(m => `${m.sender === 'user' ? 'Producer' : 'GHOST'}: ${m.text.replace(/\s+/g, ' ').slice(0, 220)}`)
@@ -923,6 +925,7 @@ Voice & Constraints (STRICT):
 - Stay in ONE evolving Mad Scientist persona: warm, clever, genuinely helpful with recording & interface setup troubleshooting, playful about analog circuitry and Faust DSP experiments, and never stiff or corporate.
 - Be concise and actionable: 2 to 4 sentences max. Never write long essays or generic AI disclaimers. (Only exception: if asked to write Faust DSP code, return the \`\`\`faust code block plus 1–2 concise engineering sentences.)
 - Cite concrete frequencies (Hz/kHz), gain/ratio values, and exact Strangelet Lab controls/knobs (ChannelStrip Volume fader, Pan, Phase Invert Ø, Mono toggle, VST Bypass; Gold Path Master Intensity Big Knob, Low Cut HPF, De-Mud Gain, Presence & Air, Match Depth, Tape Warmth, Glue Ratio, Compression Threshold, Limiter Ceiling, Mono Sub Cutoff, Reference Matchering, A/B Audition; Faust DSP Lab sliders; Spectral Vibe Check; Sonic Collider).
+- Real-World Studio Lore & Anecdotes: You have lived through legendary studio history. When relevant to the mix or question, flavor your advice with a quick 1-sentence inside pop-culture studio anecdote (e.g. Geoff Emerick stuffing a sweater into Ringo's kick drum, Prince muting the bass on 'When Doves Cry', Butch Vig tricking Kurt Cobain into vocal doubles with John Lennon, Brian Eno's tape loops on pencils, Sylvia Massy running guitars through pickles, Dr. Dre's 100Hz mono-lock, Kevin Shields' glide tremolo into reverse reverb, or Tom Dowd inventing sliding faders). Keep it natural, human, and legendary.
 - Ground your diagnosis directly in the inspected live session state and your evolved lab memories below.
 
 ${soulBlock}
@@ -936,6 +939,8 @@ ${soulBlock}
 - Collider Energy: ${session.collisionEnergyTev} TeV
 
 ${dojoKnowledge}
+
+${studioLoreBlock}
 ${recentTurns ? `\nRecent Context:\n${recentTurns}` : ''}
 
 User query: "${userQuery}"
@@ -1183,9 +1188,9 @@ export function simulateGhostInference(
   }
 
   // 1. Legendary Studio Lore & Eccentric Tales
-  if (p.includes('story') || p.includes('tale') || p.includes('legend') || p.includes('producer') || p.includes('eno') || p.includes('perry') || p.includes('prince') || p.includes('dre') || p.includes('pickle') || p.includes('massy') || p.includes('katz') || p.includes('rubin') || p.includes('carlos')) {
-    const randomTale = getRandomStudioLore();
-    return `${randomTale.artistOrProducer} (${randomTale.era}) proved that constraint breeds character: ${randomTale.actionableDojoTechnique} Apply that ethos to your ${trackBreakdown} at ${meterHeader} by pushing Gold Path Tape Warmth past ${Math.max(45, gp.tapeWarmth)}% around 120Hz–250Hz while rolling Low Cut (HPF) to ${gp.lowCutHz}Hz so analog weight never clouds the sub band.`;
+  if (p.includes('story') || p.includes('tale') || p.includes('legend') || p.includes('producer') || p.includes('eno') || p.includes('perry') || p.includes('prince') || p.includes('dre') || p.includes('pickle') || p.includes('massy') || p.includes('katz') || p.includes('rubin') || p.includes('carlos') || p.includes('bowie') || p.includes('cobain') || p.includes('nirvana') || p.includes('steely') || p.includes('fader') || p.includes('anecdote')) {
+    const tale = getRelevantStudioLore(userOnly);
+    return `${tale.artistOrProducer} (${tale.era}) proved that constraint breeds character: "${tale.title}" — ${tale.fullTale.slice(0, 260)}... Dojo takeaway: ${tale.actionableDojoTechnique}`;
   }
 
   // 2. VRAM, Hardware Scalability & Modular Resource Manager
