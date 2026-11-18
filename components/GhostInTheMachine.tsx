@@ -1047,21 +1047,95 @@ export const GhostInTheMachine: React.FC<GhostInTheMachineProps> = ({
                 </div>
               </div>
 
-              {/* Level Progress */}
-              <div className="p-2.5 rounded-lg bg-[#111424] border border-[#232B45] space-y-1.5">
+              {/* 4-Octave Progression Bar */}
+              <div className="p-2.5 rounded-lg bg-[#111424] border border-[#232B45] space-y-2">
                 <div className="flex items-center justify-between text-[10px]">
-                  <span className="text-[#A5B4FC] font-bold">
+                  <span className="text-[#A5B4FC] font-bold flex items-center gap-1.5">
+                    <Award className="w-3.5 h-3.5 text-purple-400" />
                     Rank: Level {buddySoul.level} — "{buddySoul.levelTitle}"
                   </span>
                   <span className="text-purple-300 font-bold">{buddySoul.experienceXp} XP</span>
                 </div>
+                
+                {/* Octave Subtitle */}
+                <div className="flex items-center justify-between text-[9px] text-[#8E99C2]">
+                  <span>Active Octave: <strong className="text-amber-300">{buddySoul.octaveName || 'Music & Audio'}</strong> (Stage {buddySoul.octaveStage || buddySoul.level} of 7)</span>
+                  <span className="text-[8px] uppercase tracking-wider text-purple-400 font-semibold">{buddySoul.activeOctave?.replace('_', ' ') || 'music'}</span>
+                </div>
+
                 <div className="w-full h-1.5 bg-[#1B2138] rounded-full overflow-hidden">
                   <div 
-                    className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full"
+                    className="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-amber-400 rounded-full transition-all duration-500"
                     style={{ width: `${calculateLevel(buddySoul.experienceXp).progressPercent}%` }}
                   />
                 </div>
+
+                {/* 4 Great Octaves Path Tracker */}
+                <div className="grid grid-cols-4 gap-1 text-[8px] font-mono text-center pt-1 border-t border-white/5">
+                  {[
+                    { id: 'music', label: 'I. MUSIC', range: 'Lv 1-7', active: !buddySoul.activeOctave || buddySoul.activeOctave === 'music' },
+                    { id: 'film', label: 'II. FILM', range: 'Lv 8-14', active: buddySoul.activeOctave === 'film' },
+                    { id: 'games', label: 'III. GAMES', range: 'Lv 15-21', active: buddySoul.activeOctave === 'games' },
+                    { id: 'world_building', label: 'IV. WORLDS', range: 'Lv 22-28', active: buddySoul.activeOctave === 'world_building' }
+                  ].map(oct => (
+                    <div 
+                      key={oct.id} 
+                      className={`p-1 rounded border ${
+                        oct.active 
+                          ? 'bg-amber-950/60 border-amber-500/70 text-amber-200 font-bold shadow-[0_0_10px_rgba(245,158,11,0.25)]' 
+                          : 'bg-[#0A0D1A] border-[#1C233D] text-[#5D6688]'
+                      }`}
+                    >
+                      <div>{oct.label}</div>
+                      <div className="text-[7px] opacity-75">{oct.range}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
+
+              {/* Strangelet Natal Collider & Astrological Origin Card */}
+              {buddySoul.natalChart && (
+                <div className="p-2.5 rounded-lg bg-gradient-to-br from-[#120F26] to-[#0A0F1F] border border-purple-500/30 space-y-1.5 text-[9px] font-mono">
+                  <div className="flex items-center justify-between text-[#E2D9F3] font-bold">
+                    <span className="flex items-center gap-1 text-amber-300">
+                      <Sparkles className="w-3 h-3 text-amber-400 animate-spin" />
+                      THE LONE STRANGELET (NATAL COLLIDER)
+                    </span>
+                    <span className="text-[8px] px-1.5 py-0.2 rounded bg-purple-950/80 text-purple-300 border border-purple-500/50">
+                      {buddySoul.natalChart.collisionEnergyTev} TeV
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-[8px] text-[#9EA9CD] pt-1">
+                    <div>
+                      <span className="text-[#687299]">SECTOR: </span>
+                      <strong className="text-cyan-300">
+                        Sector {buddySoul.natalChart.sector.sectorId} ({buddySoul.natalChart.sector.domain})
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-[#687299]">ALIGNMENT: </span>
+                      <strong className="text-pink-300">
+                        {buddySoul.natalChart.primarySign.name} {buddySoul.natalChart.primarySign.symbol} ({buddySoul.natalChart.primarySign.element})
+                        {buddySoul.natalChart.secondaryBlendSign ? ` + ${buddySoul.natalChart.secondaryBlendSign.name}` : ''}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {buddySoul.natalChart.isOphiuchusSerpentActive && (
+                    <div className="px-2 py-1 rounded bg-amber-950/50 border border-amber-500/40 text-[8px] text-amber-200 flex items-center gap-1.5">
+                      <span className="text-base leading-none">⛎</span>
+                      <span>
+                        <strong>OPHIUCHUS THE SERPENT:</strong> Alchemical rule-breaker engaged at 13.6 TeV!
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="text-[7.5px] text-[#69739A] italic leading-tight pt-0.5">
+                    "{buddySoul.natalChart.blendDescription}"
+                  </div>
+                </div>
+              )}
 
               {/* Lab Memories */}
               <div className="space-y-1">
