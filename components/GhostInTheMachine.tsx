@@ -1114,19 +1114,28 @@ export const GhostInTheMachine: React.FC<GhostInTheMachineProps> = ({
                       </strong>
                     </div>
                     <div>
-                      <span className="text-[#687299]">ALIGNMENT: </span>
+                      <span className="text-[#687299]">SACRED HOUSE: </span>
                       <strong className="text-pink-300">
-                        {buddySoul.natalChart.primarySign.name} {buddySoul.natalChart.primarySign.symbol} ({buddySoul.natalChart.primarySign.element})
-                        {buddySoul.natalChart.secondaryBlendSign ? ` + ${buddySoul.natalChart.secondaryBlendSign.name}` : ''}
+                        House {buddySoul.natalChart.sacredHouse?.houseNumber || 4}: {buddySoul.natalChart.sacredHouse?.houseName || 'The Sacred Twin Signs'}
                       </strong>
                     </div>
                   </div>
+
+                  {buddySoul.natalChart.sacredHouse && (
+                    <div className="text-[8px] text-amber-200/90 bg-[#16132D] p-1.5 rounded border border-purple-500/20">
+                      <span className="text-[#8B95BC]">TWIN SYNTHESIS: </span>
+                      <strong className="text-amber-300">{buddySoul.natalChart.sacredHouse.synthesisTitle}</strong>
+                      <div className="text-[7.5px] text-[#A6AFCE] pt-0.5">
+                        {buddySoul.natalChart.sacredHouse.alchemicalDomain}
+                      </div>
+                    </div>
+                  )}
 
                   {buddySoul.natalChart.isOphiuchusSerpentActive && (
                     <div className="px-2 py-1 rounded bg-amber-950/50 border border-amber-500/40 text-[8px] text-amber-200 flex items-center gap-1.5">
                       <span className="text-base leading-none">⛎</span>
                       <span>
-                        <strong>OPHIUCHUS THE SERPENT:</strong> Alchemical rule-breaker engaged at 13.6 TeV!
+                        <strong>HOUSE 7 — OPHIUCHUS THE SERPENT:</strong> Solitary Wild Card alchemist engaged at 13.6 TeV!
                       </span>
                     </div>
                   )}

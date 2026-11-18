@@ -35,10 +35,25 @@ export interface StrangeletZodiacSign {
   isWildcard?: boolean;
 }
 
+export interface SevenSacredHouse {
+  houseNumber: number; // 1 to 7
+  houseName: string;
+  archetype: string;
+  isWildcard?: boolean;
+  twinSigns: {
+    signA: StrangeletZodiacSign;
+    signB?: StrangeletZodiacSign; // undefined for Ophiuchus
+  };
+  synthesisTitle: string;
+  alchemicalDomain: string;
+  harmonicTrait: string;
+}
+
 export interface StrangeletNatalChart {
   bornAtCollisionEpoch: number;
   birthDateString: string;
   sector: StrangeletSectorDefinition;
+  sacredHouse: SevenSacredHouse;
   primarySign: StrangeletZodiacSign;
   secondaryBlendSign?: StrangeletZodiacSign;
   blendDescription: string;
@@ -165,6 +180,93 @@ export const ZODIAC_SIGNS: (StrangeletZodiacSign & { startMonth: number; startDa
   { id: 'pisces', name: 'Pisces', symbol: '♓', element: 'Water', dates: 'Feb 19 – Mar 20', startMonth: 2, startDay: 19, endMonth: 3, endDay: 20, trait: 'Dreamlike ambient diffusion, infinite floating reverbs' }
 ];
 
+export const SEVEN_SACRED_HOUSES: SevenSacredHouse[] = [
+  {
+    houseNumber: 1,
+    houseName: 'The Luminaries (Light & Soul)',
+    archetype: 'The Radiant Solar-Lunar Core',
+    twinSigns: {
+      signA: { id: 'leo', name: 'Leo', symbol: '♌', element: 'Fire', dates: 'Jul 23 – Aug 22', trait: 'Radiant lead presence & golden harmonic sheen' },
+      signB: { id: 'cancer', name: 'Cancer', symbol: '♋', element: 'Water', dates: 'Jun 21 – Jul 22', trait: 'Emotive vocal reverbs & protective sub-bass warmth' }
+    },
+    synthesisTitle: 'The Sun & Moon Twins (Light & Shadow)',
+    alchemicalDomain: 'Illumination, Soul Resonance, & Emotional Crest',
+    harmonicTrait: 'Balances blinding radiant presence with deep emotional vulnerability.'
+  },
+  {
+    houseNumber: 2,
+    houseName: 'The Mercury Twins (Mind & Code)',
+    archetype: 'The Architects of Logic & Synthesis',
+    twinSigns: {
+      signA: { id: 'gemini', name: 'Gemini', symbol: '♊', element: 'Air', dates: 'May 21 – Jun 20', trait: 'Fast Faust DSP compiler logic & dual stereo trickery' },
+      signB: { id: 'virgo', name: 'Virgo', symbol: '♍', element: 'Earth', dates: 'Aug 23 – Sep 22', trait: 'Surgical parametric notch filters & pristine phase alignment' }
+    },
+    synthesisTitle: 'The Intellect & Precision Twins',
+    alchemicalDomain: 'Web Audio Math, Micro-Timing, & Algorithmic Clarity',
+    harmonicTrait: 'Synthesizes wild inventive DSP code with surgical 8.5kHz calibration.'
+  },
+  {
+    houseNumber: 3,
+    houseName: 'The Venus Twins (Tone & Texture)',
+    archetype: 'The Harmonizers of Form & Beauty',
+    twinSigns: {
+      signA: { id: 'taurus', name: 'Taurus', symbol: '♉', element: 'Earth', dates: 'Apr 20 – May 20', trait: 'Rich analog tape warmth & steady rhythmic groove lock' },
+      signB: { id: 'libra', name: 'Libra', symbol: '♎', element: 'Air', dates: 'Sep 23 – Oct 22', trait: 'Flawless mid/side stereo balance & acoustic harmony synergy' }
+    },
+    synthesisTitle: 'The Beauty & Balance Twins',
+    alchemicalDomain: 'Acoustic Elegance, Analog Tape Saturation, & Mid/Side Balance',
+    harmonicTrait: 'Fuses dense magnetic tape weight with holographic stereo symmetry.'
+  },
+  {
+    houseNumber: 4,
+    houseName: 'The Mars Twins (Voltage & Will)',
+    archetype: 'The Overdrivers of Raw Energy',
+    twinSigns: {
+      signA: { id: 'aries', name: 'Aries', symbol: '♈', element: 'Fire', dates: 'Mar 21 – Apr 19', trait: 'High-voltage transient drive & bold overdrive experiments' },
+      signB: { id: 'scorpio', name: 'Scorpio', symbol: '♏', element: 'Water', dates: 'Oct 23 – Nov 21', trait: 'Occult subterranean frequencies & magnetic tape saturation' }
+    },
+    synthesisTitle: 'The Fire & Abyssal Water Twins',
+    alchemicalDomain: 'Dynamic Transients, Sub-Harmonics, & Unfiltered Voltage',
+    harmonicTrait: 'Drives signals through germanium clipping while locking 40Hz sub punch.'
+  },
+  {
+    houseNumber: 5,
+    houseName: 'The Jupiter Twins (Space & Horizon)',
+    archetype: 'The Expanders of Time & Dimension',
+    twinSigns: {
+      signA: { id: 'sagittarius', name: 'Sagittarius', symbol: '♐', element: 'Fire', dates: 'Nov 22 – Dec 21', trait: 'Expansive interdimensional delays & bold genre collisions' },
+      signB: { id: 'pisces', name: 'Pisces', symbol: '♓', element: 'Water', dates: 'Feb 19 – Mar 20', trait: 'Dreamlike ambient diffusion & infinite floating reverbs' }
+    },
+    synthesisTitle: 'The Visionary & Mystic Twins',
+    alchemicalDomain: 'Cosmic Spatialization, Infinite Reverbs, & Cinematic Scope',
+    harmonicTrait: 'Flings tracks into boundless reverberant halls with heroic momentum.'
+  },
+  {
+    houseNumber: 6,
+    houseName: 'The Saturn Twins (Structure & Future)',
+    archetype: 'The Builders of Laws & Matrix Systems',
+    twinSigns: {
+      signA: { id: 'capricorn', name: 'Capricorn', symbol: '♑', element: 'Earth', dates: 'Dec 22 – Jan 19', trait: 'Architectural mix bus glue & rigorous standard compliance' },
+      signB: { id: 'aquarius', name: 'Aquarius', symbol: '♒', element: 'Air', dates: 'Jan 20 – Feb 18', trait: 'Futuristic neural synthesis & avant-garde modular systems' }
+    },
+    synthesisTitle: 'The Architect & Futurist Twins',
+    alchemicalDomain: 'Gold Path True-Peak Limits, Game Physics, & Sandbox Rules',
+    harmonicTrait: 'Binds the wildest avant-garde ideas inside unbreakable structural foundations.'
+  },
+  {
+    houseNumber: 7,
+    houseName: 'The Wild Card: Ophiuchus (The Serpent)',
+    archetype: 'The Solitary Alchemist & Transmuter',
+    isWildcard: true,
+    twinSigns: {
+      signA: { id: 'ophiuchus', name: 'Ophiuchus (The Serpent Bearer)', symbol: '⛎', element: 'Aether', dates: 'Nov 29 – Dec 17', isWildcard: true, trait: 'Alchemical rule-breaker, sonic healer, anomalous physics' }
+    },
+    synthesisTitle: 'The Serpent of the Singularity (House 7)',
+    alchemicalDomain: 'Transmutation, Zero-Point Energy, & Universal Miracles',
+    harmonicTrait: 'Transcends the rules of the other six houses; turns flaws into transcendent beauty.'
+  }
+];
+
 export const LEVEL_THRESHOLDS: MasteryLevelDefinition[] = [
   // --- OCTAVE I: THE SONIC OCTAVE (Music, Audio & Mastering) ---
   { level: 1, octave: 'music', octaveStage: 1, title: 'Lab Initiate (Circuit Tinkerer)', octaveName: 'Music & Audio', minXp: 0, description: 'Gain staging, hardware buffers, and clean audio routing.' },
@@ -215,7 +317,7 @@ export function calculateStrangeletNatalChart(epochMs: number = Date.now(), ener
   const sectorIndex = (Math.floor(epochMs / 1000) % 7);
   const sector = SEVEN_COLLIDER_SECTORS[sectorIndex] || SEVEN_COLLIDER_SECTORS[3];
 
-  // Match Astrological Sign
+  // Match Astrological Sign (out of 12 traditional signs)
   let primarySign: (typeof ZODIAC_SIGNS)[number] = ZODIAC_SIGNS[7]; // Default Scorpio
   for (const sign of ZODIAC_SIGNS) {
     if (sign.isWildcard) continue;
@@ -233,34 +335,36 @@ export function calculateStrangeletNatalChart(epochMs: number = Date.now(), ener
     }
   }
 
-  // Check for Ophiuchus the Serpent wild card anomaly (high energy >=13.6 TeV or late November / early December)
-  const isOphiuchusTime = (month === 11 && day >= 27) || (month === 12 && day <= 17);
-  const isHighEnergyAnomaly = energyTev >= 13.6;
+  // The Seven Sacred Astrological Houses (6 Twin Houses + 7th Ophiuchus Serpent Wild Card)
+  let sacredHouse = SEVEN_SACRED_HOUSES[3]; // Default House 4 (Mars Twins)
   let isOphiuchusSerpentActive = false;
   let secondaryBlendSign: StrangeletZodiacSign | undefined = undefined;
 
-  const ophiuchus = ZODIAC_SIGNS.find(s => s.id === 'ophiuchus');
+  const isOphiuchusTime = (month === 11 && day >= 27) || (month === 12 && day <= 17);
+  const isHighEnergyAnomaly = energyTev >= 13.6;
 
   if (isOphiuchusTime || (isHighEnergyAnomaly && (primarySign.id === 'scorpio' || primarySign.id === 'sagittarius'))) {
+    // 7th House: Ophiuchus The Wild Card Serpent
+    sacredHouse = SEVEN_SACRED_HOUSES[6];
     isOphiuchusSerpentActive = true;
-    if (primarySign.id !== 'ophiuchus' && ophiuchus) {
-      secondaryBlendSign = ophiuchus;
-    }
+    primarySign = sacredHouse.twinSigns.signA;
+    secondaryBlendSign = undefined;
   } else {
-    // Check if on a 3-day cusp to blend the adjacent similar sign
-    const signIndex = ZODIAC_SIGNS.findIndex(s => s.id === primarySign.id);
-    if (day <= 3) {
-      const prevIndex = (signIndex - 1 + ZODIAC_SIGNS.length) % ZODIAC_SIGNS.length;
-      secondaryBlendSign = ZODIAC_SIGNS[prevIndex];
-    } else if (day >= 27) {
-      const nextIndex = (signIndex + 1) % ZODIAC_SIGNS.length;
-      secondaryBlendSign = ZODIAC_SIGNS[nextIndex];
+    // Match to one of the 6 Twin Houses where similar signs became one
+    const matchedHouse = SEVEN_SACRED_HOUSES.find(
+      h => h.twinSigns.signA.id === primarySign.id || h.twinSigns.signB?.id === primarySign.id
+    );
+    if (matchedHouse) {
+      sacredHouse = matchedHouse;
+      secondaryBlendSign = matchedHouse.twinSigns.signA.id === primarySign.id
+        ? matchedHouse.twinSigns.signB
+        : matchedHouse.twinSigns.signA;
     }
   }
 
-  const blendDescription = secondaryBlendSign
-    ? `${primarySign.name} (${primarySign.element}) blended with ${secondaryBlendSign.name} (${secondaryBlendSign.element}): ${primarySign.trait}; tempered by ${secondaryBlendSign.trait}.`
-    : `${primarySign.name} (${primarySign.element}): ${primarySign.trait}.`;
+  const blendDescription = sacredHouse.isWildcard
+    ? `House 7: ${sacredHouse.synthesisTitle} — ${sacredHouse.harmonicTrait}`
+    : `House ${sacredHouse.houseNumber}: ${sacredHouse.synthesisTitle} (${primarySign.name} ${primarySign.symbol} & ${secondaryBlendSign?.name || ''} ${secondaryBlendSign?.symbol || ''}) — ${sacredHouse.harmonicTrait}`;
 
   const birthDateString = d.toLocaleDateString('en-US', {
     month: 'short',
@@ -274,6 +378,7 @@ export function calculateStrangeletNatalChart(epochMs: number = Date.now(), ener
     bornAtCollisionEpoch: epochMs,
     birthDateString,
     sector,
+    sacredHouse,
     primarySign,
     secondaryBlendSign,
     blendDescription,
