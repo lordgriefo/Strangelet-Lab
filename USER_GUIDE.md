@@ -88,11 +88,14 @@ The Dojo allows you to train and prime your local LLM with the DAW's exact featu
 
 ---
 
-## 🔌 6. LOCAL AI HUB CONNECTION GUIDE
+## 🔌 6. LOCAL AI HUB & NEURAL MUSIC CONNECTION GUIDE
 
-To use the AI buddies completely offline with zero internet access:
+To use the AI buddies and local neural music generation completely offline with zero internet access:
 
-### Option A: Kobold.cpp
+> [!IMPORTANT]
+> **Kobold.cpp Replaces ComfyUI**: Strangelet Lab has retired ComfyUI. All local neural music generation (ACE-Step 1.5 & YuE 2.0) and offline GHOST LLM interactions now route directly through **Kobold.cpp** (`http://localhost:5001`). This eliminates complex node graphs, heavy Python dependencies, and separate server configurations.
+
+### Option A: Kobold.cpp (Recommended Universal Audio & LLM Engine)
 1. Launch Kobold.cpp with your favorite GGUF (e.g., `Qwen2.5-7B-Instruct.gguf` or `Llama-3.1-8B-Instruct.gguf`):
    ```bash
    ./koboldcpp --model your-model.gguf --port 5001 --usecublas
@@ -100,8 +103,9 @@ To use the AI buddies completely offline with zero internet access:
 2. In Strangelet Lab, click **AI Hub Endpoints** in the top bar.
 3. Set Engine to `Kobold.cpp (Local API)` and URL to `http://localhost:5001`.
 4. Click **Test Endpoint Connection** to verify green status.
+5. For music generation, Strangelet Lab calls Kobold.cpp's REST audio bridge endpoints (`/api/extra/music/prepare` and `/api/extra/music/generate`) directly.
 
-### Option B: Ollama
+### Option B: Ollama (LLM Only)
 1. Run Ollama locally:
    ```bash
    ollama run qwen2.5:7b
@@ -109,7 +113,7 @@ To use the AI buddies completely offline with zero internet access:
 2. In Strangelet Lab, select `Ollama (Local Host)` and URL `http://localhost:11434`.
 3. Enter Model Tag `qwen2.5:7b`.
 
-### Option C: LM Studio
+### Option C: LM Studio (LLM Only)
 1. Start the Local Inference Server in LM Studio (default port `1234`).
 2. Select `LM Studio (Local v1)` and URL `http://localhost:1234`.
 

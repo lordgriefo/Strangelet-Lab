@@ -92,21 +92,25 @@ These effects run directly inside Strangelet Lab's native Web Audio engine. No e
 
 ---
 
-## ⚡ 3. ACE-STEP 1.5 NEURAL AUDIO DIFFUSION
+## ⚡ 3. ACE-STEP 1.5 & NEURAL AUDIO DIFFUSION (KOBOLD.CPP BACKEND)
 
-Ace-Step 1.5 generates bar-synced, tempo-locked audio loops (drums, acid 303 bass, pads, leads) directly into timeline tracks.
+Strangelet Lab now routes local neural music generation directly through **Kobold.cpp** (`http://localhost:5001`), replacing ComfyUI entirely. Kobold.cpp provides a unified, lightweight, single-executable REST bridge for ACE-Step 1.5 loop diffusion, YuE 2.0 full-track generation, and GHOST LLMs with zero complex node graphs or Python environment headaches.
 
 | Component | Model Name | Format | VRAM | Download Link |
 | :--- | :--- | :--- | :--- | :--- |
 | **Language Backbone** | `acestep-5Hz-lm-1.7B-BF16.gguf` | GGUF | 2.4 GB | [AceStep 1.5 GGUF on HuggingFace](https://huggingface.co/Comfy-Org/AceStep_1.5_GGUF) |
 | **Diffusion DiT** | `acestep-v15-turbo-shift3-BF16.safetensors` | Safetensors | 3.2 GB | [AceStep 1.5 Weights on HuggingFace](https://huggingface.co/Comfy-Org/AceStep_1.5_GGUF) |
-| **ComfyUI Node** | `ComfyUI-AceStep` | Python Extension | 0 MB | [ComfyUI-AceStep GitHub](https://github.com/Comfy-Org/ComfyUI-AceStep) |
+| **Kobold.cpp Engine** | `koboldcpp.exe` (v1.75+) | Standalone Binary | 0 MB | [Kobold.cpp GitHub Releases](https://github.com/LostRuins/koboldcpp/releases) |
 
-### How to Connect:
-1. Start your local ComfyUI instance on `http://127.0.0.1:8188`.
-2. In Strangelet Lab, open the **Ace-Step 1.5 Designer** (`Sparkles` icon).
-3. Toggle **"Connect Local ComfyUI"** to **ON**.
-4. Generate: Your prompt and BPM are sent to the local diffusion model, and the resulting `.wav` stem automatically lands on your timeline!
+### How to Connect (Kobold.cpp REST Audio Bridge):
+1. Launch **Kobold.cpp** on your local machine (default port `http://localhost:5001`).
+2. In Strangelet Lab, open the **Kobold.cpp REST Audio Bridge** / **Ace-Step 1.5** panel.
+3. Verify the endpoint status (`http://localhost:5001` — green indicator).
+4. **Step 1 ("Prepare Plan")**: Dispatches `/api/extra/music/prepare` to establish key, tempo, and style nuances.
+5. **Step 2 ("Generate Track")**: Calls `/api/extra/music/generate` to synthesize audio. The generated `.wav` preview can be placed directly onto the multitrack timeline with 1 click!
+
+> [!NOTE]
+> **ComfyUI Transition**: We have retired ComfyUI in favor of Kobold.cpp. Kobold.cpp runs offline as a single executable, unifies text and music generation, and consumes significantly less idle VRAM.
 
 ---
 

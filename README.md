@@ -114,18 +114,47 @@ Available both as a standalone portable Windows executable and as a browser-nati
   - **LM Studio** (`http://localhost:1234`)
   - **Google AI Studio / Gemini API** (Cloud fallback)
 
-### 7. ⚡ Ace-Step 1.5 Neural Loop Diffusion
-- Bar-synced neural audio loop and song bed diffusion generation.
-- Direct API connector to local **ComfyUI** (`http://127.0.0.1:8188`) to generate synchronized stems (Drums, Bass, Leads, Pads) and download them straight into timeline tracks.
+### 7. ⚡ Ace-Step 1.5 & YuE 2.0 Neural Audio Generation (via Kobold.cpp)
+- Bar-synced neural audio loop diffusion and full-length song beds.
+- **Replaced ComfyUI with Kobold.cpp**: Strangelet Lab has retired ComfyUI in favor of **Kobold.cpp** (`http://localhost:5001`). Kobold.cpp handles both neural audio synthesis (ACE-Step 1.5 and YuE 2.0) and offline GHOST LLMs through a unified, fast REST API (`/api/extra/music/prepare` and `/api/extra/music/generate`), eliminating complex node graphs and Python environment dependency.
+- Download stems directly into multitrack timeline tracks or send directly to the Spectral Stem Splitter.
 
 ### 8. 🎞️ Strangelet KenetiCut VJ Bridge
 - 1-Click export to **KenetiCut Studio**, formatting master audio stems and audio-reactive transient markers for visual cut-up choreography.
 
-### 9. 🔌 KoboldCpp REST Audio Bridge
-- Direct neural music generation bridge connecting to any local KoboldCpp server (`http://localhost:5001`).
+### 9. 🔌 KoboldCpp REST Audio Bridge (Mothership Neural Engine)
+- Unified local neural audio & GHOST intelligence powered by any local KoboldCpp server (`http://localhost:5001`).
 - **Two-Step Architecture**:
   - **Step 1 ("Prepare Plan")**: Dispatches `/api/extra/music/prepare` to establish musical key, BPM, and refined stylistic tags for user review and manual fine-tuning.
   - **Step 2 ("Generate Track")**: Queries `/api/extra/music/generate` to synthesize full audio with ACE-Step 1.5 or YuE2, complete with preview player, WAV download, and 1-click routing into Strangelet Lab's multitrack timeline or stem splitter.
+
+---
+
+## 📸 Mothership Interface & Feature Gallery (Public Beta v2.5)
+
+<div align="center">
+
+| Pure Timeline Multi-Track Arrangement | Faust DSP Toy Lab & VST Builder |
+| :---: | :---: |
+| <img src="assets/screenshots/timeline_multitrack.jpg" alt="Timeline Multitrack" width="450" /> | <img src="assets/screenshots/faust_dsp_toy_lab.png" alt="Faust DSP Toy Lab" width="450" /> |
+
+| The Large Sonic Collider (27km Toroidal Chamber) | Beam Splitter & Optical Refractor (Snell's Law) |
+| :---: | :---: |
+| <img src="assets/screenshots/lsc_chamber.png" alt="Large Sonic Collider" width="450" /> | <img src="assets/screenshots/beam_splitter_optical.png" alt="Beam Splitter & Optical Refractor" width="450" /> |
+
+| Parametric EQ & Matchering Mastering Suite | Drum Trigger, Transient-to-MIDI & SFZ |
+| :---: | :---: |
+| <img src="assets/screenshots/parametric_eq_mastering.png" alt="Mastering Suite" width="450" /> | <img src="assets/screenshots/drum_trigger_sfz.png" alt="Drum Trigger" width="450" /> |
+
+| Laser Audio Editor & WSOLA Time-Stretch | Spectral Wave Splitter & Stem Deck |
+| :---: | :---: |
+| <img src="assets/screenshots/laser_audio_editor.png" alt="Laser Audio Editor" width="450" /> | <img src="assets/screenshots/spectral_wave_splitter.png" alt="Stem Deck" width="450" /> |
+
+| Project Statistics & Telemetry Radar | Guided Workflows & Production Templates |
+| :---: | :---: |
+| <img src="assets/screenshots/project_statistics_telemetry.png" alt="Telemetry Radar" width="450" /> | <img src="assets/screenshots/guided_workflows_templates.png" alt="Guided Workflows" width="450" /> |
+
+</div>
 
 ---
 
@@ -134,8 +163,8 @@ Available both as a standalone portable Windows executable and as a browser-nati
 Strangelet Lab is completely modular. You can run it 100% standalone with zero AI models installed, or connect heavy neural engines on demand:
 
 * 👉 **[Browse the Full Add-ons & Models Catalog (ADDONS_AND_MODELS.md)](ADDONS_AND_MODELS.md)**
-  * 👻 **GHOST AI Models**: Direct Hugging Face GGUF downloads + 1-click Ollama commands (`qwen2.5:3b`, `qwen2.5:7b`, `llama3.1:8b`).
-  * ⚡ **Ace-Step 1.5 Audio Diffusion**: 1.7B LM Backbone, Turbo DiT weights, and local ComfyUI workflow template.
+  * 👻 **GHOST AI Models**: Direct Hugging Face GGUF downloads + 1-click Ollama / Kobold.cpp commands (`qwen2.5:3b`, `qwen2.5:7b`, `llama3.1:8b`).
+  * ⚡ **Ace-Step 1.5 & YuE 2.0**: Native local music diffusion running over Kobold.cpp REST bridge.
   * 🎶 **YuE 2.0 Full-Song Generation**: Dual-track 7B vocal & instrumental foundation weights.
   * 🎹 **Free Acoustic & Vintage SFZ Packs**: Concert Grand Piano, Rhodes Mark I, Mellotron Strings, and Roland TR-808/909 drum transient kits.
 
