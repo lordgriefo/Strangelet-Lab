@@ -106,7 +106,7 @@ const Timeline: React.FC<TimelineProps> = ({
     if (onToolChange) onToolChange(tool);
   };
 
-  // [E] flips Red Laser Incremental Eraser; [B] toggles Beam Mode (Right-Click Erase vs Studio Right-Click Menu)
+  // ACID Pro Keyboard Shortcuts: [P] / [D] Paint, [M] MIDI Paint, [E] Erase, [S]/[V] Select, [C] Curves, [B] Beam Mode, [G] Grid, [Q] Magnet
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
@@ -121,7 +121,23 @@ const Timeline: React.FC<TimelineProps> = ({
         return;
       }
 
-      if (e.key === 'e' || e.key === 'E') {
+      const key = e.key.toLowerCase();
+
+      if (key === 'p' || key === 'd') {
+        e.preventDefault();
+        setActiveTool('laser_audio');
+        playLaserBeamSound('laser_audio');
+        return;
+      }
+
+      if (key === 'm') {
+        e.preventDefault();
+        setActiveTool('laser_midi');
+        playLaserBeamSound('laser_midi');
+        return;
+      }
+
+      if (key === 'e') {
         e.preventDefault();
         const isErasing = activeTool === 'laser_erase' || activeTool === 'erase';
         const nextTool: ActiveTool = isErasing
@@ -132,14 +148,41 @@ const Timeline: React.FC<TimelineProps> = ({
         return;
       }
 
-      if (e.key === 'b' || e.key === 'B') {
+      if (key === 's' || key === 'v') {
+        e.preventDefault();
+        setActiveTool('laser_select');
+        playLaserBeamSound('laser_select');
+        return;
+      }
+
+      if (key === 'c') {
+        e.preventDefault();
+        setActiveTool('laser_curve');
+        playLaserBeamSound('laser_curve');
+        return;
+      }
+
+      if (key === 'b') {
         e.preventDefault();
         toggleBeamMode();
+        return;
+      }
+
+      if (key === 'g') {
+        e.preventDefault();
+        toggleGridOverlay();
+        return;
+      }
+
+      if (key === 'q') {
+        e.preventDefault();
+        toggleSnapEnabled();
+        return;
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTool, propOnToggleBeamMode]);
+  }, [activeTool, propOnToggleBeamMode, toggleGridOverlay, toggleSnapEnabled]);
 
   const [timeSignature, setTimeSignature] = useState<string>(() => {
     try {

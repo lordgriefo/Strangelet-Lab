@@ -340,7 +340,7 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
     const isEraseTool = activeTool === 'laser_erase' || activeTool === 'erase';
     const isCurveLaser = activeTool === 'laser_curve' || activeTool === 'draw';
 
-    // ACID Pro Beam Mode (when enabled): Right-Click (e.button === 2) incrementally erases without leaving paint mode
+    // ACID Pro Beam Mode: Right-Click (e.button === 2) incrementally scrubs and erases without leaving paint mode
     const isRightClickBeamErase = isPaintBeamMode && e.button === 2 && !e.ctrlKey;
     if (!isRightClickBeamErase && e.button !== 0) return;
 
@@ -354,20 +354,22 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
     if (!laneAreaRef.current) return;
     const rect = laneAreaRef.current.getBoundingClientRect();
     const startClientX = e.clientX;
-    const rawX = e.clientX - rect.left;
+    const rawX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
     const rawBar = Math.max(0, Math.min(16, (rawX / rect.width) * 16));
     const initMicroBypass = e.altKey;
-    const initIsOff = initMicroBypass || snapValue === 'off' || snapValue === 'freeform';
-    const snappedBar = initIsOff
+    const isOff = initMicroBypass || snapValue === 'off' || snapValue === 'freeform';
+    const effStep = Math.max(0.03125, isOff ? 0.0625 : getSnapStepSize(snapValue));
+
+    // ACID Pro cell-quantized start anchor
+    const startAnchor = isOff
       ? Number(rawBar.toFixed(3))
-      : Number(snapToGrid(rawBar, snapValue).toFixed(4));
-    const startAnchor = Math.max(0, Math.min(15.9375, snappedBar));
+      : Math.max(0, Math.min(16 - effStep, Math.floor((rawBar + 1e-6) / effStep) * effStep));
 
     // Baseline clips snapshot for live reversible incremental drag-erasing & clean single undo history
-    const baselineClips = clips;
+    const baselineClips = latestClipsRef.current || clips;
     const baselineAllTracks = allTracks || [track];
     const clipsFingerprint = (list: Clip[]) =>
-      list.map(c => `${c.id}:${c.startBar}:${c.durationBars}`).join('|');
+      list.map(c => `${c.id}:${c.startBar.toFixed(3)}:${c.durationBars.toFixed(3)}`).join('|');
     const baselineFingerprint = clipsFingerprint(baselineClips);
 
     const beamStrikeColor = isEraseAction
@@ -380,16 +382,26 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
     triggerLaserStrike(startAnchor, beamStrikeColor);
 
     let hasMoved = false;
+    let hasErasedAny = false;
     pointerEraseHandledRef.current = false;
     const activeActionMode: 'paint' | 'erase' = isEraseAction ? 'erase' : 'paint';
+
+    // Immediate initial preview span: 1 full bar (or snap step) for instant visual feedback on mousedown
+    const defaultClickSpan = isOff ? 1.0 : (effStep >= 1.0 ? effStep : Math.min(2.0, Math.max(1.0, effStep * 4)));
+    const initPreviewEnd = Math.min(16, Number((startAnchor + defaultClickSpan).toFixed(4)));
+    const initPreviewDur = Number((initPreviewEnd - startAnchor).toFixed(4));
+
+    let currentPreviewStart = startAnchor;
+    let currentPreviewEnd = initPreviewEnd;
+    let currentPreviewDur = initPreviewDur;
 
     setPaintState({
       isActive: true,
       anchorBar: startAnchor,
       currentBar: startAnchor,
       startBar: startAnchor,
-      endBar: startAnchor,
-      durationBars: 0,
+      endBar: initPreviewEnd,
+      durationBars: initPreviewDur,
       hasDragged: false,
       mode: activeActionMode
     });
@@ -399,69 +411,132 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
         isActive: true,
         trackId: id,
         startBar: startAnchor,
-        endBar: startAnchor,
+        endBar: initPreviewEnd,
         currentBar: startAnchor,
-        durationBars: 0,
+        durationBars: initPreviewDur,
         isMicroBypass: initMicroBypass,
         mode: activeActionMode
       });
     }
 
+    // If Right-Click Scrub Erase: immediately carve the clicked grid step
+    let lastScrubCell: number | null = null;
+    let currentAccumulatedClips = baselineClips;
+
+    if (isEraseAction) {
+      const cellStart = startAnchor;
+      const cellEnd = Math.min(16, Number((cellStart + effStep).toFixed(4)));
+      lastScrubCell = cellStart;
+      const initialCarve = carveEraseRegionFromClips(baselineClips, cellStart, cellEnd);
+      if (clipsFingerprint(initialCarve) !== baselineFingerprint) {
+        hasErasedAny = true;
+        currentAccumulatedClips = initialCarve;
+        latestClipsRef.current = initialCarve;
+        updateTrack(id, { clips: initialCarve });
+      }
+    }
+
     const handleMouseMove = (ev: MouseEvent) => {
       if (!laneAreaRef.current) return;
       const currentRect = laneAreaRef.current.getBoundingClientRect();
-      const currX = ev.clientX - currentRect.left;
+      const currX = Math.max(0, Math.min(currentRect.width, ev.clientX - currentRect.left));
       const currRawBar = Math.max(0, Math.min(16, (currX / currentRect.width) * 16));
       const isMicroBypass = ev.altKey;
-      const isOff = isMicroBypass || snapValue === 'off' || snapValue === 'freeform';
-      const currSnappedBar = isOff
-        ? Number(currRawBar.toFixed(3))
-        : Number(snapToGrid(currRawBar, snapValue).toFixed(4));
+      const moveIsOff = isMicroBypass || snapValue === 'off' || snapValue === 'freeform';
+      const moveStep = Math.max(0.03125, moveIsOff ? 0.0625 : getSnapStepSize(snapValue));
 
-      if (Math.abs(ev.clientX - startClientX) >= 3 || Math.abs(currSnappedBar - startAnchor) >= 0.01) {
+      if (Math.abs(ev.clientX - startClientX) >= 4 || Math.abs(currRawBar - rawBar) >= 0.05) {
         hasMoved = true;
       }
 
-      const effAnchor = isEraseAction && isMicroBypass ? Number(rawBar.toFixed(3)) : startAnchor;
-      const minB = Math.max(0, Math.min(effAnchor, currSnappedBar));
-      const maxB = Math.min(16, Math.max(effAnchor, currSnappedBar));
-      const dur = Number((maxB - minB).toFixed(4));
+      if (activeActionMode === 'paint') {
+        let pStart = startAnchor;
+        let pEnd = startAnchor;
 
-      setPaintState({
-        isActive: true,
-        anchorBar: effAnchor,
-        currentBar: currSnappedBar,
-        startBar: minB,
-        endBar: maxB,
-        durationBars: dur,
-        hasDragged: hasMoved,
-        mode: activeActionMode
-      });
+        if (currRawBar >= startAnchor) {
+          // Dragging rightwards
+          pStart = startAnchor;
+          pEnd = moveIsOff
+            ? Math.min(16, Math.max(startAnchor + 0.03125, Number(currRawBar.toFixed(3))))
+            : Math.min(16, Math.max(startAnchor + moveStep, Math.ceil((currRawBar + 1e-6) / moveStep) * moveStep));
+        } else {
+          // Dragging leftwards
+          pStart = moveIsOff
+            ? Math.max(0, Number(currRawBar.toFixed(3)))
+            : Math.max(0, Math.floor((currRawBar + 1e-6) / moveStep) * moveStep);
+          pEnd = Math.min(16, Math.max(pStart + moveStep, startAnchor + moveStep));
+        }
 
-      if ((isPaintLaser || isEraseAction) && onPaintChange) {
-        onPaintChange({
+        const pDur = Number((pEnd - pStart).toFixed(4));
+        currentPreviewStart = pStart;
+        currentPreviewEnd = pEnd;
+        currentPreviewDur = pDur;
+
+        setPaintState({
           isActive: true,
-          trackId: id,
-          startBar: minB,
-          endBar: maxB,
-          currentBar: currSnappedBar,
-          durationBars: dur,
-          isMicroBypass,
-          mode: activeActionMode
+          anchorBar: startAnchor,
+          currentBar: Number(currRawBar.toFixed(3)),
+          startBar: pStart,
+          endBar: pEnd,
+          durationBars: pDur,
+          hasDragged: hasMoved,
+          mode: 'paint'
         });
-      }
 
-      // Incremental snapped erase preview (computes against baselineClips so pulling back restores)
-      if (isEraseAction && hasMoved) {
-        if (dur > 0.005) {
-          const nextClips = carveEraseRegionFromClips(baselineClips, minB, maxB);
-          if (clipsFingerprint(nextClips) !== clipsFingerprint(latestClipsRef.current)) {
-            latestClipsRef.current = nextClips;
-            updateTrack(id, { clips: nextClips });
+        if (onPaintChange) {
+          onPaintChange({
+            isActive: true,
+            trackId: id,
+            startBar: pStart,
+            endBar: pEnd,
+            currentBar: Number(currRawBar.toFixed(3)),
+            durationBars: pDur,
+            isMicroBypass,
+            mode: 'paint'
+          });
+        }
+      } else if (activeActionMode === 'erase') {
+        // Continuous ACID Pro scrub erase
+        const scrubCellStart = moveIsOff
+          ? Math.max(0, Number((currRawBar - 0.125).toFixed(3)))
+          : Math.floor((currRawBar + 1e-6) / moveStep) * moveStep;
+        const scrubCellEnd = moveIsOff
+          ? Math.min(16, Number((currRawBar + 0.125).toFixed(3)))
+          : Math.min(16, scrubCellStart + moveStep);
+
+        if (scrubCellStart !== lastScrubCell) {
+          lastScrubCell = scrubCellStart;
+          const carved = carveEraseRegionFromClips(currentAccumulatedClips, scrubCellStart, scrubCellEnd);
+          if (clipsFingerprint(carved) !== clipsFingerprint(currentAccumulatedClips)) {
+            hasErasedAny = true;
+            currentAccumulatedClips = carved;
+            latestClipsRef.current = carved;
+            updateTrack(id, { clips: carved });
           }
-        } else if (clipsFingerprint(latestClipsRef.current) !== baselineFingerprint) {
-          latestClipsRef.current = baselineClips;
-          updateTrack(id, { clips: baselineClips });
+        }
+
+        setPaintState({
+          isActive: true,
+          anchorBar: startAnchor,
+          currentBar: Number(currRawBar.toFixed(3)),
+          startBar: scrubCellStart,
+          endBar: scrubCellEnd,
+          durationBars: Number((scrubCellEnd - scrubCellStart).toFixed(4)),
+          hasDragged: hasMoved,
+          mode: 'erase'
+        });
+
+        if (onPaintChange) {
+          onPaintChange({
+            isActive: true,
+            trackId: id,
+            startBar: scrubCellStart,
+            endBar: scrubCellEnd,
+            currentBar: Number(currRawBar.toFixed(3)),
+            durationBars: Number((scrubCellEnd - scrubCellStart).toFixed(4)),
+            isMicroBypass,
+            mode: 'erase'
+          });
         }
       }
     };
@@ -487,69 +562,24 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
       }
 
       if (isEraseAction) {
-        const endMicro = ev.altKey;
-        const endIsOff = endMicro || snapValue === 'off' || snapValue === 'freeform';
-
-        if (hasMoved) {
-          let finalStart = startAnchor;
-          let finalEnd = startAnchor;
-          if (laneAreaRef.current) {
-            const endRect = laneAreaRef.current.getBoundingClientRect();
-            const endX = ev.clientX - endRect.left;
-            const endRawBar = Math.max(0, Math.min(16, (endX / endRect.width) * 16));
-            const endSnapped = endIsOff
-              ? Number(endRawBar.toFixed(3))
-              : Number(snapToGrid(endRawBar, snapValue).toFixed(4));
-            const effAnchor = endMicro ? Number(rawBar.toFixed(3)) : startAnchor;
-            finalStart = Math.max(0, Math.min(effAnchor, endSnapped));
-            finalEnd = Math.min(16, Math.max(effAnchor, endSnapped));
-          }
-          const finalClips = finalEnd - finalStart > 0.005
-            ? carveEraseRegionFromClips(baselineClips, finalStart, finalEnd)
-            : baselineClips;
-          if (clipsFingerprint(finalClips) !== baselineFingerprint) {
-            pointerEraseHandledRef.current = true;
-            projectHistory.pushSnapshot(
-              `Erase Slice (${(finalEnd - finalStart).toFixed(2)}b) [${name}]`,
-              baselineAllTracks,
-              tempo
-            );
-            playLaserBeamSound('laser_erase');
-            latestClipsRef.current = finalClips;
-            updateTrack(id, { clips: finalClips });
-          }
+        if (hasErasedAny) {
+          pointerEraseHandledRef.current = true;
+          projectHistory.pushSnapshot(
+            `Erase Scrub [${name}]`,
+            baselineAllTracks,
+            tempo
+          );
+          playLaserBeamSound('laser_erase');
         } else if (ev.shiftKey) {
-          // Shift+Click / Shift+Right-Click: delete whole clip under pointer
-          const clickedClip =
-            baselineClips.find(c => rawBar >= c.startBar && rawBar <= c.startBar + c.durationBars) ||
-            baselineClips.find(c => startAnchor >= c.startBar && startAnchor <= c.startBar + c.durationBars);
+          // Shift+Click: delete whole clip under pointer
+          const clickedClip = baselineClips.find(
+            c => rawBar >= c.startBar && rawBar <= c.startBar + c.durationBars
+          );
           if (clickedClip) {
             pointerEraseHandledRef.current = true;
             projectHistory.pushSnapshot(`Delete Clip [${clickedClip.name}]`, baselineAllTracks, tempo);
             playLaserBeamSound('laser_erase');
             const nextClips = baselineClips.filter(c => c.id !== clickedClip.id);
-            latestClipsRef.current = nextClips;
-            updateTrack(id, { clips: nextClips });
-          }
-        } else {
-          // Single-click incremental erase: carves 1 snapped grid step out of any overlapping clip
-          const effStep = endIsOff
-            ? (endMicro ? 0.0625 : 0.25)
-            : Math.max(0.03125, getSnapStepSize(snapValue));
-          const cellStart = Math.max(
-            0,
-            Math.min(16 - effStep, Number((Math.floor((rawBar + 1e-6) / effStep) * effStep).toFixed(4)))
-          );
-          const cellEnd = Math.min(16, Number((cellStart + effStep).toFixed(4)));
-          const nextClips = carveEraseRegionFromClips(baselineClips, cellStart, cellEnd);
-          if (clipsFingerprint(nextClips) !== baselineFingerprint) {
-            pointerEraseHandledRef.current = true;
-            projectHistory.pushSnapshot(
-              `Erase ${effStep}b Step [${name}]`,
-              baselineAllTracks,
-              tempo
-            );
-            playLaserBeamSound('laser_erase');
             latestClipsRef.current = nextClips;
             updateTrack(id, { clips: nextClips });
           }
@@ -559,87 +589,93 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
       }
 
       // Audio or MIDI Loop Paint commit (Left-click)
-      if (!isEraseAction && isPaintLaser) {
-        const endMicro = ev.altKey;
-        const endIsOff = endMicro || snapValue === 'off' || snapValue === 'freeform';
-        const minPaintStep = endIsOff
-          ? 0.03125
-          : Math.min(0.25, Math.max(0.03125, getSnapStepSize(snapValue)));
-        let finalStart = startAnchor;
-        let finalDuration = 2; // Default single-click unit
+      if (isPaintLaser && !isEraseAction) {
+        const finalStart = currentPreviewStart;
+        const finalDuration = currentPreviewDur;
+        const finalEnd = currentPreviewEnd;
 
-        if (laneAreaRef.current) {
-          const endRect = laneAreaRef.current.getBoundingClientRect();
-          const endX = ev.clientX - endRect.left;
-          const endRawBar = Math.max(0, Math.min(16, (endX / endRect.width) * 16));
-          const endSnappedBar = endIsOff
-            ? Number(endRawBar.toFixed(3))
-            : Number(snapToGrid(endRawBar, snapValue).toFixed(4));
-          
-          if (hasMoved) {
-            finalStart = Math.max(0, Math.min(startAnchor, endSnappedBar));
-            const finalEnd = Math.min(16, Math.max(startAnchor, endSnappedBar));
-            finalDuration = Math.max(minPaintStep, Number((finalEnd - finalStart).toFixed(4)));
-          } else {
-            finalStart = Math.max(0, Math.min(14, startAnchor));
-            finalDuration = Math.min(2, Math.max(0.5, 16 - finalStart));
+        if (finalDuration >= 0.03125) {
+          // Find source clip on track to clone its loop profile if available
+          const sourceClip = clips.length > 0 ? clips[clips.length - 1] : null;
+
+          // Generate or tile MIDI notes if MIDI laser or MIDI track
+          let motifNotes: any = undefined;
+          if (isMidiLaser || type === 'midi') {
+            if (sourceClip?.midiNotes && sourceClip.midiNotes.length > 0) {
+              // ACID Pro Loop Tiling: repeat source notes across painted bars
+              const baseDur = Math.max(0.5, sourceClip.durationBars);
+              const reps = Math.ceil(finalDuration / baseDur);
+              const tiled: any[] = [];
+              for (let r = 0; r < reps; r++) {
+                const bOffset = r * baseDur;
+                sourceClip.midiNotes.forEach(note => {
+                  if (note.startBar + bOffset < finalDuration) {
+                    tiled.push({
+                      ...note,
+                      id: `mn-tile-${Date.now()}-${r}-${note.id}`,
+                      startBar: Number((note.startBar + bOffset).toFixed(4)),
+                      startTimeSeconds: Number(((note.startBar + bOffset) * (4 * 60 / tempo)).toFixed(4))
+                    });
+                  }
+                });
+              }
+              motifNotes = tiled;
+            } else {
+              const isHumanize = track.midiConfig?.humanizeEnabled ?? track.humanizeEnabled ?? true;
+              const jitterAmt = track.midiConfig?.humanizeAmount ?? track.humanizeAmount ?? 0.18;
+              const baseVel = 95;
+              const maxDelta = Math.round(jitterAmt * 80);
+              const totalSteps = Math.max(2, Math.round(finalDuration * 2));
+              const basePitches = [60, 63, 67, 70, 65, 68, 72, 60];
+              motifNotes = Array.from({ length: totalSteps }).map((_, stepIdx) => {
+                const p = basePitches[stepIdx % basePitches.length];
+                const velOffset = isHumanize ? Math.round((Math.random() * 2 - 1) * maxDelta) : 0;
+                return {
+                  id: `mn-${Date.now()}-${stepIdx}`,
+                  pitch: p,
+                  noteName: midiToNoteName(p),
+                  startBar: stepIdx * 0.5,
+                  startTimeSeconds: stepIdx * 0.5 * 2,
+                  durationBars: 0.45,
+                  durationSeconds: 0.9,
+                  velocity: Math.max(20, Math.min(127, baseVel + velOffset)),
+                  confidence: 1.0
+                };
+              });
+            }
           }
+
+          const loopName = sourceClip 
+            ? `${sourceClip.name}`
+            : isMidiLaser || type === 'midi'
+              ? `${name} Synth Groove`
+              : `${name} Audio Loop`;
+
+          const newClip: Clip = {
+            id: `clip-paint-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+            name: loopName,
+            startBar: Number(finalStart.toFixed(4)),
+            durationBars: Number(finalDuration.toFixed(4)),
+            isMidi: isMidiLaser || type === 'midi',
+            midiNotes: (isMidiLaser || type === 'midi') ? motifNotes : undefined,
+            waveformSnippet: sourceClip?.waveformSnippet || Array.from({ length: 32 }, (_, i) => 0.3 + 0.6 * Math.abs(Math.sin(i * 0.6))),
+            audioUrl: sourceClip?.audioUrl,
+            instrument: track.instrument || 'SFZ Grand Piano'
+          };
+
+          // ACID Pro overwrite: carve out underlying region so no duplicate ghost clips exist!
+          const nonOverlapping = carveEraseRegionFromClips(clips, finalStart, finalEnd);
+          const nextClips = [...nonOverlapping, newClip].sort((a, b) => a.startBar - b.startBar);
+
+          latestClipsRef.current = nextClips;
+          projectHistory.pushSnapshot(
+            `Paint Loop (${finalDuration.toFixed(2)} Bars) on [${name}]`,
+            allTracks || [track],
+            tempo
+          );
+          playLaserBeamSound(isMidiLaser || type === 'midi' ? 'laser_midi' : 'laser_audio');
+          updateTrack(id, { clips: nextClips });
         }
-
-        // Find nearest existing clip on track to clone its loop profile if available
-        const sourceClip = clips.length > 0 ? clips[clips.length - 1] : null;
-
-        // Generate MIDI notes if MIDI laser
-        let motifNotes: any = undefined;
-        if (isMidiLaser || type === 'midi') {
-          const isHumanize = track.midiConfig?.humanizeEnabled ?? track.humanizeEnabled ?? true;
-          const jitterAmt = track.midiConfig?.humanizeAmount ?? track.humanizeAmount ?? 0.18;
-          const baseVel = 95;
-          const maxDelta = Math.round(jitterAmt * 80);
-          // Repeating loop motif: 4 steps per bar
-          const totalSteps = Math.max(2, Math.round(finalDuration * 2));
-          const basePitches = [60, 63, 67, 70, 65, 68, 72, 60]; // C minor / pentatonic groove
-          
-          motifNotes = Array.from({ length: totalSteps }).map((_, stepIdx) => {
-            const p = basePitches[stepIdx % basePitches.length];
-            const velOffset = isHumanize ? Math.round((Math.random() * 2 - 1) * maxDelta) : 0;
-            return {
-              id: `mn-${Date.now()}-${stepIdx}`,
-              pitch: p,
-              noteName: midiToNoteName(p),
-              startBar: stepIdx * 0.5,
-              startTimeSeconds: stepIdx * 0.5 * 2,
-              durationBars: 0.45,
-              durationSeconds: 0.9,
-              velocity: Math.max(20, Math.min(127, baseVel + velOffset)),
-              confidence: 1.0
-            };
-          });
-        }
-
-        const loopName = sourceClip 
-          ? `${sourceClip.name}`
-          : isMidiLaser || type === 'midi'
-            ? `${name} Synth Groove`
-            : `${name} Audio Loop`;
-
-        const newClip: Clip = {
-          id: `clip-paint-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-          name: loopName,
-          startBar: Number(finalStart.toFixed(4)),
-          durationBars: Number(finalDuration.toFixed(4)),
-          isMidi: isMidiLaser || type === 'midi',
-          midiNotes: (isMidiLaser || type === 'midi') ? (sourceClip?.midiNotes || motifNotes) : undefined,
-          waveformSnippet: sourceClip?.waveformSnippet || Array.from({ length: 32 }, (_, i) => 0.3 + 0.6 * Math.abs(Math.sin(i * 0.6))),
-          audioUrl: sourceClip?.audioUrl,
-          instrument: track.instrument || 'SFZ Grand Piano'
-        };
-
-        projectHistory.pushSnapshot(`Paint Loop (${finalDuration.toFixed(2)} Bars) on [${name}]`, allTracks || [track], tempo);
-        playLaserBeamSound(isMidiLaser || type === 'midi' ? 'laser_midi' : 'laser_audio');
-
-        // Add clip to track
-        updateTrack(id, { clips: [...clips, newClip] });
       }
 
       setPaintState(null);
@@ -819,7 +855,15 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
       return;
     }
 
+    const isPaintLaser = activeTool === 'laser_audio' || activeTool === 'laser_midi' || activeTool === 'beam';
     const isSelectAction = e.shiftKey || e.metaKey || e.ctrlKey || activeTool === 'laser_select' || activeTool === 'select';
+
+    // ACID Pro Paint Mode: Left-clicking with the Paintbrush paints / drops loops across the track lane
+    // instead of accidentally moving existing clips. To move clips, switch to Lodge Select [S] or hold Shift/Ctrl!
+    if (isPaintLaser && !isSelectAction) {
+      return;
+    }
+
     e.stopPropagation();
     const startX = e.clientX;
     const initialStartBar = clip.startBar;
@@ -1204,6 +1248,9 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
           {/* Clips Rendered Across Timeline */}
           {clips.map(clip => {
             const isEraseTool = activeTool === 'laser_erase' || activeTool === 'erase';
+            const isPaintLaser = activeTool === 'laser_audio' || activeTool === 'laser_midi' || activeTool === 'beam';
+            const isLaserTool = isPaintLaser || isEraseTool || activeTool === 'laser_curve' || activeTool === 'draw';
+            const isSelectTool = activeTool === 'laser_select' || activeTool === 'select';
             const isMidiClip = clip.isMidi || type === 'midi';
             const isCurrentlyDragging = draggingClipId === clip.id;
             const isCurrentlyResizing = resizingClipId === clip.id;
@@ -1234,13 +1281,14 @@ const TimelineLane: React.FC<TimelineLaneProps> = ({
                         ? 'cursor-ew-resize ring-2 ring-[#00F0FF] shadow-[0_0_16px_rgba(0,240,255,0.55)] z-30'
                         : isClipSelected
                           ? isMidiClip
-                            ? 'cursor-grab active:cursor-grabbing bg-[#0A221A] border border-[#FFD700] ring-1 ring-[#FFD700]/70 z-20'
-                            : 'cursor-grab active:cursor-grabbing bg-[#101C33] border border-[#FFD700] ring-1 ring-[#FFD700]/70 z-20'
+                            ? `${isLaserTool ? '' : 'cursor-grab active:cursor-grabbing'} bg-[#0A221A] border border-[#FFD700] ring-1 ring-[#FFD700]/70 z-20`
+                            : `${isLaserTool ? '' : 'cursor-grab active:cursor-grabbing'} bg-[#101C33] border border-[#FFD700] ring-1 ring-[#FFD700]/70 z-20`
                           : isMidiClip 
-                            ? 'cursor-grab active:cursor-grabbing bg-[#061510] border border-[#10B981]/50 hover:border-[#10B981]' 
-                            : 'cursor-grab active:cursor-grabbing bg-[#0B1322] border border-[#26619C] hover:border-[#00F0FF]'
+                            ? `${isLaserTool ? '' : 'cursor-grab active:cursor-grabbing'} bg-[#061510] border border-[#10B981]/50 hover:border-[#10B981]` 
+                            : `${isLaserTool ? '' : 'cursor-grab active:cursor-grabbing'} bg-[#0B1322] border border-[#26619C] hover:border-[#00F0FF]`
                 }`}
                 style={{ 
+                  cursor: isLaserTool ? getLaserPointerCursor(activeTool) : (isSelectTool ? 'grab' : undefined),
                   left: `${(clip.startBar / 16) * 100}%`, 
                   width: `${(clip.durationBars / 16) * 100}%`,
                   borderLeftWidth: '3px',

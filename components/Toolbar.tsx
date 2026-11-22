@@ -51,23 +51,23 @@ const Toolbar: React.FC<ToolbarProps> = ({
   const laserTools = [
     { 
       id: 'laser_audio' as ActiveTool, 
-      label: 'Blue Laser', 
-      sub: beamModeEnabled ? 'L Paint · R Erase' : 'L Paint · R Menu',
+      label: 'Laser Paint [P]', 
+      sub: beamModeEnabled ? 'ACID Paint · R Erase' : 'ACID Paint · R Menu',
       beamColor: '#00F0FF', 
       glow: 'rgba(0,240,255,0.4)', 
       icon: Waves 
     },
     { 
       id: 'laser_midi' as ActiveTool, 
-      label: 'Green Laser', 
-      sub: beamModeEnabled ? 'L Paint · R Erase' : 'L Paint · R Menu',
+      label: 'MIDI Paint [M]', 
+      sub: beamModeEnabled ? 'ACID Paint · R Erase' : 'ACID Paint · R Menu',
       beamColor: '#10B981', 
       glow: 'rgba(16,185,129,0.4)', 
       icon: Music 
     },
     { 
       id: 'laser_erase' as ActiveTool, 
-      label: 'Red Laser', 
+      label: 'Red Eraser [E]', 
       sub: 'Snap Erase [E]',
       beamColor: '#EF4444', 
       glow: 'rgba(239,68,68,0.45)', 
@@ -75,7 +75,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
     },
     { 
       id: 'laser_curve' as ActiveTool, 
-      label: 'Amber Laser', 
+      label: 'Amber Curves [C]', 
       sub: 'Vegas Neon Curves',
       beamColor: '#FFD700', 
       glow: 'rgba(255,215,0,0.4)', 
@@ -83,8 +83,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
     },
     { 
       id: 'laser_select' as ActiveTool, 
-      label: 'Lodge Beam', 
-      sub: 'Select & Scrubber',
+      label: 'Lodge Select [S]', 
+      sub: 'Select & Move Clips',
       beamColor: '#A855F7', 
       glow: 'rgba(168,85,247,0.4)', 
       icon: Crosshair 

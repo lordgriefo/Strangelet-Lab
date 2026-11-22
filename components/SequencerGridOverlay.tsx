@@ -6,36 +6,95 @@ import { Zap, Magnet, Lock } from 'lucide-react';
 const LASER_CURSOR_CACHE = new Map<string, string>();
 
 export function getLaserPointerCursor(activeTool: ActiveTool): string {
-  if (activeTool === 'laser_select' || activeTool === 'select') {
-    return 'default';
-  }
-  const color =
-    activeTool === 'laser_midi'
-      ? '#10B981'
-      : activeTool === 'laser_erase' || activeTool === 'erase'
-        ? '#EF4444'
-        : activeTool === 'laser_curve' || activeTool === 'draw'
-          ? '#FFD700'
-          : '#00F0FF';
+  const isSelect = activeTool === 'laser_select' || activeTool === 'select';
+  const isMidi = activeTool === 'laser_midi';
+  const isErase = activeTool === 'laser_erase' || activeTool === 'erase';
+  const isCurve = activeTool === 'laser_curve' || activeTool === 'draw';
 
-  const cached = LASER_CURSOR_CACHE.get(color);
+  const cacheKey = `${activeTool}`;
+  const cached = LASER_CURSOR_CACHE.get(cacheKey);
   if (cached) return cached;
 
-  const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">` +
-    `<circle cx="3" cy="3" r="2.8" fill="${color}" fill-opacity="0.45"/>` +
-    `<line x1="3" y1="3" x2="8.8" y2="8.8" stroke="${color}" stroke-width="2.4" stroke-linecap="round"/>` +
-    `<line x1="3" y1="3" x2="8.8" y2="8.8" stroke="#FFFFFF" stroke-width="0.9" stroke-linecap="round"/>` +
-    `<circle cx="3" cy="3" r="1.2" fill="#FFFFFF"/>` +
-    `<path d="M7.6 10.6 L10.6 7.6 L28.6 25.6 L25.6 28.6 Z" fill="#05070E" stroke="#05070E" stroke-width="1.8" stroke-linejoin="round"/>` +
-    `<path d="M7.6 10.6 L10.6 7.6 L12.6 9.6 L9.6 12.6 Z" fill="${color}"/>` +
-    `<path d="M9.6 12.6 L12.6 9.6 L26 23 L23 26 Z" fill="#CBD5E1"/>` +
-    `<circle cx="16.8" cy="16.8" r="1.4" fill="#0F172A" stroke="${color}" stroke-width="0.9"/>` +
-    `<path d="M23 26 L26 23 L28.4 25.4 L25.4 28.4 Z" fill="#334155"/>` +
-    `</svg>`;
+  let svg = '';
+  let hotspotX = 2;
+  let hotspotY = 2;
+  let fallback = 'crosshair';
 
-  const cursorValue = `url("data:image/svg+xml,${encodeURIComponent(svg)}") 3 3, crosshair`;
-  LASER_CURSOR_CACHE.set(color, cursorValue);
+  if (isSelect) {
+    // Lodge Beam: Sleek Purple Precision Arrow + Crosshair
+    hotspotX = 2;
+    hotspotY = 2;
+    fallback = 'default';
+    svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">` +
+      `<filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="1" dy="1" stdDeviation="1" flood-color="#000000" flood-opacity="0.8"/></filter>` +
+      `<g filter="url(#sh)">` +
+      `<path d="M2 2 L2 18 L6.5 13.5 L12 24 L15 22.5 L9.5 12 L16.5 12 Z" fill="#0A0E17" stroke="#A855F7" stroke-width="1.6" stroke-linejoin="round"/>` +
+      `<path d="M4 5 L4 14.5 L7.2 11.3 L11.8 20.2 L13.2 19.5 L8.6 10.7 L13.5 10.7 Z" fill="#C084FC"/>` +
+      `<circle cx="2" cy="2" r="1.5" fill="#FFFFFF"/>` +
+      `</g>` +
+      `</svg>`;
+  } else if (isErase) {
+    // Red Laser Eraser Chisel Tool: ACID Pro style erase block
+    hotspotX = 3;
+    hotspotY = 3;
+    svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">` +
+      `<filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="1" dy="1" stdDeviation="1.2" flood-color="#000000" flood-opacity="0.9"/></filter>` +
+      `<g filter="url(#sh)">` +
+      `<circle cx="3" cy="3" r="3.2" fill="#EF4444" fill-opacity="0.5"/>` +
+      `<circle cx="3" cy="3" r="1.5" fill="#FFFFFF"/>` +
+      `<path d="M3 3 L9 1 L15 7 L9 9 Z" fill="#EF4444" stroke="#000000" stroke-width="1.2"/>` +
+      `<path d="M9 9 L15 7 L27 19 L21 25 Z" fill="#1E293B" stroke="#000000" stroke-width="1.2"/>` +
+      `<path d="M10 8 L14 6.5 L17 9.5 L13 11 Z" fill="#EF4444" fill-opacity="0.8"/>` +
+      `<line x1="21" y1="25" x2="27" y2="19" stroke="#EF4444" stroke-width="2"/>` +
+      `<line x1="3" y1="3" x2="7" y2="7" stroke="#FFFFFF" stroke-width="0.9" stroke-linecap="round"/>` +
+      `</g>` +
+      `</svg>`;
+  } else if (isCurve) {
+    // Amber Neon Curve Pen
+    hotspotX = 2;
+    hotspotY = 2;
+    svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">` +
+      `<filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="1" dy="1" stdDeviation="1" flood-color="#000000" flood-opacity="0.8"/></filter>` +
+      `<g filter="url(#sh)">` +
+      `<circle cx="2" cy="2" r="3" fill="#FFD700" fill-opacity="0.45"/>` +
+      `<circle cx="2" cy="2" r="1.4" fill="#FFFFFF"/>` +
+      `<path d="M2 2 L9 5 L23 19 L19 23 L5 9 Z" fill="#0E1726" stroke="#FFD700" stroke-width="1.4" stroke-linejoin="round"/>` +
+      `<path d="M2 2 L6 3.5 L3.5 6 Z" fill="#FFD700"/>` +
+      `<circle cx="14" cy="14" r="1.6" fill="#FFD700"/>` +
+      `</g>` +
+      `</svg>`;
+  } else {
+    // ACID Pro-Style Laser Beam Paintbrush (Blue for Audio, Green for MIDI)
+    const color = isMidi ? '#10B981' : '#00F0FF';
+    const bristleGlow = isMidi ? 'rgba(16,185,129,0.5)' : 'rgba(0,240,255,0.5)';
+    hotspotX = 2;
+    hotspotY = 2;
+    svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">` +
+      `<filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="1" dy="1" stdDeviation="1.2" flood-color="#000000" flood-opacity="0.9"/></filter>` +
+      `<g filter="url(#sh)">` +
+      `<!-- Laser Beam Emitter Pulse Core at Tip -->` +
+      `<circle cx="2" cy="2" r="3.2" fill="${color}" fill-opacity="0.45"/>` +
+      `<circle cx="2" cy="2" r="1.5" fill="#FFFFFF"/>` +
+      `<!-- Paintbrush Bristles / Laser Emitter Horn -->` +
+      `<path d="M2 2 L8 5 L10 8 L5 10 Z" fill="${color}" stroke="#000000" stroke-width="0.8"/>` +
+      `<!-- Metal Ferrule -->` +
+      `<path d="M8 5 L13 10 L10 13 L5 10 Z" fill="#94A3B8" stroke="#000000" stroke-width="1"/>` +
+      `<line x1="7" y1="7" x2="11.5" y2="11.5" stroke="#FFFFFF" stroke-width="0.7"/>` +
+      `<!-- Paintbrush Handle -->` +
+      `<path d="M13 10 L25 22 C26.5 23.5 26.5 25.5 25 27 C23.5 28.5 21.5 28.5 20 27 L10 15 Z" fill="#0B1322" stroke="${color}" stroke-width="1.4" stroke-linejoin="round"/>` +
+      `<!-- Neon Grip Accent on Handle -->` +
+      `<path d="M14 12 L19 17" stroke="${color}" stroke-width="1.8" stroke-linecap="round"/>` +
+      `<circle cx="22" cy="22" r="1.2" fill="${color}"/>` +
+      `</g>` +
+      `</svg>`;
+  }
+
+  const cursorValue = `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hotspotX} ${hotspotY}, ${fallback}`;
+  LASER_CURSOR_CACHE.set(cacheKey, cursorValue);
   return cursorValue;
 }
 
@@ -169,7 +228,8 @@ const SequencerGridOverlay: React.FC<SequencerGridOverlayProps> = ({
   let snappedBar: number | null = null;
   let isSnapLocked = false;
   if (hoverBar !== null && isQuantizationActive) {
-    snappedBar = Math.max(0, Math.min(totalBars, snapToGrid(hoverBar, snapValue)));
+    // ACID Pro cell-quantized highlight: covers the exact grid cell under pointer
+    snappedBar = Math.max(0, Math.min(totalBars - stepSize, Math.floor((hoverBar + 1e-6) / stepSize) * stepSize));
     isSnapLocked = true;
   }
 
