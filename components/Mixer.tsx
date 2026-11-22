@@ -1451,7 +1451,7 @@ const Mixer: React.FC<MixerProps> = ({
         setIsPlaying(true);
         tracks.forEach(track => {
             if (!track.muted && !track.soloed) {
-                audioService.playTrack(track.id, playheadPosition * 10);
+                audioService.playTrack(track.id, playheadPosition * 10, track.name);
             }
         });
         break;

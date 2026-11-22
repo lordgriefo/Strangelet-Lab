@@ -1,4 +1,5 @@
 import { Track, TrackFxParams, DEFAULT_TRACK_FX } from '../types';
+import { determineStemRole, synthesizeDemoStemBuffer } from './demoMultitrackEngine';
 
 interface TrackDspChain {
   inputGain: GainNode;
@@ -313,17 +314,46 @@ class AudioService {
     return Array.from(this.trackBuffers.values());
   }
 
-  playTrack(trackId: string, startTime: number = 0) {
+  ensureDemoBufferForTrack(trackId: string, trackName: string = '', tempo: number = 124): AudioBuffer | null {
     const ctx = this.getAudioContext();
-    if (!ctx || !this.trackBuffers.has(trackId)) return;
+    if (!ctx) return null;
+    if (this.trackBuffers.has(trackId)) {
+      return this.trackBuffers.get(trackId)!;
+    }
+    const role = determineStemRole(trackName, trackId);
+    const buf = synthesizeDemoStemBuffer(ctx, role, tempo, 16);
+    this.setTrackAudioBuffer(trackId, buf, true);
+    return buf;
+  }
+
+  preloadDemoSession(tracks: { id: string; name: string }[], tempo: number = 124): void {
+    const ctx = this.getAudioContext();
+    if (!ctx) return;
+    tracks.forEach(t => {
+      this.ensureDemoBufferForTrack(t.id, t.name, tempo);
+    });
+  }
+
+  playTrack(trackId: string, startTime: number = 0, trackName: string = '') {
+    const ctx = this.getAudioContext();
+    if (!ctx) return;
+
+    if (!this.trackBuffers.has(trackId)) {
+      this.ensureDemoBufferForTrack(trackId, trackName);
+    }
+
+    const buffer = this.trackBuffers.get(trackId);
+    if (!buffer) return;
 
     if (ctx.state === 'suspended') {
       ctx.resume().catch(() => {});
     }
 
-    const buffer = this.trackBuffers.get(trackId)!;
+    this.stopTrack(trackId);
+
     const source = ctx.createBufferSource();
     source.buffer = buffer;
+    source.loop = true; // Loops seamlessly for continuous mixing sessions!
 
     // Route through per-track DSP Chain
     const chain = this.getOrCreateTrackDspChain(trackId);
@@ -335,7 +365,12 @@ class AudioService {
       source.connect(ctx.destination);
     }
 
-    source.start(0, startTime);
+    try {
+      const offset = buffer.duration > 0 ? (startTime % buffer.duration) : 0;
+      source.start(0, offset);
+    } catch {
+      source.start(0, 0);
+    }
     this.trackSources.set(trackId, source);
   }
 

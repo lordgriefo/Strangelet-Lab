@@ -17,9 +17,9 @@ export const THEME = {
 export const INITIAL_TRACKS: Track[] = [
   { 
     id: '1', 
-    name: 'Vocals', 
+    name: 'Lead Vocals', 
     type: 'audio', 
-    volume: 0.82, 
+    volume: 0.85, 
     pan: 0, 
     muted: false, 
     soloed: false, 
@@ -30,8 +30,8 @@ export const INITIAL_TRACKS: Track[] = [
     bus: 'Vocal Master Bus',
     vsts: ['[VST3] Strangelet Warm Tube 12AX7', 'Faust: Deep Cavern Shimmer Reverb'],
     clips: [
-      { id: 'c1', name: 'Lead_Hook_Take02.wav', startBar: 0, durationBars: 8 },
-      { id: 'c2', name: 'Harmony_Stack.wav', startBar: 8, durationBars: 6 }
+      { id: 'c1', name: 'The_Breach_Lead_Vox.wav', startBar: 0, durationBars: 8 },
+      { id: 'c2', name: 'The_Breach_Harmony_Stack.wav', startBar: 8, durationBars: 8 }
     ],
     automation: {
       volume: {
@@ -74,8 +74,8 @@ export const INITIAL_TRACKS: Track[] = [
     bus: 'Drum Group Bus',
     vsts: ['[AU] Precision Mastering Limiter'],
     clips: [
-      { id: 'c3', name: 'Acid_Beat_124bpm.wav', startBar: 0, durationBars: 8 },
-      { id: 'c4', name: 'Acid_Beat_Breakdown.wav', startBar: 8, durationBars: 8 }
+      { id: 'c3', name: 'The_Breach_Drums_124bpm.wav', startBar: 0, durationBars: 8 },
+      { id: 'c4', name: 'The_Breach_Breakdown_Beat.wav', startBar: 8, durationBars: 8 }
     ],
     automation: {
       volume: {
@@ -116,7 +116,7 @@ export const INITIAL_TRACKS: Track[] = [
     bus: 'Stereo Master',
     vsts: ['Faust: TB-303 Diode Acid Filter Toy'],
     clips: [
-      { id: 'c5', name: 'TB303_AcidLine_Fm.wav', startBar: 2, durationBars: 12 }
+      { id: 'c5', name: 'The_Breach_Acid_Bassline.wav', startBar: 0, durationBars: 16 }
     ],
     automation: {
       volume: {
@@ -185,7 +185,7 @@ export const INITIAL_TRACKS: Track[] = [
     bus: 'Stereo Master',
     vsts: ['Faust: VHS 1985 Chorus & Pitch Drift'],
     clips: [
-      { id: 'c6', name: 'Ambient_Atmosphere_01.wav', startBar: 0, durationBars: 16 }
+      { id: 'c6', name: 'The_Breach_Atmosphere_Pad.wav', startBar: 0, durationBars: 16 }
     ],
     automation: {
       volume: {
@@ -209,6 +209,44 @@ export const INITIAL_TRACKS: Track[] = [
       },
       activeParameter: 'pan',
       isExpanded: true
+    }
+  },
+  { 
+    id: '5', 
+    name: 'Occult Lead Guitar', 
+    type: 'audio', 
+    volume: 0.75, 
+    pan: 0.20, 
+    muted: false, 
+    soloed: false, 
+    color: '#F59E0B', 
+    phaseInverted: false, 
+    isMono: true, 
+    vstBypassed: false, 
+    bus: 'Stereo Master',
+    vsts: ['Faust: Lynchean Tape Echo VST Toy'],
+    clips: [
+      { id: 'c7', name: 'The_Breach_Lead_Guitar.wav', startBar: 2, durationBars: 14 }
+    ],
+    automation: {
+      volume: {
+        enabled: false,
+        visible: false,
+        points: [
+          { id: 'v5-1', time: 0, value: 0.75 },
+          { id: 'v5-2', time: 1, value: 0.75 }
+        ]
+      },
+      pan: {
+        enabled: false,
+        visible: false,
+        points: [
+          { id: 'p5-1', time: 0, value: 0.2 },
+          { id: 'p5-2', time: 1, value: 0.2 }
+        ]
+      },
+      activeParameter: 'volume',
+      isExpanded: false
     }
   },
 ];

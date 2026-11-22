@@ -190,16 +190,16 @@ const App: React.FC = () => {
   // Global Project & Routing State
   const [isNewProjectOpen, setIsNewProjectOpen] = useState<boolean>(false);
   const [tracks, setTracks] = useState<Track[]>(INITIAL_TRACKS);
-  const [tempo, setTempo] = useState<number>(120);
+  const [tempo, setTempo] = useState<number>(124);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [projectBinClips, setProjectBinClips] = useState<ProjectBinClip[]>([]);
   const [activeSession, setActiveSession] = useState<ProjectSession>({
-    name: 'Project_Neon_Sky.slp',
-    bpm: 120,
+    name: 'The_Breach_Quantum_Multitrack_Mix.slp',
+    bpm: 124,
     sampleRate: 48000,
     bitDepth: 24,
-    templateId: 'vocal-tracking',
-    templateName: 'Standard Multitrack'
+    templateId: 'the-breach-mix',
+    templateName: 'The Breach (Demo Multitrack Session)'
   });
 
   // Auto-Arm on Selection State
@@ -317,6 +317,11 @@ const App: React.FC = () => {
     return subscribeUiSoundMute((muted) => {
       setUiSoundMuted(muted);
     });
+  }, []);
+
+  // Preload demo multitrack session so audio is ready to mix immediately
+  useEffect(() => {
+    audioService.preloadDemoSession(tracks, tempo);
   }, []);
 
   // Global Right-Click Studio Shortcut Context Menu Trigger
