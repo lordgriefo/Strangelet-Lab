@@ -1,7 +1,6 @@
 import path from 'path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import tailwindcss from '@tailwindcss/vite';
 import { collabWebSocketPlugin } from './lib/collabWebSocketPlugin';
 
 export default defineConfig({
@@ -12,7 +11,7 @@ export default defineConfig({
     allowedHosts: true,
     hmr: false,
   },
-  plugins: [react(), tailwindcss(), collabWebSocketPlugin()],
+  plugins: [react(), collabWebSocketPlugin()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.'),

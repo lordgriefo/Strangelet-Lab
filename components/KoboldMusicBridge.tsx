@@ -180,7 +180,7 @@ export const KoboldMusicBridge: React.FC<KoboldMusicBridgeProps> = ({
       setPlanTimeSignature(data.timesignature || data.time_signature || '4/4');
       setPlanRefinedTags(data.tags || data.refined_tags || styleTags);
       setPlanPrepared(true);
-      playLaserBeamSound('laser_click');
+      playLaserBeamSound('laser_select');
     } catch (err: any) {
       console.warn('KoboldCpp music prepare endpoint error or offline fallback:', err);
       // Heuristic plan fallback so user can still review/tweak plan if server lacks /api/extra/music/prepare
@@ -201,7 +201,7 @@ export const KoboldMusicBridge: React.FC<KoboldMusicBridgeProps> = ({
     setIsGenerating(true);
     setStep2Error(null);
     setGenerationProgress('Sending parameters to KoboldCpp audio generation engine...');
-    playLaserBeamSound('laser_beam');
+    playLaserBeamSound('laser_audio');
 
     const cleanUrl = serverUrl.replace(/\/+$/, '');
     const endpoint = `${cleanUrl}/api/extra/music/generate`;
@@ -259,7 +259,7 @@ export const KoboldMusicBridge: React.FC<KoboldMusicBridgeProps> = ({
       setGeneratedAudioUrl(url);
       setGeneratedTitle(title);
       setGenerationProgress('Audio generation complete!');
-      playLaserBeamSound('laser_save');
+      playLaserBeamSound('laser_midi');
     } catch (err: any) {
       console.error('Track generation error:', err);
       setStep2Error(err.message || 'Generation failed. Verify KoboldCpp is running with music model.');

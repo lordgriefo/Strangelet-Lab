@@ -70,6 +70,15 @@ const Timeline: React.FC<TimelineProps> = ({
   const [internalTool, setInternalTool] = useState<ActiveTool>('laser_audio');
   const activeTool = activeLaserTool || internalTool;
   const lastNonEraserToolRef = useRef<ActiveTool>('laser_audio');
+
+  const {
+    enabled: snapEnabled,
+    division: snapDivision,
+    showGridLines: showGridOverlay,
+    toggleEnabled: toggleSnapEnabled,
+    setDivision: setSnapDivision,
+    toggleShowGridLines: toggleGridOverlay
+  } = useSnapGrid();
   const [internalBeamModeEnabled, setInternalBeamModeEnabled] = useState<boolean>(() => {
     try {
       return localStorage.getItem('strangelet_beam_mode_enabled') !== 'false';
@@ -206,14 +215,6 @@ const Timeline: React.FC<TimelineProps> = ({
   }>({ rawBar: 0, mouseY: 0, isHovering: false });
   const [activePainting, setActivePainting] = useState<ActivePaintingState | null>(null);
   const [activeDragSnap, setActiveDragSnap] = useState<ActiveDragSnapState | null>(null);
-  const {
-    enabled: snapEnabled,
-    division: snapDivision,
-    showGridLines: showGridOverlay,
-    toggleEnabled: toggleSnapEnabled,
-    setDivision: setSnapDivision,
-    toggleShowGridLines: toggleGridOverlay
-  } = useSnapGrid();
 
   const isPaintTool = activeTool === 'laser_audio' || activeTool === 'laser_midi' || activeTool === 'beam';
   const isEraseTool = activeTool === 'laser_erase' || activeTool === 'erase';

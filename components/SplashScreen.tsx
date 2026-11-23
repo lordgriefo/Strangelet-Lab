@@ -128,6 +128,10 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
             }
           }}
           onEnded={handleDismiss}
+          onError={() => {
+            console.warn('Splash screen video failed to load or play, bypassing directly to studio console.');
+            handleDismiss();
+          }}
         />
 
         {/* Autoplay Blocker Overlay Prompt (if browser blocked unmuted sound on cold launch) */}

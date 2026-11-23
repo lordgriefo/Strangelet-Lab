@@ -318,7 +318,7 @@ export function calculateStrangeletNatalChart(epochMs: number = Date.now(), ener
   const sector = SEVEN_COLLIDER_SECTORS[sectorIndex] || SEVEN_COLLIDER_SECTORS[3];
 
   // Match Astrological Sign (out of 12 traditional signs)
-  let primarySign: (typeof ZODIAC_SIGNS)[number] = ZODIAC_SIGNS[7]; // Default Scorpio
+  let primarySign: StrangeletZodiacSign = ZODIAC_SIGNS[7]; // Default Scorpio
   for (const sign of ZODIAC_SIGNS) {
     if (sign.isWildcard) continue;
     if (sign.startMonth === sign.endMonth) {

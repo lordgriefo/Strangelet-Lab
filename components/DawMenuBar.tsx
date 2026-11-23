@@ -40,7 +40,8 @@ import {
   Flame,
   Radio,
   Users,
-  FolderKanban
+  FolderKanban,
+  Play
 } from 'lucide-react';
 import { View, Track, ProjectSession } from '../types';
 import { playLaserBeamSound } from '../lib/laserSound';
