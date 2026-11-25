@@ -66,6 +66,16 @@ class AudioService {
     return this.getAudioContext();
   }
 
+  public setAudioContext(ctx: AudioContext, destinationNode?: AudioNode): void {
+    this.audioContext = ctx;
+    if (destinationNode) {
+      this.masterGain = ctx.createGain();
+      try {
+        this.masterGain.connect(destinationNode);
+      } catch (_) {}
+    }
+  }
+
   private getAudioContext(): AudioContext | null {
     if (!this.audioContext && typeof window !== 'undefined') {
       try {
@@ -382,8 +392,27 @@ class AudioService {
       } catch (e) {
         // already stopped
       }
+      try {
+        source.disconnect();
+      } catch (e) {}
       this.trackSources.delete(trackId);
     }
+  }
+
+  stopAllTracks() {
+    this.trackSources.forEach((source) => {
+      try {
+        source.stop();
+      } catch (e) {}
+      try {
+        source.disconnect();
+      } catch (e) {}
+    });
+    this.trackSources.clear();
+  }
+
+  isPlayingTrack(trackId: string): boolean {
+    return this.trackSources.has(trackId);
   }
 
   setMasterVolume(volume: number) {

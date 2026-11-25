@@ -42,7 +42,8 @@ import {
   ShieldAlert,
   AlertTriangle,
   HelpCircle,
-  Split
+  Split,
+  Upload
 } from 'lucide-react';
 import { Track, View } from '../types';
 import { masterAudioBus } from '../lib/masterBus';
@@ -203,7 +204,26 @@ export const SpectralAnalysisView: React.FC<SpectralAnalysisViewProps> = ({
     }
   }, [activeTrackId]);
 
+  const [customTrackName, setCustomTrackName] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const currentTrack = useMemo(() => {
+    if (selectedTrackId === 'custom_spectral_analysis') {
+      return {
+        id: 'custom_spectral_analysis',
+        name: customTrackName || 'Imported Audio File',
+        type: 'audio' as const,
+        volume: 0.95,
+        pan: 0,
+        muted: false,
+        soloed: false,
+        color: '#00F0FF',
+        phaseInverted: false,
+        isMono: false,
+        vstBypassed: false,
+        clips: []
+      };
+    }
     if (selectedTrackId === 'master') {
       return {
         id: 'master',
@@ -221,7 +241,7 @@ export const SpectralAnalysisView: React.FC<SpectralAnalysisViewProps> = ({
       };
     }
     return tracks.find(t => t.id === selectedTrackId) || tracks[0];
-  }, [selectedTrackId, tracks]);
+  }, [selectedTrackId, tracks, customTrackName]);
 
   // Visualizer View Mode
   const [viewMode, setViewMode] = useState<'area' | 'iso31' | 'energy'>('area');
@@ -1243,6 +1263,41 @@ export const SpectralAnalysisView: React.FC<SpectralAnalysisViewProps> = ({
             >
               <span className="w-2.5 h-2.5 rounded-full bg-[#FFD700] shrink-0" />
               <span className="font-semibold">Stereo Master</span>
+            </button>
+
+            {/* Uploaded Audio Track Option */}
+            {customTrackName && (
+              <button
+                onClick={() => setSelectedTrackId('custom_spectral_analysis')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-all flex items-center gap-2 cursor-pointer border ${
+                  selectedTrackId === 'custom_spectral_analysis'
+                    ? 'bg-cyan-950/60 text-cyan-300 shadow-[0_0_12px_rgba(0,240,255,0.25)] border-cyan-400 font-bold'
+                    : 'bg-[#14161F] text-[#888] hover:text-[#DDD] hover:bg-[#1A1D28] border-transparent'
+                }`}
+              >
+                <span className="w-2.5 h-2.5 rounded-full bg-[#00F0FF] shrink-0" />
+                <span className="truncate max-w-[120px]">{customTrackName}</span>
+              </button>
+            )}
+
+            {/* Direct Audio Import Button */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleUploadAudio(f);
+              }}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-mono transition-all flex items-center gap-1.5 cursor-pointer bg-cyan-950/30 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900/50"
+              title="Import local audio file for direct spectral analysis"
+            >
+              <Upload size={12} />
+              <span>Import Audio</span>
             </button>
           </div>
         </div>

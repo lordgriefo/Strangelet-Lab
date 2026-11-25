@@ -22,7 +22,11 @@ import {
   X,
   Check,
   Sliders,
-  Layers
+  Layers,
+  Play,
+  Pause,
+  Square,
+  Music
 } from 'lucide-react';
 import ImportArea from './ImportArea';
 import BigKnob from './BigKnob';
@@ -59,6 +63,81 @@ export const Mastering: React.FC = () => {
   const [saveDesc, setSaveDesc] = useState<string>('');
   const [saveAuthor, setSaveAuthor] = useState<string>('Mastering Engineer');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Standalone Direct Mastering Track State
+  const audioImportRef = useRef<HTMLInputElement>(null);
+  const [directTrackState, setDirectTrackState] = useState(() => masterAudioBus.getMasteringState());
+  const [isExportingMaster, setIsExportingMaster] = useState(false);
+  const [directCurrentTime, setDirectCurrentTime] = useState(0);
+
+  useEffect(() => {
+    return masterAudioBus.subscribeMasteringState(state => {
+      setDirectTrackState(state);
+      setDirectCurrentTime(state.currentTime);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!directTrackState.isPlaying) return;
+    const interval = setInterval(() => {
+      const state = masterAudioBus.getMasteringState();
+      setDirectCurrentTime(state.currentTime);
+    }, 100);
+    return () => clearInterval(interval);
+  }, [directTrackState.isPlaying]);
+
+  const handleImportDirectAudio = async (file: File) => {
+    try {
+      showToast(`Loading "${file.name}" into Mastering Deck...`);
+      await masterAudioBus.loadMasteringTrack(file);
+      showToast(`✨ "${file.name}" loaded! Ready to master.`);
+    } catch (err) {
+      console.error(err);
+      showToast(`Failed to load audio: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleTogglePlayDirect = () => {
+    if (directTrackState.isPlaying) {
+      masterAudioBus.pauseMasteringTrack();
+    } else {
+      masterAudioBus.playMasteringTrack();
+    }
+  };
+
+  const handleStopDirect = () => {
+    masterAudioBus.stopMasteringTrack();
+  };
+
+  const handleSeekDirect = (sec: number) => {
+    masterAudioBus.seekMasteringTrack(sec);
+    setDirectCurrentTime(sec);
+  };
+
+  const handleExportMastered = async () => {
+    if (!directTrackState.buffer) {
+      showToast('Please import an audio file to master first!');
+      return;
+    }
+    setIsExportingMaster(true);
+    showToast('✨ Rendering mastered audio with active Gold Path DSP chain...');
+    try {
+      const blob = await masterAudioBus.exportMasteredWavBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const baseName = directTrackState.fileName.replace(/\.[^/.]+$/, '');
+      a.download = `${baseName}_GoldPath_Master.wav`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast(`✨ Mastered WAV downloaded successfully!`);
+    } catch (err) {
+      console.error(err);
+      showToast(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsExportingMaster(false);
+    }
+  };
   
   // Gold Path Presets Synchronization
   const [goldPathPresets, setGoldPathPresets] = useState<GoldPathPreset[]>(() => loadAllGoldPathPresets());
@@ -504,6 +583,145 @@ export const Mastering: React.FC = () => {
         </div>
       </div>
     </div>
+
+      {/* =========================================================================
+          DIRECT STANDALONE MASTERING TRACK DECK
+          Allows importing and mastering any audio file independently
+          ========================================================================= */}
+      <div className="p-4 rounded-2xl bg-gradient-to-r from-[#0C1024] via-[#0E1530] to-[#0C1024] border border-[#232F54] shadow-2xl flex flex-col gap-3 font-mono">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.25)] shrink-0">
+              <Sparkles size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-amber-400 tracking-wider">
+                  INDEPENDENT MASTERING DECK
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 font-bold">
+                  DIRECT AUDIO IMPORT
+                </span>
+              </div>
+              <div className="text-xs text-[#8A95B5]">
+                Import any song to master directly through 6-Band Parametric EQ, Dynamics, & Tape Saturation.
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input 
+              ref={audioImportRef} 
+              type="file" 
+              accept="audio/*" 
+              className="hidden" 
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImportDirectAudio(file);
+              }}
+            />
+            <button
+              onClick={() => audioImportRef.current?.click()}
+              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 text-black font-black text-xs tracking-wider flex items-center gap-2 hover:brightness-110 transition-all shadow-[0_0_15px_rgba(245,158,11,0.35)] cursor-pointer"
+            >
+              <Upload size={14} className="stroke-[2.5]" />
+              <span>{directTrackState.buffer ? 'CHANGE AUDIO FILE' : '🎵 IMPORT AUDIO TO MASTER'}</span>
+            </button>
+            {directTrackState.buffer && (
+              <button
+                onClick={handleExportMastered}
+                disabled={isExportingMaster}
+                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs tracking-wider flex items-center gap-2 transition-all shadow-[0_0_15px_rgba(16,185,129,0.35)] cursor-pointer disabled:opacity-50"
+              >
+                <Download size={14} className="stroke-[2.5]" />
+                <span>{isExportingMaster ? 'RENDERING MASTER...' : 'EXPORT MASTERED WAV'}</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {directTrackState.buffer ? (
+          <div className="p-3 rounded-xl bg-[#070A17] border border-[#1B2442] flex flex-col md:flex-row items-center justify-between gap-4">
+            {/* Track Info */}
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-cyan-950 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shrink-0">
+                <Music size={16} />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-white truncate max-w-xs md:max-w-md">
+                  {directTrackState.fileName}
+                </div>
+                <div className="text-[10px] text-[#7A88AB] flex items-center gap-2">
+                  <span>{directTrackState.buffer.numberOfChannels === 2 ? 'Stereo' : 'Mono'}</span>
+                  <span>•</span>
+                  <span>{directTrackState.buffer.sampleRate} Hz</span>
+                  <span>•</span>
+                  <span>{Math.floor(directTrackState.duration / 60)}:{(Math.floor(directTrackState.duration % 60)).toString().padStart(2, '0')}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Transport & Scrub */}
+            <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+              <button
+                onClick={handleTogglePlayDirect}
+                className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs transition-all shadow-md cursor-pointer ${
+                  directTrackState.isPlaying
+                    ? 'bg-amber-500 text-black shadow-[0_0_12px_rgba(245,158,11,0.5)]'
+                    : 'bg-[#151D38] border border-[#273560] text-amber-400 hover:bg-[#1E294E]'
+                }`}
+                title={directTrackState.isPlaying ? 'Pause' : 'Play through Master Bus'}
+              >
+                {directTrackState.isPlaying ? <Pause size={15} /> : <Play size={15} className="ml-0.5" />}
+              </button>
+
+              <button
+                onClick={handleStopDirect}
+                className="w-9 h-9 rounded-xl bg-[#151D38] border border-[#273560] text-[#7A88AB] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                title="Stop & Return to Start"
+              >
+                <Square size={13} />
+              </button>
+
+              {/* Scrubber */}
+              <div className="flex items-center gap-2 text-[11px] text-[#A0A0A0]">
+                <span>{Math.floor(directCurrentTime / 60)}:{(Math.floor(directCurrentTime % 60)).toString().padStart(2, '0')}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={directTrackState.duration || 1}
+                  step={0.1}
+                  value={directCurrentTime}
+                  onChange={(e) => handleSeekDirect(parseFloat(e.target.value))}
+                  className="w-32 lg:w-48 accent-amber-500 cursor-pointer"
+                />
+                <span>{Math.floor(directTrackState.duration / 60)}:{(Math.floor(directTrackState.duration % 60)).toString().padStart(2, '0')}</span>
+              </div>
+
+              {/* Quick A/B Toggle */}
+              <button
+                onClick={handleToggleAb}
+                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                  abSlot === 'A'
+                    ? 'bg-emerald-950 border-emerald-500/50 text-emerald-300'
+                    : 'bg-cyan-950 border-cyan-500/50 text-cyan-300'
+                }`}
+                title="A/B Compare Mastered vs Dry Original"
+              >
+                {abSlot === 'A' ? 'A: MASTERED' : 'B: DRY (BYPASS)'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div 
+            onClick={() => audioImportRef.current?.click()}
+            className="p-4 rounded-xl border border-dashed border-[#232F54] hover:border-amber-500/60 bg-[#070A17]/60 hover:bg-[#070A17] flex items-center justify-center gap-2.5 text-xs text-[#7A88AB] hover:text-amber-300 cursor-pointer transition-all"
+          >
+            <Upload size={14} className="text-amber-400" />
+            <span>Drop your audio track here or click to import for instant mastering (no mixer setup needed)</span>
+          </div>
+        )}
+      </div>
 
       {/* Global Gold Path Preset Strip across Mastering */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-[#090C19] border border-[#1F2744] text-xs font-mono shadow-md">

@@ -2,13 +2,15 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   Scissors, Zap, MousePointer2, Play, Pause, Settings2, 
   Volume2, VolumeX, Radio, Sparkles, Download, Layers, CheckCircle2, Sliders,
-  Keyboard, Disc, Upload, ArrowRight
+  Keyboard, Disc, Upload, ArrowRight, Square
 } from 'lucide-react';
 import ImportArea from './ImportArea';
 import { Track, Clip } from '../types';
 import { BasicPitchModal } from './BasicPitchModal';
 import { PRESET_SONGS } from '../services/basicPitchService';
 import { playLaserBeamSound } from '../lib/laserSound';
+import { audioBufferToWavBlob } from '../lib/audioDspEditor';
+import { synthesizeDemoStemBuffer } from '../services/demoMultitrackEngine';
 
 interface StemTrack {
   id: string;
@@ -50,9 +52,179 @@ export const WaveSplitter: React.FC<WaveSplitterProps> = ({
   const [isBasicPitchOpen, setIsBasicPitchOpen] = useState<boolean>(false);
   const [targetMidiStem, setTargetMidiStem] = useState<'vocals' | 'bass' | 'drums' | 'instruments' | 'full'>('instruments');
 
+  // Real Web Audio Stem Engine State
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioBufferRef = useRef<AudioBuffer | null>(null);
+  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+  const stemNodesRef = useRef<Record<string, { filter: BiquadFilterNode; gain: GainNode }>>({});
+  const [playbackTime, setPlaybackTime] = useState<number>(0);
+  const [songDuration, setSongDuration] = useState<number>(0);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const playStartedAtRef = useRef<number>(0);
+  const playOffsetRef = useRef<number>(0);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animFrameRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const getOrCreateAudioContext = () => {
+    if (!audioContextRef.current) {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      audioContextRef.current = new AudioCtx();
+    }
+    return audioContextRef.current;
+  };
+
+  const setupStemAudioGraph = (ctx: AudioContext, source: AudioNode) => {
+    const stemSpecs: Record<string, { type: BiquadFilterType; freq: number; q: number }> = {
+      'st-1': { type: 'bandpass', freq: 1400, q: 0.9 }, // Vocals
+      'st-2': { type: 'lowpass', freq: 220, q: 1.2 },  // Bass
+      'st-3': { type: 'highpass', freq: 3200, q: 1.0 }, // Drums & Transients
+      'st-4': { type: 'peaking', freq: 900, q: 1.1 }   // Synths & Guitars
+    };
+
+    const anySolo = stems.some(s => s.solo);
+
+    stems.forEach(stem => {
+      const spec = stemSpecs[stem.id] || { type: 'bandpass', freq: 1000, q: 1.0 };
+      const filter = ctx.createBiquadFilter();
+      filter.type = spec.type;
+      filter.frequency.value = spec.freq;
+      filter.Q.value = spec.q;
+
+      const gain = ctx.createGain();
+      const isMuted = stem.muted || (anySolo && !stem.solo);
+      gain.gain.value = isMuted ? 0 : stem.volume;
+
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+
+      stemNodesRef.current[stem.id] = { filter, gain };
+    });
+  };
+
+  const startPlayback = () => {
+    const ctx = getOrCreateAudioContext();
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+
+    stopSourceOnly();
+
+    // If no buffer loaded yet, generate demo multitrack buffer
+    if (!audioBufferRef.current) {
+      const demoBuf = synthesizeDemoStemBuffer(ctx, 'pad', 124, 16);
+      audioBufferRef.current = demoBuf;
+      setSongDuration(demoBuf.duration);
+    }
+
+    const buf = audioBufferRef.current;
+    const source = ctx.createBufferSource();
+    source.buffer = buf;
+    source.loop = true;
+
+    setupStemAudioGraph(ctx, source);
+
+    const dur = buf.duration;
+    const offset = dur > 0 ? (playOffsetRef.current % dur) : 0;
+    playStartedAtRef.current = ctx.currentTime - offset;
+
+    try {
+      source.start(0, offset);
+    } catch {
+      source.start(0, 0);
+    }
+
+    sourceNodeRef.current = source;
+    setIsPlaying(true);
+  };
+
+  const stopSourceOnly = () => {
+    if (sourceNodeRef.current) {
+      if (audioContextRef.current && audioBufferRef.current) {
+        const elapsed = audioContextRef.current.currentTime - playStartedAtRef.current;
+        playOffsetRef.current = Math.max(0, elapsed % Math.max(0.1, audioBufferRef.current.duration));
+      }
+      try {
+        sourceNodeRef.current.stop();
+        sourceNodeRef.current.disconnect();
+      } catch (_) {}
+      sourceNodeRef.current = null;
+    }
+  };
+
+  const stopPlayback = () => {
+    stopSourceOnly();
+    setIsPlaying(false);
+  };
+
+  const togglePlayState = () => {
+    if (isPlaying) {
+      stopPlayback();
+    } else {
+      startPlayback();
+    }
+  };
+
+  // Sync stem mute / solo / volume reactively with Web Audio DSP
+  useEffect(() => {
+    if (!audioContextRef.current) return;
+    const ctx = audioContextRef.current;
+    const anySolo = stems.some(s => s.solo);
+
+    stems.forEach(stem => {
+      const nodes = stemNodesRef.current[stem.id];
+      if (nodes) {
+        const isMuted = stem.muted || (anySolo && !stem.solo);
+        const targetVol = isMuted ? 0 : stem.volume;
+        nodes.gain.gain.setTargetAtTime(targetVol, ctx.currentTime, 0.015);
+      }
+    });
+  }, [stems]);
+
+  // Scrubber timer
+  useEffect(() => {
+    if (!isPlaying) return;
+    const timer = setInterval(() => {
+      if (audioContextRef.current && audioBufferRef.current) {
+        const elapsed = audioContextRef.current.currentTime - playStartedAtRef.current;
+        setPlaybackTime(elapsed % Math.max(0.1, audioBufferRef.current.duration));
+      }
+    }, 100);
+    return () => clearInterval(timer);
+  }, [isPlaying]);
+
+  const handleFileUpload = async (file: File) => {
+    try {
+      const ctx = getOrCreateAudioContext();
+      if (ctx.state === 'suspended') {
+        try { await ctx.resume(); } catch (_) {}
+      }
+      setStatusNotice(`Loading & analyzing "${file.name}"...`);
+      const arrayBuf = await file.arrayBuffer();
+      const decoded = await ctx.decodeAudioData(arrayBuf);
+      audioBufferRef.current = decoded;
+      setSongDuration(decoded.duration);
+      playOffsetRef.current = 0;
+      setPlaybackTime(0);
+      stopSourceOnly();
+      setIsPlaying(false);
+      setSelectedSongTitle(`File: ${file.name}`);
+      setStatusNotice(`✨ "${file.name}" decomposed into 4 stems! Click Preview to listen or Solo any stem.`);
+      setTimeout(() => setStatusNotice(null), 4000);
+    } catch (err) {
+      console.error(err);
+      setStatusNotice(`Failed to decode audio file: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopSourceOnly();
+    };
+  }, []);
 
   // Multi-band Spectral Waveform Animation
   useEffect(() => {
@@ -123,12 +295,55 @@ export const WaveSplitter: React.FC<WaveSplitterProps> = ({
     setStems(prev => prev.map(s => s.id === id ? { ...s, volume } : s));
   };
 
-  const handleExportStems = () => {
-    setStatusNotice(`✨ Exporting 4 isolated stems using ${separationModel}...`);
-    setTimeout(() => {
-      setStatusNotice('✨ Stems batch generated and saved to Project Bin!');
-      setTimeout(() => setStatusNotice(null), 3500);
-    }, 2000);
+  const handleExportStems = async () => {
+    const ctx = getOrCreateAudioContext();
+    if (!audioBufferRef.current) {
+      const demoBuf = synthesizeDemoStemBuffer(ctx, 'pad', 124, 16);
+      audioBufferRef.current = demoBuf;
+      setSongDuration(demoBuf.duration);
+    }
+    setIsExporting(true);
+    setStatusNotice(`✨ Rendering and exporting 4 isolated stems to disk...`);
+    try {
+      const buf = audioBufferRef.current;
+      const stemSpecs: { name: string; type: BiquadFilterType; freq: number; q: number }[] = [
+        { name: 'Vocals', type: 'bandpass', freq: 1400, q: 0.9 },
+        { name: 'Bass', type: 'lowpass', freq: 220, q: 1.2 },
+        { name: 'Drums', type: 'highpass', freq: 3200, q: 1.0 },
+        { name: 'Instruments', type: 'peaking', freq: 900, q: 1.1 }
+      ];
+
+      for (const spec of stemSpecs) {
+        const OfflineCtx = window.OfflineAudioContext || (window as any).webkitOfflineAudioContext;
+        const offlineCtx = new OfflineCtx(buf.numberOfChannels, buf.length, buf.sampleRate);
+        const source = offlineCtx.createBufferSource();
+        source.buffer = buf;
+        const filter = offlineCtx.createBiquadFilter();
+        filter.type = spec.type;
+        filter.frequency.value = spec.freq;
+        filter.Q.value = spec.q;
+        source.connect(filter);
+        filter.connect(offlineCtx.destination);
+        source.start(0);
+
+        const rendered = await offlineCtx.startRendering();
+        const blob = audioBufferToWavBlob(rendered);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const base = selectedSongTitle.replace(/[^a-zA-Z0-9_-]/g, '_');
+        a.download = `${base}_${spec.name}.wav`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+      setStatusNotice('✨ All 4 stems rendered and downloaded successfully!');
+      setTimeout(() => setStatusNotice(null), 4000);
+    } catch (err) {
+      console.error(err);
+      setStatusNotice(`Stem export failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -170,23 +385,35 @@ export const WaveSplitter: React.FC<WaveSplitterProps> = ({
           </button>
 
           <button
-            onClick={() => setIsPlaying(!isPlaying)}
-            className={`px-4 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-md ${
+            onClick={togglePlayState}
+            className={`px-4 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-md cursor-pointer ${
               isPlaying
                 ? 'bg-[#FF2E63] text-white shadow-[0_0_15px_#FF2E63]'
                 : 'bg-[#00F0FF] text-black hover:brightness-110'
             }`}
           >
             {isPlaying ? <Pause size={14} /> : <Play size={14} />}
-            <span>{isPlaying ? 'STOP PLAYBACK' : 'PREVIEW SEPARATION'}</span>
+            <span>{isPlaying ? 'PAUSE PREVIEW' : 'PREVIEW STEMS'}</span>
           </button>
+
+          {isPlaying && (
+            <button
+              onClick={stopPlayback}
+              className="px-3 py-1.5 rounded-xl bg-[#151D33] border border-[#2A3758] text-[#94A3B8] hover:text-white font-bold text-xs flex items-center gap-1 cursor-pointer"
+              title="Stop & Reset"
+            >
+              <Square size={12} />
+              <span>STOP</span>
+            </button>
+          )}
 
           <button
             onClick={handleExportStems}
-            className="px-3.5 py-1.5 rounded-xl bg-[#101726] border border-[#FFD700]/40 text-[#FFD700] hover:bg-[#FFD700] hover:text-black font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm"
+            disabled={isExporting}
+            className="px-3.5 py-1.5 rounded-xl bg-[#101726] border border-[#FFD700]/40 text-[#FFD700] hover:bg-[#FFD700] hover:text-black font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
           >
             <Download size={13} />
-            <span>EXPORT ALL STEMS</span>
+            <span>{isExporting ? 'EXPORTING STEMS...' : 'EXPORT ALL STEMS (WAV)'}</span>
           </button>
         </div>
       </div>
@@ -200,10 +427,12 @@ export const WaveSplitter: React.FC<WaveSplitterProps> = ({
             value={selectedSongTitle} 
             onChange={(e) => {
               setSelectedSongTitle(e.target.value);
-              setStatusNotice(`✨ Loaded song into Demucs: ${e.target.value}`);
+              stopPlayback();
+              audioBufferRef.current = null;
+              setStatusNotice(`✨ Loaded preset into Stem Splitter: ${e.target.value}`);
               setTimeout(() => setStatusNotice(null), 3000);
             }}
-            className="px-2.5 py-1 rounded-lg bg-[#11172A] border border-[#202C48] text-white font-bold"
+            className="px-2.5 py-1 rounded-lg bg-[#11172A] border border-[#202C48] text-white font-bold cursor-pointer"
           >
             {PRESET_SONGS.map(s => (
               <option key={s.id} value={`${s.title} (${s.sourceType.toUpperCase()})`}>
@@ -214,12 +443,20 @@ export const WaveSplitter: React.FC<WaveSplitterProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {songDuration > 0 && (
+            <div className="flex items-center gap-1.5 text-[11px] text-[#8892B0] font-mono mr-2">
+              <span>{Math.floor(playbackTime / 60)}:{(Math.floor(playbackTime % 60)).toString().padStart(2, '0')}</span>
+              <span>/</span>
+              <span>{Math.floor(songDuration / 60)}:{(Math.floor(songDuration % 60)).toString().padStart(2, '0')}</span>
+            </div>
+          )}
+
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="px-2.5 py-1 rounded-lg bg-[#151D33] hover:bg-[#1E2948] border border-[#2A3758] text-cyan-300 flex items-center gap-1.5 transition-colors font-bold"
+            className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyan-900/60 to-blue-900/60 hover:from-cyan-800 hover:to-blue-800 border border-cyan-500/50 text-cyan-200 flex items-center gap-1.5 transition-colors font-bold cursor-pointer shadow-[0_0_10px_rgba(0,240,255,0.2)]"
           >
-            <Upload size={12} />
-            <span>Upload Song File (MP3/WAV)</span>
+            <Upload size={13} className="text-cyan-400" />
+            <span>🎵 IMPORT AUDIO FILE (WAV / MP3)</span>
           </button>
           <input 
             ref={fileInputRef} 
@@ -229,9 +466,7 @@ export const WaveSplitter: React.FC<WaveSplitterProps> = ({
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) {
-                setSelectedSongTitle(`File: ${file.name}`);
-                setStatusNotice(`✨ Decomposing imported song: ${file.name} into 4 discrete stems...`);
-                setTimeout(() => setStatusNotice(null), 3500);
+                handleFileUpload(file);
               }
             }}
           />

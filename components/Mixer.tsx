@@ -1200,57 +1200,11 @@ const Mixer: React.FC<MixerProps> = ({
   const isArmedAny = tracks.some(t => t.isArmedForRecord);
 
   const initAudio = () => {
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') return;
-
-    const context = new (window.AudioContext || (window as any).webkitAudioContext)();
-    audioContextRef.current = context;
-
-    const masterGainNode = context.createGain();
-    masterGainNode.gain.value = masterGain; 
-    masterGainNode.connect(context.destination);
-    masterGainRef.current = masterGainNode;
-
-    // Connect to shared master audio bus for real-time spectral analysis
-    masterAudioBus.connectToMaster(masterGainNode);
-
-    tracks.forEach((track, idx) => {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      const panner = context.createStereoPanner();
-      
-      let freq = 440;
-      let type: OscillatorType = 'sine';
-      
-      const trackName = track.name.toLowerCase();
-      if (trackName.includes('vocal')) {
-        freq = 329.63; // E4
-        type = 'triangle';
-      } else if (trackName.includes('drum')) {
-        freq = 82.41; // E2 kick/sub
-        type = 'sawtooth';
-      } else if (trackName.includes('bass')) {
-        freq = 110.0; // A2
-        type = 'sawtooth';
-      } else if (trackName.includes('synth')) {
-        freq = 220.0; // A3
-        type = 'sine';
-      } else {
-        const chord = [220, 261.63, 329.63, 392, 440, 523.25];
-        freq = chord[idx % chord.length];
-      }
-
-      oscillator.frequency.value = freq;
-      oscillator.type = type;
-      
-      gain.gain.value = 0; // Start silent
-      panner.pan.value = track.pan;
-
-      oscillator.connect(gain).connect(panner);
-      panner.connect(masterGainNode);
-      oscillator.start();
-      
-      trackNodesRef.current[track.id] = { oscillator, gain, panner };
-    });
+    const ctx = audioService.ensureContext() || masterAudioBus.getAudioContext();
+    if (ctx && ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+    audioContextRef.current = ctx;
   };
 
   // Timeline animation
@@ -1285,7 +1239,7 @@ const Mixer: React.FC<MixerProps> = ({
     };
   }, [isPlaying, loopEnabled, loopRange]);
 
-  // Unmount cleanup: stop all oscillators, disconnect DSP graph, cancel animation frames, and close AudioContext
+  // Unmount cleanup: stop all tracks, disconnect DSP graph, cancel animation frames
   useEffect(() => {
     return () => {
       if (animationFrameRef.current) {
@@ -1296,69 +1250,44 @@ const Mixer: React.FC<MixerProps> = ({
         cancelAnimationFrame(macroRafRef.current);
         macroRafRef.current = null;
       }
-      Object.values(trackNodesRef.current).forEach((nodes) => {
-        try { nodes.oscillator.stop(); } catch (_) {}
-        try { nodes.oscillator.disconnect(); } catch (_) {}
-        try { nodes.gain.disconnect(); } catch (_) {}
-        try { nodes.panner.disconnect(); } catch (_) {}
-      });
-      trackNodesRef.current = {};
-      if (masterGainRef.current) {
-        try { masterGainRef.current.disconnect(); } catch (_) {}
-        masterGainRef.current = null;
-      }
-      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close().catch(() => {});
-      }
-      audioContextRef.current = null;
+      try {
+        audioService.stopAllTracks();
+      } catch (_) {}
     };
   }, []);
 
   // Audio state controller: dynamically evaluates volume & pan automation curves in real-time
   useEffect(() => {
-    if (!audioContextRef.current || audioContextRef.current.state === 'closed') return;
-
-    const context = audioContextRef.current;
     const anySoloed = tracks.some(t => t.soloed);
 
-    tracks.forEach((track, idx) => {
-      let nodes = trackNodesRef.current[track.id];
-      
-      // Lazily setup node if missing for new track
-      if (!nodes && masterGainRef.current) {
-        const oscillator = context.createOscillator();
-        const gain = context.createGain();
-        const panner = context.createStereoPanner();
-        oscillator.frequency.value = 220 + idx * 40;
-        oscillator.type = 'triangle';
-        gain.gain.value = 0;
-        panner.pan.value = track.pan;
-        oscillator.connect(gain).connect(panner);
-        panner.connect(masterGainRef.current);
-        oscillator.start();
-        nodes = { oscillator, gain, panner };
-        trackNodesRef.current[track.id] = nodes;
+    tracks.forEach((track) => {
+      const isMuted = track.muted || (anySoloed && !track.soloed);
+
+      // Evaluate volume from automation curve if enabled, otherwise use track slider
+      let activeVolume = track.volume;
+      if (track.automation?.volume?.enabled && track.automation.volume.points.length > 0) {
+        activeVolume = evaluateAutomationAt(track.automation.volume.points, playheadPosition, track.volume);
       }
 
-      if (nodes) {
-        const isMuted = track.muted || (anySoloed && !track.soloed);
+      // Evaluate pan from automation curve if enabled, otherwise use track knob
+      let activePan = track.pan;
+      if (track.automation?.pan?.enabled && track.automation.pan.points.length > 0) {
+        activePan = evaluateAutomationAt(track.automation.pan.points, playheadPosition, track.pan);
+      }
 
-        // Evaluate volume from automation curve if enabled, otherwise use track slider
-        let activeVolume = track.volume;
-        if (track.automation?.volume?.enabled && track.automation.volume.points.length > 0) {
-          activeVolume = evaluateAutomationAt(track.automation.volume.points, playheadPosition, track.volume);
+      const targetVolume = isPlaying && !isMuted ? activeVolume : 0;
+      
+      // Update real Web Audio DSP chain
+      audioService.setTrackVolume(track.id, targetVolume);
+      audioService.setTrackPan(track.id, activePan);
+
+      // Dynamically start / stop tracks in response to Solo and Mute during active playback
+      if (isPlaying) {
+        if (targetVolume > 0 && !audioService.isPlayingTrack(track.id)) {
+          audioService.playTrack(track.id, playheadPosition * 10, track.name);
+        } else if (targetVolume === 0 && audioService.isPlayingTrack(track.id)) {
+          audioService.stopTrack(track.id);
         }
-
-        // Evaluate pan from automation curve if enabled, otherwise use track knob
-        let activePan = track.pan;
-        if (track.automation?.pan?.enabled && track.automation.pan.points.length > 0) {
-          activePan = evaluateAutomationAt(track.automation.pan.points, playheadPosition, track.pan);
-        }
-
-        const targetVolume = isPlaying && !isMuted ? activeVolume : 0;
-        
-        nodes.gain.gain.setTargetAtTime(targetVolume, context.currentTime, 0.015);
-        nodes.panner.pan.setTargetAtTime(activePan, context.currentTime, 0.015);
       }
 
       // Evaluate Faust / VST parameter automation lanes & push live updates to wrapper instances
@@ -1449,18 +1378,24 @@ const Mixer: React.FC<MixerProps> = ({
           audioContextRef.current.resume();
         }
         setIsPlaying(true);
-        tracks.forEach(track => {
-            if (!track.muted && !track.soloed) {
-                audioService.playTrack(track.id, playheadPosition * 10, track.name);
+        {
+          const anySoloed = tracks.some(t => t.soloed);
+          tracks.forEach(track => {
+            const isMuted = track.muted || (anySoloed && !track.soloed);
+            if (!isMuted) {
+              audioService.playTrack(track.id, playheadPosition * 10, track.name);
+            } else {
+              audioService.stopTrack(track.id);
             }
-        });
+          });
+        }
         break;
       case 'pause':
         if (isRecording) {
           handleToggleRecord();
         } else {
           setIsPlaying(false);
-          tracks.forEach(track => audioService.stopTrack(track.id));
+          audioService.stopAllTracks();
         }
         break;
       case 'stop':
@@ -1469,7 +1404,7 @@ const Mixer: React.FC<MixerProps> = ({
         }
         setIsPlaying(false);
         setPlayheadPosition(0);
-        tracks.forEach(track => audioService.stopTrack(track.id));
+        audioService.stopAllTracks();
         break;
       case 'rewind':
         setPlayheadPosition(0);
@@ -2027,12 +1962,33 @@ const Mixer: React.FC<MixerProps> = ({
                     const id = Math.random().toString(36).substr(2, 9);
                     
                     await audioService.loadAudio(id, file);
+                    const buf = audioService.getTrackAudioBuffer(id);
+                    let durationBars = 4;
+                    let waveformSnippet: number[] | undefined;
+                    if (buf && buf.duration > 0) {
+                      const secondsPerBar = (60 / Math.max(40, tempo)) * 4;
+                      durationBars = Math.max(1, Math.min(32, Math.round((buf.duration / secondsPerBar) * 4) / 4));
+                      const ch = buf.getChannelData(0);
+                      const barCount = 80;
+                      const step = Math.max(1, Math.floor(ch.length / barCount));
+                      const peaks: number[] = [];
+                      for (let i = 0; i < barCount; i++) {
+                        let peak = 0;
+                        const start = i * step;
+                        for (let j = 0; j < step && start + j < ch.length; j += 4) {
+                          const v = Math.abs(ch[start + j]);
+                          if (v > peak) peak = v;
+                        }
+                        peaks.push(Number(Math.min(1, peak).toFixed(3)));
+                      }
+                      waveformSnippet = peaks;
+                    }
 
                     const newTrack: Track = {
                       id,
-                      name: file.name,
+                      name: file.name.replace(/\.[^/.]+$/, '') || file.name,
                       type: 'audio',
-                      volume: 0.8,
+                      volume: 0.85,
                       pan: 0,
                       muted: false,
                       soloed: false,
@@ -2040,11 +1996,13 @@ const Mixer: React.FC<MixerProps> = ({
                       phaseInverted: false,
                       isMono: false,
                       vstBypassed: true,
+                      waveform: waveformSnippet,
                       clips: [{
                         id: Math.random().toString(36).substr(2, 9),
                         name: file.name,
                         startBar: 0,
-                        durationBars: 4
+                        durationBars,
+                        waveformSnippet
                       }]
                     };
                     projectHistory.pushSnapshot(`Import Audio Track [${file.name}]`, tracks, tempo);

@@ -3,6 +3,7 @@
 // with a real-time 6-band Parametric EQ, FFT Reference Matchering engine, and level-matched reference auditioning.
 
 import { audioService } from '../services/audioService';
+import { audioBufferToWavBlob } from './audioDspEditor';
 
 export interface ParametricEqBand {
   id: string;
@@ -154,6 +155,21 @@ class MasterAudioBus {
     isAnalyzing: boolean;
   }) => void> = new Set();
 
+  // Dedicated Standalone Mastering Input Audio Track
+  private masteringInputBuffer: AudioBuffer | null = null;
+  private masteringInputFileName: string = '';
+  private masteringInputSource: AudioBufferSourceNode | null = null;
+  private isMasteringInputPlaying: boolean = false;
+  private masteringPlayOffsetSec: number = 0;
+  private masteringPlayStartedAt: number = 0;
+  private masteringStateListeners: Set<(state: {
+    buffer: AudioBuffer | null;
+    fileName: string;
+    isPlaying: boolean;
+    duration: number;
+    currentTime: number;
+  }) => void> = new Set();
+
   public getAudioContext(): AudioContext {
     if (!this.audioContext && typeof window !== 'undefined') {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -186,6 +202,9 @@ class MasterAudioBus {
     // Connect Inputs -> EQ Input
     this.masterGainNode.connect(this.eqInputNode);
     this.testGainNode.connect(this.eqInputNode);
+    try {
+      audioService.setAudioContext(ctx, this.masterGainNode);
+    } catch (_) {}
 
     // Build Parametric EQ BiquadFilter chain:
     // eqInputNode -> Filter 0 -> Filter 1 -> ... -> Filter N -> analyserNode -> destination
@@ -1100,6 +1119,194 @@ class MasterAudioBus {
         console.error('Error in reference match listener', e);
       }
     });
+  }
+
+  // =========================================================================
+  // STANDALONE DIRECT MASTERING TRACK ENGINE
+  // Allows loading any audio file directly into the Mastering deck to process,
+  // A/B audition, and export without requiring project setup or Mixer tracks.
+  // =========================================================================
+
+  public async loadMasteringTrack(file: File): Promise<AudioBuffer> {
+    const ctx = this.getAudioContext();
+    if (ctx.state === 'suspended') {
+      try { await ctx.resume(); } catch (_) {}
+    }
+    const arrayBuffer = await file.arrayBuffer();
+    const decoded = await ctx.decodeAudioData(arrayBuffer);
+    this.masteringInputBuffer = decoded;
+    this.masteringInputFileName = file.name;
+    this.masteringPlayOffsetSec = 0;
+    this.stopMasteringTrack();
+    this.notifyMasteringListeners();
+    return decoded;
+  }
+
+  public setMasteringBuffer(buffer: AudioBuffer, fileName: string = 'Imported Track') {
+    this.masteringInputBuffer = buffer;
+    this.masteringInputFileName = fileName;
+    this.masteringPlayOffsetSec = 0;
+    this.stopMasteringTrack();
+    this.notifyMasteringListeners();
+  }
+
+  public getMasteringTrackBuffer(): AudioBuffer | null {
+    return this.masteringInputBuffer;
+  }
+
+  public getMasteringFileName(): string {
+    return this.masteringInputFileName;
+  }
+
+  public isMasteringPlaying(): boolean {
+    return this.isMasteringInputPlaying;
+  }
+
+  public getMasteringState() {
+    const dur = this.masteringInputBuffer ? this.masteringInputBuffer.duration : 0;
+    let cur = this.masteringPlayOffsetSec;
+    if (this.isMasteringInputPlaying && this.audioContext) {
+      cur = (this.audioContext.currentTime - this.masteringPlayStartedAt) % Math.max(0.1, dur);
+    }
+    return {
+      buffer: this.masteringInputBuffer,
+      fileName: this.masteringInputFileName,
+      isPlaying: this.isMasteringInputPlaying,
+      duration: dur,
+      currentTime: cur
+    };
+  }
+
+  public subscribeMasteringState(cb: (state: ReturnType<typeof this.getMasteringState>) => void): () => void {
+    this.masteringStateListeners.add(cb);
+    try { cb(this.getMasteringState()); } catch (_) {}
+    return () => { this.masteringStateListeners.delete(cb); };
+  }
+
+  private notifyMasteringListeners() {
+    const state = this.getMasteringState();
+    this.masteringStateListeners.forEach(cb => {
+      try { cb(state); } catch (_) {}
+    });
+  }
+
+  public playMasteringTrack(startTime?: number): void {
+    if (!this.masteringInputBuffer) return;
+    const ctx = this.getAudioContext();
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+
+    this.stopMasteringSourceOnly();
+
+    const source = ctx.createBufferSource();
+    source.buffer = this.masteringInputBuffer;
+    source.loop = true;
+
+    // Route through the Master Gain Node (into EQ -> Compressor -> Saturation -> Limiter -> Analyser)
+    if (this.masterGainNode) {
+      source.connect(this.masterGainNode);
+    } else {
+      source.connect(ctx.destination);
+    }
+
+    const dur = this.masteringInputBuffer.duration;
+    const offset = startTime !== undefined ? (startTime % dur) : (this.masteringPlayOffsetSec % dur);
+    this.masteringPlayOffsetSec = offset;
+    this.masteringPlayStartedAt = ctx.currentTime - offset;
+
+    try {
+      source.start(0, offset);
+    } catch {
+      source.start(0, 0);
+    }
+
+    this.masteringInputSource = source;
+    this.isMasteringInputPlaying = true;
+    this.notifyMasteringListeners();
+  }
+
+  private stopMasteringSourceOnly(): void {
+    if (this.masteringInputSource) {
+      if (this.audioContext && this.masteringInputBuffer && this.masteringInputBuffer.duration > 0) {
+        const elapsed = this.audioContext.currentTime - this.masteringPlayStartedAt;
+        this.masteringPlayOffsetSec = Math.max(0, elapsed % this.masteringInputBuffer.duration);
+      }
+      try {
+        this.masteringInputSource.stop();
+        this.masteringInputSource.disconnect();
+      } catch (_) {}
+      this.masteringInputSource = null;
+    }
+  }
+
+  public pauseMasteringTrack(): void {
+    this.stopMasteringSourceOnly();
+    this.isMasteringInputPlaying = false;
+    this.notifyMasteringListeners();
+  }
+
+  public stopMasteringTrack(): void {
+    this.stopMasteringSourceOnly();
+    this.masteringPlayOffsetSec = 0;
+    this.isMasteringInputPlaying = false;
+    this.notifyMasteringListeners();
+  }
+
+  public seekMasteringTrack(offsetSec: number): void {
+    if (!this.masteringInputBuffer) return;
+    const clamped = Math.max(0, Math.min(this.masteringInputBuffer.duration, offsetSec));
+    this.masteringPlayOffsetSec = clamped;
+    if (this.isMasteringInputPlaying) {
+      this.playMasteringTrack(clamped);
+    } else {
+      this.notifyMasteringListeners();
+    }
+  }
+
+  public async exportMasteredWavBlob(): Promise<Blob> {
+    if (!this.masteringInputBuffer) {
+      throw new Error('No audio loaded in mastering deck to export');
+    }
+    const buf = this.masteringInputBuffer;
+    const sampleRate = buf.sampleRate;
+    const length = buf.length;
+    const channels = buf.numberOfChannels;
+
+    const OfflineCtx = window.OfflineAudioContext || (window as any).webkitOfflineAudioContext;
+    const offlineCtx = new OfflineCtx(channels, length, sampleRate);
+
+    const source = offlineCtx.createBufferSource();
+    source.buffer = buf;
+
+    // Chain 6-band EQ filters
+    let prevNode: AudioNode = source;
+    this.bands.forEach(band => {
+      if (band.enabled) {
+        const f = offlineCtx.createBiquadFilter();
+        f.type = band.type;
+        f.frequency.value = band.frequency;
+        f.gain.value = band.gain;
+        f.Q.value = band.q;
+        prevNode.connect(f);
+        prevNode = f;
+      }
+    });
+
+    // Dynamics Compressor
+    const comp = offlineCtx.createDynamicsCompressor();
+    comp.threshold.value = -14;
+    comp.knee.value = 4;
+    comp.ratio.value = 2.5;
+    comp.attack.value = 0.02;
+    comp.release.value = 0.25;
+    prevNode.connect(comp);
+
+    comp.connect(offlineCtx.destination);
+    source.start(0);
+
+    const renderedBuffer = await offlineCtx.startRendering();
+    return audioBufferToWavBlob(renderedBuffer);
   }
 }
 

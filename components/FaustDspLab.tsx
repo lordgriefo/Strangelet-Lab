@@ -102,7 +102,11 @@ export const FaustDspLab: React.FC<FaustDspLabProps> = ({
   const [params, setParams] = useState<FaustDspParam[]>(selectedToy.params);
   const [targetTrackId, setTargetTrackId] = useState<string>(tracks[0]?.id || '');
   const [isPlayingTest, setIsPlayingTest] = useState<boolean>(false);
-  const [testSource, setTestSource] = useState<'guitar' | 'drums' | 'synth' | 'trigger'>('guitar');
+  const [testSource, setTestSource] = useState<'guitar' | 'drums' | 'synth' | 'trigger' | 'custom'>('guitar');
+  const [customAudioName, setCustomAudioName] = useState<string>('');
+  const customAudioBufferRef = useRef<AudioBuffer | null>(null);
+  const customSourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+  const customFileInputRef = useRef<HTMLInputElement>(null);
   const [isCompiling, setIsCompiling] = useState<boolean>(false);
   const [isAiGenerating, setIsAiGenerating] = useState<boolean>(false);
   const [aiPrompt, setAiPrompt] = useState<string>('');
@@ -196,12 +200,59 @@ export const FaustDspLab: React.FC<FaustDspLabProps> = ({
     }
   };
 
-  const startTestSignal = (type: 'guitar' | 'drums' | 'synth' | 'trigger') => {
+  const handleCustomAudioUpload = async (file: File) => {
+    try {
+      const ctx = getAudioContext();
+      if (ctx.state === 'suspended') {
+        try { await ctx.resume(); } catch (_) {}
+      }
+      showToast(`Loading "${file.name}" for DSP Audition...`);
+      const arrayBuf = await file.arrayBuffer();
+      const decoded = await ctx.decodeAudioData(arrayBuf);
+      customAudioBufferRef.current = decoded;
+      setCustomAudioName(file.name);
+      setTestSource('custom');
+      showToast(`✨ "${file.name}" ready! Auditioning through Faust DSP.`);
+      if (isPlayingTest) {
+        startTestSignal('custom');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast(`Failed to load audio: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const startTestSignal = (type: 'guitar' | 'drums' | 'synth' | 'trigger' | 'custom') => {
     const ctx = getAudioContext();
     stopTestSignal();
 
-    const osc = ctx.createOscillator();
     const gain = ctx.createGain();
+
+    if (type === 'custom') {
+      if (!customAudioBufferRef.current) {
+        customFileInputRef.current?.click();
+        return;
+      }
+      const source = ctx.createBufferSource();
+      source.buffer = customAudioBufferRef.current;
+      source.loop = true;
+      gain.gain.setValueAtTime(0.85, ctx.currentTime);
+
+      if (liveNodeRef.current) {
+        source.connect(gain);
+        gain.connect(liveNodeRef.current.input);
+        liveNodeRef.current.output.connect(ctx.destination);
+      } else {
+        source.connect(gain);
+        gain.connect(ctx.destination);
+      }
+      source.start();
+      customSourceNodeRef.current = source;
+      testOscRef.current = null;
+      return;
+    }
+
+    const osc = ctx.createOscillator();
 
     if (type === 'guitar') {
       osc.type = 'sawtooth';
@@ -246,6 +297,13 @@ export const FaustDspLab: React.FC<FaustDspLabProps> = ({
     if (testIntervalRef.current) {
       clearInterval(testIntervalRef.current);
       testIntervalRef.current = null;
+    }
+    if (customSourceNodeRef.current) {
+      try {
+        customSourceNodeRef.current.stop();
+        customSourceNodeRef.current.disconnect();
+      } catch (_) {}
+      customSourceNodeRef.current = null;
     }
     if (testOscRef.current) {
       try {
@@ -716,30 +774,55 @@ Requirements:
 
             {/* Live Audio Audition Deck */}
             <div className="pt-3 border-t border-[#1C233B] space-y-2">
-              <span className="text-[10px] font-bold text-[#8B94B8] uppercase tracking-wider block">
-                Audition Test Signal
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-[#8B94B8] uppercase tracking-wider block">
+                  Audition Test Signal
+                </span>
+                <input
+                  ref={customFileInputRef}
+                  type="file"
+                  accept="audio/*"
+                  className="hidden"
+                  onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (f) handleCustomAudioUpload(f);
+                  }}
+                />
+                <button
+                  onClick={() => customFileInputRef.current?.click()}
+                  className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-500/30"
+                >
+                  <Upload className="w-3 h-3" />
+                  <span>{customAudioName ? 'Change Audio File' : 'Import User Audio'}</span>
+                </button>
+              </div>
 
               <div className="flex items-center gap-2">
-                <div className="grid grid-cols-3 gap-1 flex-1">
+                <div className="grid grid-cols-4 gap-1 flex-1">
                   {[
-                    { id: 'guitar', label: '🎸 Guitar Riff' },
-                    { id: 'drums', label: '🥁 Drum Break' },
-                    { id: 'synth', label: '🎹 Synth Arp' }
+                    { id: 'guitar', label: '🎸 Guitar' },
+                    { id: 'drums', label: '🥁 Drums' },
+                    { id: 'synth', label: '🎹 Synth' },
+                    { id: 'custom', label: customAudioName ? `🎵 ${customAudioName.slice(0, 8)}..` : '🎵 Custom' }
                   ].map(s => (
                     <button
                       key={s.id}
                       onClick={() => {
                         setTestSource(s.id as any);
+                        if (s.id === 'custom' && !customAudioBufferRef.current) {
+                          customFileInputRef.current?.click();
+                          return;
+                        }
                         if (isPlayingTest) {
                           startTestSignal(s.id as any);
                         }
                       }}
-                      className={`py-1 rounded-lg text-[10px] font-bold border transition-colors ${
+                      className={`py-1 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer truncate ${
                         testSource === s.id
-                          ? 'bg-cyan-950/80 border-cyan-400 text-cyan-300'
+                          ? 'bg-cyan-950/80 border-cyan-400 text-cyan-300 shadow-[0_0_8px_rgba(6,182,212,0.3)]'
                           : 'bg-[#12182B] border-[#222B49] text-[#7A83A8] hover:text-white'
                       }`}
+                      title={s.id === 'custom' && customAudioName ? customAudioName : s.label}
                     >
                       {s.label}
                     </button>
@@ -748,7 +831,7 @@ Requirements:
 
                 <button
                   onClick={toggleTestSignal}
-                  className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors ${
+                  className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
                     isPlayingTest
                       ? 'bg-red-950/80 border border-red-500 text-red-300 shadow-[0_0_12px_rgba(239,68,68,0.3)]'
                       : 'bg-emerald-950/80 border border-emerald-500 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.3)]'

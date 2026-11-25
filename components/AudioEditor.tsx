@@ -9,7 +9,7 @@ import {
   Repeat, Sparkles, CheckCircle2, ChevronLeft, Undo2, Redo2, Save,
   Sliders, Activity, Info, Layers, Copy, ClipboardPaste, Trash2,
   Crop, ZoomIn, ZoomOut, Download, Magnet, RefreshCw, Waves, Gauge,
-  Maximize2, Minimize2, Pin, Lock, Unlock, Clock, Plus
+  Maximize2, Minimize2, Pin, Lock, Unlock, Clock, Plus, Upload
 } from 'lucide-react';
 import { Clip, Track, ChronoPin } from '../types';
 import { snapToGrid } from '../lib/audioUtils';
@@ -1201,6 +1201,43 @@ export const AudioEditor: React.FC<AudioEditorProps> = ({
     showNotice(`💾 Exported "${baseName}_edited.wav"`);
   }, [getWorkingBuffer, selectedClip?.name, showNotice]);
 
+  const audioImportInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImportAudioFileDirectly = useCallback(async (file: File) => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = audioCtxRef.current || new AudioCtx();
+      audioCtxRef.current = ctx;
+      if (ctx.state === 'suspended') {
+        try { await ctx.resume(); } catch (_) {}
+      }
+      const arrayBuf = await file.arrayBuffer();
+      const decoded = await ctx.decodeAudioData(arrayBuf);
+      
+      const secondsPerBar = (60 / Math.max(40, tempo)) * 4;
+      const durBars = Math.max(1, Math.min(64, Math.round((decoded.duration / secondsPerBar) * 4) / 4));
+      
+      const newClip: Clip = {
+        id: `imported-clip-${Date.now()}`,
+        name: file.name,
+        startBar: 0,
+        durationBars: durBars,
+        audioUrl: URL.createObjectURL(file)
+      };
+      
+      audioService.setTrackAudioBuffer(newClip.id, decoded);
+      setSelectedClip(newClip);
+      setBufferHistory([decoded]);
+      setHistoryIndex(0);
+      setHasUncommittedEdits(false);
+      onSelectClip?.(newClip);
+      showNotice(`✨ Loaded "${file.name}" into Audio Editor!`);
+    } catch (err) {
+      console.error(err);
+      showNotice(`Failed to load audio: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [tempo, onSelectClip, showNotice]);
+
   // Convert sensitivity in dB to linear amplitude threshold (0.0 to 1.0)
   const thresholdLinear = useMemo(() => {
     return Math.pow(10, sensitivityDb / 20);
@@ -2186,6 +2223,27 @@ export const AudioEditor: React.FC<AudioEditorProps> = ({
           >
             {isPlaying && !isPreviewingSeam ? <Pause size={14} /> : <Play size={14} />}
             <span>{isPlaying && !isPreviewingSeam ? 'PAUSE' : 'AUDITION'}</span>
+          </button>
+
+          <input
+            ref={audioImportInputRef}
+            type="file"
+            accept="audio/*"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                await handleImportAudioFileDirectly(file);
+              }
+            }}
+          />
+          <button
+            onClick={() => audioImportInputRef.current?.click()}
+            className="px-3 py-1.5 rounded-xl bg-[#0E1626] border border-cyan-500/40 text-cyan-300 hover:border-cyan-400 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-[0_0_8px_rgba(6,182,212,0.2)]"
+            title="Import an audio file directly into the Audio Editor"
+          >
+            <Upload size={13} />
+            <span>IMPORT AUDIO</span>
           </button>
 
           <button
